@@ -1,0 +1,16 @@
+build/
+*.air
+*.metallib
+*.dSYM/
+
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+.pytest_cache/
+
+.DS_Store
+xcuserdata/
+*.xcworkspace/xcuserdata/
+*.xcodeproj/xcuserdata/
+*.xcodeproj/project.xcworkspace/xcuserdata/
