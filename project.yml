@@ -23,6 +23,7 @@ fileGroups:
   - src/mlx_scripts
   - python
   - results
+  - assets
   - mlx
   - harness
   - Makefile
