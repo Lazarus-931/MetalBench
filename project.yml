@@ -1,0 +1,58 @@
+name: MetalBench
+
+options:
+  bundleIdPrefix: com.metalbench
+  createIntermediateGroups: true
+  deploymentTarget:
+    macOS: "13.0"
+  generateEmptyDirectories: true
+
+settings:
+  base:
+    CLANG_CXX_LANGUAGE_STANDARD: "c++17"
+    CLANG_CXX_LIBRARY: "libc++"
+    CLANG_ENABLE_OBJC_ARC: YES
+    GCC_OPTIMIZATION_LEVEL: "2"
+    MACOSX_DEPLOYMENT_TARGET: "13.0"
+
+# Files surfaced in the Project Navigator but not built by Xcode.
+# `make` remains the canonical build for kernels and produces
+# build/<name>.metallib that the host loads at runtime.
+fileGroups:
+  - src/kernels
+  - src/mlx_scripts
+  - python
+  - results
+  - mlx
+  - harness
+  - Makefile
+  - bench
+  - README.md
+  - KERNELS.md
+  - requirements.txt
+  - .gitignore
+
+targets:
+  metalbench_host:
+    type: tool
+    platform: macOS
+    sources:
+      - path: src/metal_scripts
+        type: group
+    settings:
+      base:
+        PRODUCT_NAME: metalbench_host
+        EXECUTABLE_NAME: metalbench_host
+    dependencies:
+      - sdk: Metal.framework
+      - sdk: Foundation.framework
+
+schemes:
+  metalbench_host:
+    build:
+      targets:
+        metalbench_host: all
+    run:
+      config: Debug
+      commandLineArguments:
+        "--manifest /tmp/manifest.json": false

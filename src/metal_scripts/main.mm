@@ -2,9 +2,10 @@
 //
 // Generic dispatcher: takes a JSON manifest describing one kernel launch,
 // loads the metallib, binds buffers/scalars, runs warmup + timed iterations,
-// writes outputs back to disk, and prints timing JSON to stdout.
+// writes outputs back to disk, and prints timing JSON to stdout. The actual
+// dispatch loop and Metal cache helpers live in timing.{h,mm}.
 //
-// Manifest schema (see python/metalbench/host.py for the writer):
+// Manifest schema:
 //   {
 //     "function":    "kernel_name",
 //     "metallib":    "/abs/path/to/x.metallib",
@@ -20,15 +21,23 @@
 //   }
 //
 // Stdout (last line):
-//   {"min_ms":..,"median_ms":..,"mean_ms":..,"iters":..}
+//   {"device":"...","min_ms":..,"median_ms":..,"mean_ms":..,"iters":..}
 
 #import  <Metal/Metal.h>
 #import  <Foundation/Foundation.h>
-#include <algorithm>
 #include <cstdio>
 #include <cstdint>
 #include <cstring>
 #include <vector>
+
+#import "timing.h"
+#include "setup.h"
+
+using metalbench::Binding;
+using metalbench::TimingResult;
+using metalbench::runTimedDispatches;
+using metalbench::MChip;
+using metalbench::detect_chip;
 
 static NSString* argValue(int argc, const char** argv, const char* key) {
     for (int i = 1; i + 1 < argc; i++) {
@@ -67,7 +76,6 @@ int main(int argc, const char** argv) { @autoreleasepool {
     NSArray*  tgA      = manifest[@"threadgroup"];
     int warmup = [manifest[@"warmup"] intValue];
     int iters  = [manifest[@"iters"]  intValue];
-    if (iters <= 0) iters = 1;
 
     id<MTLDevice> device = MTLCreateSystemDefaultDevice();
     if (!device) return die("no Metal device");
@@ -83,11 +91,8 @@ int main(int argc, const char** argv) { @autoreleasepool {
 
     id<MTLCommandQueue> queue = [device newCommandQueue];
 
-    // Bindings.
-    struct Binding { id<MTLBuffer> buf; NSUInteger index; };
     std::vector<Binding> bindings;
 
-    // Outputs to read back after the timed run.
     struct Output { id<MTLBuffer> buf; NSString* path; NSUInteger size; };
     std::vector<Output> outputs;
 
@@ -127,40 +132,24 @@ int main(int argc, const char** argv) { @autoreleasepool {
     MTLSize grid = sizeFromArray(gridA);
     MTLSize tg   = sizeFromArray(tgA);
 
-    auto dispatchOnce = ^id<MTLCommandBuffer>() {
-        id<MTLCommandBuffer> cb = [queue commandBuffer];
-        id<MTLComputeCommandEncoder> enc = [cb computeCommandEncoder];
-        [enc setComputePipelineState:pso];
-        for (auto& bnd : bindings) [enc setBuffer:bnd.buf offset:0 atIndex:bnd.index];
-        [enc dispatchThreads:grid threadsPerThreadgroup:tg];
-        [enc endEncoding];
-        [cb commit];
-        [cb waitUntilCompleted];
-        return cb;
-    };
+    TimingResult t = runTimedDispatches(queue, pso, bindings, grid, tg, warmup, iters);
 
-    for (int i = 0; i < warmup; i++) (void)dispatchOnce();
-
-    std::vector<double> times_ms; times_ms.reserve(iters);
-    for (int i = 0; i < iters; i++) {
-        id<MTLCommandBuffer> cb = dispatchOnce();
-        times_ms.push_back((cb.GPUEndTime - cb.GPUStartTime) * 1000.0);
-    }
-
-    // Read outputs back.
     for (auto& o : outputs) {
         NSData* d = [NSData dataWithBytesNoCopy:o.buf.contents length:o.size freeWhenDone:NO];
         if (![d writeToFile:o.path atomically:YES])
             return die([NSString stringWithFormat:@"cannot write output %@", o.path].UTF8String);
     }
 
-    std::sort(times_ms.begin(), times_ms.end());
-    double minv = times_ms.front();
-    double medv = times_ms[times_ms.size() / 2];
-    double sum  = 0; for (double t : times_ms) sum += t;
-    double mean = sum / times_ms.size();
-
-    printf("{\"min_ms\":%.6f,\"median_ms\":%.6f,\"mean_ms\":%.6f,\"iters\":%d}\n",
-           minv, medv, mean, iters);
+    MChip chip = detect_chip();
+    if (chip.gpu_cores == 0 && device) {
+        // MTLDevice can't directly report core count, but its name is the
+        // same string sysctl returned — keep them aligned.
+        chip.name = std::string(device.name.UTF8String);
+    }
+    printf("{\"chip\":%s,\"metal_device\":\"%s\","
+           "\"min_ms\":%.6f,\"median_ms\":%.6f,\"mean_ms\":%.6f,\"iters\":%d}\n",
+           metalbench::to_json(chip).c_str(),
+           device.name.UTF8String ?: "unknown",
+           t.min_ms, t.median_ms, t.mean_ms, t.iters);
     return 0;
 }}

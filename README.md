@@ -2,20 +2,21 @@
 
 Agentic harness for authoring + benchmarking Apple Metal GPU kernels against [MLX](https://github.com/ml-explore/mlx) reference implementations. Modeled on [KernelBench](https://github.com/ScalingIntelligence/KernelBench), swapping CUDA → Metal and PyTorch → MLX.
 
-## Layout
 
-```
-src/
-  kernels/        # .metal sources — one kernel (or fused kernel) per file
-  host/main.mm    # generic Objective-C++ runner: loads metallib, dispatches, times
-build/            # compiled .air, .metallib, host binary (gitignored)
-python/metalbench/
-  task.py         # Task dataclass — defines a single benchmark problem
-  host.py         # writes manifest, invokes host binary, reads outputs back
-  eval.py         # runs kernel + MLX reference, compares + computes speedup
-  cli.py          # `python -m metalbench.cli <task.py>`
-tasks/            # task definitions, organized by level
-```
+
+Hello, so working with SuperKittens, llm authored kernels + testing has been soomething i've itilized, and found to be something that inspired this offical repo. This contains harneseses and code used to benchmark against baseline mlx versions. Kernels don't differ much, just how threadgroups are utilized. One of the main differences was performance across a array of newer m chips. I soon realized this was a we-have-kernel-bench-at-home version I made, so I polished some stuff and releasing this as a benchmark + as a repo to continue your own metal kernel testing using any model. Much of this repo is orgaized/inspired by KernelBench, so props for them!
+
+
+## Kernels
+I've decided to split it into 4 types:
+
+* Common Set - 100 of the most used operations & bits of a normal kernel, stuff such as matrix multipication in it's most basic shape, convolutions & layernorm to name a few
+* Standard Set - 50 of most semi-difficult, common fused kernels, which brings more variations & use of memory and compute into play
+* Full Set - 25 of most large scale, multiple operation kernels, similar to full steps, and can span entire model architectures
+
+## Evaluation
+
+So the actual benchmark measures 2 things, accuracy + performance. Accuracy is the error difference from mlx implementation to 
 
 ## Setup
 

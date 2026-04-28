@@ -1,12 +1,17 @@
 KERNEL_DIR := src/kernels
-HOST_DIR   := src/host
+METAL_DIR  := src/metal_scripts
 BUILD_DIR  := build
 
-KERNELS    := $(wildcard $(KERNEL_DIR)/*.metal)
-AIRS       := $(patsubst $(KERNEL_DIR)/%.metal,$(BUILD_DIR)/%.air,$(KERNELS))
-METALLIBS  := $(patsubst $(KERNEL_DIR)/%.metal,$(BUILD_DIR)/%.metallib,$(KERNELS))
+# Kernels live flat at src/kernels/<set>/<name>.metal where <set> is one of
+# common / standard / full. Each compiles to build/<name>.metallib — names
+# are globally unique across sets (c1, c2, ..., s1, s2, ..., f1, f2, ...).
+# src/kernels/utils/ holds shared headers (utils.metal) — never built directly.
+SET_DIRS    := common standard full
+KERNEL_SRCS := $(foreach d,$(SET_DIRS),$(wildcard $(KERNEL_DIR)/$(d)/*.metal))
+UTILS_DIR   := $(KERNEL_DIR)/utils
 
-HOST_SRC   := $(HOST_DIR)/main.mm
+HOST_SRCS  := $(METAL_DIR)/main.mm $(METAL_DIR)/timing.mm $(METAL_DIR)/setup.cpp
+HOST_HDRS  := $(METAL_DIR)/timing.h $(METAL_DIR)/setup.h
 HOST_BIN   := $(BUILD_DIR)/metalbench_host
 
 METAL      := xcrun -sdk macosx metal
@@ -14,24 +19,29 @@ METALLIB   := xcrun -sdk macosx metallib
 CXX        := clang++
 CXXFLAGS   := -std=c++17 -fobjc-arc -O2 -Wall
 FRAMEWORKS := -framework Metal -framework Foundation
+METAL_INCS := -I$(UTILS_DIR)
 
 .PHONY: all kernels host clean
 all: kernels host
-
-kernels: $(METALLIBS)
-host:    $(HOST_BIN)
+host: $(HOST_BIN)
 
 $(BUILD_DIR):
 	@mkdir -p $@
 
-$(BUILD_DIR)/%.air: $(KERNEL_DIR)/%.metal | $(BUILD_DIR)
-	$(METAL) -gline-tables-only -frecord-sources -c $< -o $@
+# One generated rule per kernel source so make tracks per-file dependencies
+# even though sources live under different <set> subdirectories.
+define KERNEL_RULE
+$(BUILD_DIR)/$(notdir $(basename $(1))).metallib: $(1) $(wildcard $(UTILS_DIR)/*.metal) | $(BUILD_DIR)
+	$(METAL) $(METAL_INCS) -gline-tables-only -frecord-sources -c $$< -o $$(@:.metallib=.air)
+	$(METALLIB) $$(@:.metallib=.air) -o $$@
+KERNEL_TARGETS += $(BUILD_DIR)/$(notdir $(basename $(1))).metallib
+endef
+$(foreach src,$(KERNEL_SRCS),$(eval $(call KERNEL_RULE,$(src))))
 
-$(BUILD_DIR)/%.metallib: $(BUILD_DIR)/%.air
-	$(METALLIB) $< -o $@
+kernels: $(KERNEL_TARGETS)
 
-$(HOST_BIN): $(HOST_SRC) | $(BUILD_DIR)
-	$(CXX) $(CXXFLAGS) $(FRAMEWORKS) $< -o $@
+$(HOST_BIN): $(HOST_SRCS) $(HOST_HDRS) | $(BUILD_DIR)
+	$(CXX) $(CXXFLAGS) $(FRAMEWORKS) -I$(METAL_DIR) $(HOST_SRCS) -o $@
 
 clean:
 	rm -rf $(BUILD_DIR)
