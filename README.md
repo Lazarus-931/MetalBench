@@ -24,33 +24,76 @@ So the actual benchmark measures 2 things, accuracy + performance. Accuracy is t
 
 ## Setup
 
-```bash
-python3 -m venv .venv && source .venv/bin/activate
-pip install -e .
-make            # builds host binary + every src/kernels/*.metal
-```
-
-Requires Xcode command line tools (`xcrun -sdk macosx metal`) and an Apple Silicon (or Metal-capable) Mac.
-
-## Authoring a task
-
-A task is a Python file that exports `task: Task`. The author provides:
-
-- a `.metal` kernel (compiled to `build/<name>.metallib` by `make`)
-- `make_inputs(seed)` — returns input `mx.array`s in binding order
-- `outputs` — what the host should allocate and read back
-- `scalars_fn(inputs)` — scalar bindings (sizes, alphas, etc.)
-- `grid_fn(inputs)` + `threadgroup` — launch config for `dispatchThreads:`
-- `reference(*inputs)` — MLX reference implementation
-
-## Running
+Two commands from a fresh clone to your first benchmark:
 
 ```bash
-metalbench tasks/level1/<task>.py --iters 100
+python3 setup.py           # checks toolchains, installs Metal toolchain + Python deps, builds host
+./bench sqr_mm             # build kernel, run, save, print report
 ```
 
-Output is a JSON dict with `correct`, `speedup` (MLX median / kernel median), and per-output max error.
+`setup.py` checks (and tries to fix) all of:
 
-## Manifest contract (host ↔ Python)
+1. macOS + Apple Silicon
+2. Xcode developer tools (`xcode-select -p`)
+3. **Metal toolchain** — runs `xcodebuild -downloadComponent MetalToolchain` if missing (a few hundred MB; the usual blocker on a fresh Mac)
+4. Python dependencies (`mlx`, `numpy`, `pydantic`)
+5. Host binary builds (`make host`)
+6. Chip detection works
 
-The Python harness writes a JSON manifest describing one launch; the C++ host consumes it. See the docstring at the top of `src/host/main.mm` for the schema.
+If any step fails it tells you exactly what to run.
+
+## Running a benchmark
+
+```bash
+./bench <name>                              # default: warmup=10, iters=300, target=speed
+./bench <name> --no-save                    # don't write results/<chip>/<name>.json
+./bench <name> -- --target compute --iters 500
+./bench <name> -- --cold-start              # measure first-launch latency
+```
+
+Defaults are set so a single command gives a stable, publishable number. Bump `--iters` for tighter measurement.
+
+## What you get back
+
+A human-readable report on the terminal:
+
+```
+  sqr_mm    target=speed   score=1.428
+  device      : Apple M2 (m2)  8 CPU / 8 GPU / 9 GB
+  occupancy   : tg_mem=16KB  max_thr/tg=896
+  correctness : ✓ correct     max_err=0.000e+00
+  speedup     : 1.43× vs MLX
+  kernel      : 1.266 ms  (min 1.194, mean 1.289, n=300)
+  mlx ref     : 1.808 ms
+  compute     : 1695.8 GFLOPS
+  bandwidth   :    9.9 GB/s
+  arith int.  :  170.7 FLOPs/byte
+  stability   : 0.98
+```
+
+Plus three artifacts:
+
+- **`results/<chip-bucket>/<name>.json`** — full result, every run (with `--save`, default on)
+- **`session.json`** — per-chip leaderboard. Auto-updated when a run beats the recorded best for that kernel; stores the entire `.metal` source of the winning version so the result is reproducible from the file alone
+- **stderr** — `updated session.json [apple-m2/sqr_mm]: new best 1.266 ms (was 1.808 ms, Δ +0.542)` when a run wins
+
+## Grading targets
+
+`--target` picks the primary axis to grade against. All metrics are computed regardless; the target only changes which one becomes the headline `score`:
+
+| target | optimizes for |
+|---|---|
+| `speed` (default) | `speedup` vs the MLX reference |
+| `compute` | achieved GFLOPS |
+| `memory` | achieved GB/s (bandwidth-bound kernels) |
+| `stable` | run-to-run consistency |
+| `balanced` | `0.5·speedup + 0.3·gflops/1000 + 0.2·stability` |
+
+## Authoring a kernel
+
+See [AGENTS.md](AGENTS.md) for the full contract. Short version:
+
+- `mlx/kernels/<set>/<name>.py` — the MLX baseline (don't edit; it defines the problem).
+- `src/kernels/<set>/<name>.metal` — your kernel.
+- Function signature must match the baseline's `metal_function`, binding indices, and tile geometry.
+- Run `./bench <name>` until `correct=true` and `speedup>1`.

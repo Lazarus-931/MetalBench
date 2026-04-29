@@ -8,6 +8,7 @@
 """
 from __future__ import annotations
 import argparse
+import datetime as _dt
 import json
 import subprocess
 import sys
@@ -154,6 +155,60 @@ def grade(metrics, target):
     return float(fn(metrics))
 
 
+def update_session(name, result, target, iters):
+    """Maintain session.json — best run per (chip, kernel).
+
+    Best = lowest kernel median_ms (chip-side time, independent of MLX
+    warmup variance). Stores the entire .metal source so the recorded
+    best run is reproducible from the file alone.
+
+    Skips the update if the run was incorrect.
+    """
+    if not result.get("correct"):
+        return False, "skipped (incorrect)"
+
+    bucket   = result["chip"]["bucket"]
+    new_ms   = result["kernel_timing"]["median_ms"]
+
+    src_path = H.find_kernel_source(name)
+    src_text = src_path.read_text() if src_path else None
+
+    session = {}
+    if H.SESSION_PATH.exists():
+        try:
+            session = json.loads(H.SESSION_PATH.read_text())
+        except Exception:
+            session = {}
+
+    chip_section = session.setdefault(bucket, {})
+    prev = chip_section.get(name)
+    prev_ms = prev["best_time_ms"] if prev else None
+
+    if prev_ms is not None and new_ms >= prev_ms:
+        return False, f"current best {prev_ms:.3f} ms holds (this run {new_ms:.3f} ms)"
+
+    chip_section[name] = {
+        "best_time_ms":      new_ms,
+        "speedup_vs_mlx":    result["metrics"]["speedup"],
+        "gflops":            result["metrics"].get("gflops"),
+        "gbps":              result["metrics"].get("gbps"),
+        "arith_intensity":   result["metrics"].get("arith_intensity"),
+        "stability":         result["metrics"]["stability"],
+        "tg_static_mem_bytes":    result.get("tg_static_mem_bytes"),
+        "pso_max_threads_per_tg": result.get("pso_max_threads_per_tg"),
+        "iters":             iters,
+        "target":            target,
+        "max_err":           max((o["max_err"] for o in result["outputs"]), default=0.0),
+        "metal_source_path": str(src_path.relative_to(H.REPO_ROOT)) if src_path else None,
+        "metal_source":      src_text,
+        "updated_at":        _dt.datetime.now(_dt.timezone.utc).isoformat(timespec="seconds"),
+    }
+
+    H.SESSION_PATH.write_text(json.dumps(session, indent=2) + "\n")
+    delta = "" if prev_ms is None else f" (was {prev_ms:.3f} ms, Δ {prev_ms - new_ms:+.3f})"
+    return True, f"new best {new_ms:.3f} ms{delta}"
+
+
 def _bytes_human(n):
     for u in ("B", "KB", "MB", "GB"):
         if n < 1024: return f"{n:.0f}{u}"
@@ -203,14 +258,16 @@ def main(argv=None):
     ap.add_argument("name")
     ap.add_argument("--seed",       type=int, default=0)
     ap.add_argument("--warmup",     type=int, default=10)
-    ap.add_argument("--iters",      type=int, default=100)
+    ap.add_argument("--iters",      type=int, default=300)
     ap.add_argument("--dry-run",    action="store_true")
     ap.add_argument("--capture",    default=None,
                     help="record an MLX .gputrace at this path")
     ap.add_argument("--cold-start", action="store_true",
                     help="clear MLX kernel cache before timing")
     ap.add_argument("--save",       action="store_true",
-                    help="save full JSON to results/<chip>/<name>.json")
+                    help="save full result JSON to results/<chip>/<name>.json")
+    ap.add_argument("--no-session", action="store_true",
+                    help="don't update session.json")
     ap.add_argument("--target",     default="speed", choices=list(TARGETS.keys()))
     args = ap.parse_args(argv)
 
@@ -256,6 +313,13 @@ def main(argv=None):
         out_path = out_dir / f"{args.name}.json"
         out_path.write_text(json.dumps(result, indent=2))
         print(f"saved → {out_path.relative_to(H.REPO_ROOT)}", file=sys.stderr)
+
+    if not args.no_session:
+        updated, why = update_session(args.name, result, args.target, args.iters)
+        rel = H.SESSION_PATH.relative_to(H.REPO_ROOT)
+        prefix = f"updated {rel}" if updated else f"{rel} unchanged"
+        print(f"{prefix} [{result['chip']['bucket']}/{args.name}]: {why}",
+              file=sys.stderr)
 
     return 0 if result["correct"] else 1
 

@@ -36,7 +36,17 @@ HOST_BIN      = BUILD_DIR / "metalbench_host"
 BASELINE_ROOT = REPO_ROOT / "mlx" / "kernels"
 KERNEL_ROOT   = REPO_ROOT / "src" / "kernels"
 RESULTS_ROOT  = REPO_ROOT / "results"
+SESSION_PATH  = REPO_ROOT / "session.json"
 SETS = ("common", "standard", "full")
+
+
+def find_kernel_source(name: str) -> Path | None:
+    """Locate src/kernels/<set>/<name>.metal."""
+    for s in SETS:
+        p = KERNEL_ROOT / s / f"{name}.metal"
+        if p.exists():
+            return p
+    return None
 
 DType = str
 DTYPE_NP    = {"f32": np.float32, "f16": np.float16, "i32": np.int32, "u32": np.uint32}
