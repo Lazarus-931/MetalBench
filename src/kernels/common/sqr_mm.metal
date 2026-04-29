@@ -1,5 +1,5 @@
-// sqr_matmul: C = A @ B  (N×N f32). simdgroup_matrix MMA, 64×64 tile,
-// 8 simdgroups (4×2), double-buffered, float4 loads, BK=16.
+// sqr_matmul: C = A @ B  (N×N f32). 64×64 tile, 256 thr, BK=16.
+// Padded threadgroup memory (LDA=20, LDB=68) to avoid bank conflicts.
 #include <metal_stdlib>
 #include <metal_simdgroup>
 #include <metal_simdgroup_matrix>
@@ -10,10 +10,12 @@ constant constexpr uint BN           = 64;
 constant constexpr uint BK           = 16;
 constant constexpr uint SM           = 16;
 constant constexpr uint SN           = 32;
-constant constexpr uint SIMDS_M      = BM / SM;             // 4
-constant constexpr uint SIMDS_N      = BN / SN;             // 2
-constant constexpr uint MMA_M        = SM / 8;              // 2
-constant constexpr uint MMA_N        = SN / 8;              // 4
+constant constexpr uint SIMDS_N      = BN / SN;
+constant constexpr uint MMA_M        = SM / 8;
+constant constexpr uint MMA_N        = SN / 8;
+constant constexpr uint PAD          = 4;
+constant constexpr uint LDA          = BK + PAD;             // 20
+constant constexpr uint LDB          = BN + PAD;             // 68
 
 kernel void sqr_matmul_f32(
     device const float* A   [[buffer(0)]],
@@ -24,8 +26,8 @@ kernel void sqr_matmul_f32(
     uint  sgid              [[simdgroup_index_in_threadgroup]],
     uint  lid               [[thread_index_in_threadgroup]])
 {
-    threadgroup float As[2][BM * BK];
-    threadgroup float Bs[2][BK * BN];
+    threadgroup float As[2][BM * LDA];
+    threadgroup float Bs[2][BK * LDB];
 
     const uint sm = sgid / SIMDS_N;
     const uint sn = sgid % SIMDS_N;
@@ -44,11 +46,10 @@ kernel void sqr_matmul_f32(
         for (uint j = 0; j < MMA_N; ++j)
             C_acc[i][j] = simdgroup_matrix<float, 8, 8>(0.0f);
 
-    // Prologue: prime buf 0.
     {
-        *reinterpret_cast<threadgroup float4*>(&As[0][a_row * BK + a_c4 * 4]) =
+        *reinterpret_cast<threadgroup float4*>(&As[0][a_row * LDA + a_c4 * 4]) =
             *reinterpret_cast<const device float4*>(&A[(c_row0 + a_row) * N + a_c4 * 4]);
-        *reinterpret_cast<threadgroup float4*>(&Bs[0][b_row * BN + b_c4 * 4]) =
+        *reinterpret_cast<threadgroup float4*>(&Bs[0][b_row * LDB + b_c4 * 4]) =
             *reinterpret_cast<const device float4*>(&B[b_row * N + (c_col0 + b_c4 * 4)]);
     }
     threadgroup_barrier(mem_flags::mem_threadgroup);
@@ -60,9 +61,9 @@ kernel void sqr_matmul_f32(
         const uint next   = 1 - buf;
         const uint k0_nxt = (kt + 1) * BK;
 
-        *reinterpret_cast<threadgroup float4*>(&As[next][a_row * BK + a_c4 * 4]) =
+        *reinterpret_cast<threadgroup float4*>(&As[next][a_row * LDA + a_c4 * 4]) =
             *reinterpret_cast<const device float4*>(&A[(c_row0 + a_row) * N + k0_nxt + a_c4 * 4]);
-        *reinterpret_cast<threadgroup float4*>(&Bs[next][b_row * BN + b_c4 * 4]) =
+        *reinterpret_cast<threadgroup float4*>(&Bs[next][b_row * LDB + b_c4 * 4]) =
             *reinterpret_cast<const device float4*>(&B[(k0_nxt + b_row) * N + (c_col0 + b_c4 * 4)]);
 
         #pragma unroll
@@ -70,10 +71,10 @@ kernel void sqr_matmul_f32(
             simdgroup_matrix<float, 8, 8> A_blk[MMA_M], B_blk[MMA_N];
             #pragma unroll
             for (uint i = 0; i < MMA_M; ++i)
-                simdgroup_load(A_blk[i], &As[buf][(sm * SM + i * 8) * BK + kc], BK);
+                simdgroup_load(A_blk[i], &As[buf][(sm * SM + i * 8) * LDA + kc], LDA);
             #pragma unroll
             for (uint j = 0; j < MMA_N; ++j)
-                simdgroup_load(B_blk[j], &Bs[buf][kc * BN + sn * SN + j * 8], BN);
+                simdgroup_load(B_blk[j], &Bs[buf][kc * LDB + sn * SN + j * 8], LDB);
             #pragma unroll
             for (uint i = 0; i < MMA_M; ++i)
                 #pragma unroll
@@ -85,16 +86,15 @@ kernel void sqr_matmul_f32(
         buf = next;
     }
 
-    // Epilogue: compute the final tile.
     #pragma unroll
     for (uint kc = 0; kc < BK; kc += 8) {
         simdgroup_matrix<float, 8, 8> A_blk[MMA_M], B_blk[MMA_N];
         #pragma unroll
         for (uint i = 0; i < MMA_M; ++i)
-            simdgroup_load(A_blk[i], &As[buf][(sm * SM + i * 8) * BK + kc], BK);
+            simdgroup_load(A_blk[i], &As[buf][(sm * SM + i * 8) * LDA + kc], LDA);
         #pragma unroll
         for (uint j = 0; j < MMA_N; ++j)
-            simdgroup_load(B_blk[j], &Bs[buf][kc * BN + sn * SN + j * 8], BN);
+            simdgroup_load(B_blk[j], &Bs[buf][kc * LDB + sn * SN + j * 8], LDB);
         #pragma unroll
         for (uint i = 0; i < MMA_M; ++i)
             #pragma unroll
