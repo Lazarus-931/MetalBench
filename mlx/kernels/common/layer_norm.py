@@ -1,33 +1,25 @@
-# Layer Norm
-import mlx
 import mlx.core as mx
+from mlx import nn
 
 
 class Model(nn.Module):
-    """
-    Layer normalization:
+    """Layer normalization: y = (x - mean) / sqrt(var + eps) * gamma + beta.
 
-        y = ((x - E[x]) / sqrt(Var[x] + eps)) * gamma + beta
-
-    where gamma and beta are learned per-feature parameters.
+    Normalizes over the last dimension.
     """
-    def __init__(
-        self, dims: int, eps: float = 1e-5, affine: bool = True, bias: bool = True
-    ):
+    def __init__(self, dims: int = 1024, eps: float = 1e-5):
         super(Model, self).__init__()
-        self.l_n = mx.nn.layernorm(dims)
-        
-        
-    def forward(x: mx.array):
-        """
-        Args:
-            x: Input array of shape (..., dims)
+        self.ln = nn.LayerNorm(dims, eps=eps)
 
-        Returns:
-            Layer-normalized output
-        """
-        return self.l_n(x)
-    
+    def forward(self, x: mx.array) -> mx.array:
+        """Returns layer-normalized output of same shape as input."""
+        return self.ln(x)
 
-N = 1024
 
+def get_inputs():
+    x = mx.random.normal((1024, 1024), dtype=mx.float32)
+    return [x]
+
+
+def get_init_inputs():
+    return []
