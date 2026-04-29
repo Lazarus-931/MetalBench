@@ -1,6 +1,6 @@
 // rect_matmul: C = A @ B  (M×K @ K×N → M×N f32).
 // 64×64 tile, 256 thr (8 simdgroups 4×2), BK=16, double-buffered.
-// PADDED threadgroup memory (LDA=20, LDB=68) to avoid bank conflicts.
+// Padded threadgroup memory (LDA=20, LDB=68) to avoid bank conflicts.
 #include <metal_stdlib>
 #include <metal_simdgroup>
 #include <metal_simdgroup_matrix>
@@ -15,8 +15,8 @@ constant constexpr uint SIMDS_N      = BN / SN;
 constant constexpr uint MMA_M        = SM / 8;
 constant constexpr uint MMA_N        = SN / 8;
 constant constexpr uint PAD          = 4;
-constant constexpr uint LDA          = BK + PAD;             // 20
-constant constexpr uint LDB          = BN + PAD;             // 68
+constant constexpr uint LDA          = BK + PAD;
+constant constexpr uint LDB          = BN + PAD;
 
 kernel void rect_matmul_f32(
     device const float* A   [[buffer(0)]],
