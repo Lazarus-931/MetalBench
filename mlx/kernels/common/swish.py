@@ -7,4 +7,17 @@ from mlx_helpers import Output, Scalar
 
 
 class Model(nn.Module):
+    """
+    
+    """
+    
+    def forward():
+        """
+        
+        """
+        
+        pass
+        
+        
+
     

@@ -10,3 +10,12 @@ class Model(nn.Module):
     def forward(self, x: mx.array) -> mx.array:
         """Applies ReLU activation element-wise to input array of any shape."""
         return mx.maximum(x, 0.0)
+
+
+def get_inputs():
+    x = mx.random.normal((16, 16384), dtype=mx.float32)
+    return [x]
+
+
+def get_init_inputs():
+    return []

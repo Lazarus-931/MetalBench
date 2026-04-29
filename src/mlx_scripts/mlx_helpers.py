@@ -192,23 +192,23 @@ def load_baseline(name):
     if raw_spec is None:
         raise KeyError(f"no spec found for '{name}' in mlx/kernels/common/specs.py")
 
-    # Inject shapes from spec into module
-    for k, v in raw_spec.get("shapes", {}).items():
-        setattr(mod, k, v)
+    # Validate required module-level functions (KernelBench style)
+    for attr in ("get_inputs", "get_init_inputs"):
+        if not callable(getattr(mod, attr, None)):
+            raise AttributeError(f"{name}.py: required callable `{attr}` missing")
 
-    # Auto-generate boilerplate from spec
     _model_cls = getattr(mod, "Model", None)
     if _model_cls is None:
         raise AttributeError(f"{name}.py: missing Model class")
     _model_inst = _model_cls()
 
-    get_inputs_fn = raw_spec.get("get_inputs_fn")
-    if get_inputs_fn is None:
-        raise KeyError(f"spec for '{name}' missing get_inputs_fn")
+    # Inject shapes from spec into module
+    for k, v in raw_spec.get("shapes", {}).items():
+        setattr(mod, k, v)
 
     def _make_inputs(seed):
         mx.random.seed(seed)
-        return list(get_inputs_fn(mod))
+        return list(mod.get_inputs())
 
     def _reference(*inputs):
         return _model_inst.forward(*inputs)
