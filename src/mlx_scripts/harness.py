@@ -258,7 +258,7 @@ def main(argv=None):
     ap.add_argument("name")
     ap.add_argument("--seed",       type=int, default=0)
     ap.add_argument("--warmup",     type=int, default=10)
-    ap.add_argument("--iters",      type=int, default=300)
+    ap.add_argument("--iters",      type=int, default=200)
     ap.add_argument("--dry-run",    action="store_true")
     ap.add_argument("--capture",    default=None,
                     help="record an MLX .gputrace at this path")

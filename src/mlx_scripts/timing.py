@@ -21,7 +21,7 @@ def _clear_cache():
     if fn: fn()
 
 
-def warm_jit(fn: Callable[..., Any], *args, n: int = 1) -> None:
+def warm_jit(fn: Callable[..., Any], *args, n: int = 5) -> None:
     for _ in range(n):
         out = fn(*args)
         mx.eval(out)
@@ -31,13 +31,16 @@ def warm_jit(fn: Callable[..., Any], *args, n: int = 1) -> None:
 def time_mlx(
     fn: Callable[..., Any],
     *args,
-    warmup: int = 5,
-    iters: int = 50,
+    warmup: int = 50,
+    iters: int = 200,
     track_memory: bool = True,
     cold_start: bool = False,
 ) -> dict:
-    """Time `fn(*args)`. mx.synchronize() after each call ensures the GPU
-    queue has drained before stopping the clock."""
+    """Time `fn(*args)` using mx.eval() only (matches MLX docs).
+
+    Uses sustained warmup to stabilize GPU clock before timed iterations.
+    mx.eval() blocks until GPU work completes — no extra mx.synchronize()
+    needed per iteration."""
     if cold_start:
         _clear_cache()
         warmup = 0
@@ -51,7 +54,7 @@ def time_mlx(
     times: list[float] = []
     for _ in range(iters):
         t0 = time.perf_counter()
-        out = fn(*args); mx.eval(out); mx.synchronize()
+        out = fn(*args); mx.eval(out)
         times.append((time.perf_counter() - t0) * 1000.0)
 
     times.sort()
