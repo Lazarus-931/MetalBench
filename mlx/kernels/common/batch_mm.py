@@ -1,35 +1,43 @@
-import mlx
 import mlx.core as mx
+from mlx import nn
 
 
 class Model(nn.Module):
-    """
-    Performs batched matrix multiplication (C = A * B) where A, B, and C have the same batch dimension.
+    """Batched matrix multiplication: C[b] = A[b] @ B[b].
+
+    A: (batch_size, M, K)  B: (batch_size, K, N)  ->  C: (batch_size, M, N)
     """
     def __init__(self):
         super(Model, self).__init__()
-    
+
     def forward(self, A: mx.array, B: mx.array) -> mx.array:
-        """
-        Performs batched matrix multiplication.
+        """Performs batched matrix multiplication."""
+        return mx.matmul(A, B)
 
-        Args:
-            A: Input array of shape (batch_size, m, k).
-            B: Input array of shape (batch_size, k, n).
-
-        Returns:
-            C: Output array of shape (batch_size, m, n).
-        """
-        return mx.bmm(A, B)
 
 batch_size = 128
-m = 128
-k = 256
-n = 512
+M = 128
+K = 256
+N = 512
+
 
 def get_inputs():
-    A = mx.randn(batch_size, m, k)
-    B = mx.randn(batch_size, k, n)
+    A = mx.random.normal((batch_size, M, K), dtype=mx.float32)
+    B = mx.random.normal((batch_size, K, N), dtype=mx.float32)
     return [A, B]
 
+
 def get_init_inputs():
+    return []
+
+
+def make_inputs(seed: int):
+    mx.random.seed(seed)
+    return get_inputs()
+
+
+_model = Model()
+
+
+def reference(a, b):
+    return _model.forward(a, b)

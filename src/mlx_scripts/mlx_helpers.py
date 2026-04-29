@@ -23,6 +23,7 @@ import contextlib
 import importlib.util
 import platform
 import subprocess
+import sys
 from pathlib import Path
 from typing import Any, Iterator, Sequence, Tuple
 
@@ -110,8 +111,9 @@ class BaselineSpec(BaseModel):
 
 
 class Baseline:
-    def __init__(self, name, module, metallib, spec):
+    def __init__(self, name, module, metallib, spec, raw_spec):
         self.name, self.module, self.metallib, self._spec = name, module, metallib, spec
+        self._raw = raw_spec  # dict from specs.py
 
     @property
     def metal_function(self): return self._spec.metal_function
@@ -131,22 +133,22 @@ class Baseline:
     def make_inputs(self, seed): return list(self.module.make_inputs(seed))
     def reference(self, *inputs): return self.module.reference(*inputs)
 
-    def flops(self, inputs):
-        fn = getattr(self.module, "flops", None)
-        return int(fn(inputs)) if fn else None
+    def _call_spec(self, key, inputs):
+        fn = self._raw.get(key)
+        return fn(self.module, inputs) if fn else None
 
-    def bytes(self, inputs):
-        fn = getattr(self.module, "bytes", None)
-        return int(fn(inputs)) if fn else None
-
+    def flops(self, inputs): return self._call_spec("flops_fn", inputs)
+    def bytes(self, inputs): return self._call_spec("bytes_fn", inputs)
     def scalars(self, inputs):
-        fn = getattr(self.module, "scalars", None)
-        return list(fn(inputs)) if fn else []
-
+        fn = self._raw.get("scalars_fn")
+        if not fn:
+            return []
+        raw = fn(self.module, inputs)
+        return [Scalar(**s) if isinstance(s, dict) else s for s in raw]
     def grid(self, inputs):
-        fn = getattr(self.module, "grid", None)
+        fn = self._raw.get("grid_fn")
         if fn:
-            return tuple(fn(inputs))
+            return tuple(fn(self.module, inputs))
         shp = list(self.outputs[0].shape) + [1, 1, 1]
         return (int(shp[0]), int(shp[1]), int(shp[2]))
 
@@ -181,23 +183,38 @@ def load_baseline(name):
         if not callable(getattr(mod, attr, None)):
             raise AttributeError(f"{name}.py: required callable `{attr}` missing")
 
+    # Load kernel spec from shared specs.py
+    specs_path = BASELINE_ROOT / _set / "specs.py"
+    if str(Path(__file__).resolve().parent) not in sys.path:
+        sys.path.insert(0, str(Path(__file__).resolve().parent))
+    specs_mod_spec = importlib.util.spec_from_file_location("_mb_specs", specs_path)
+    if specs_mod_spec is None or specs_mod_spec.loader is None:
+        raise ImportError(f"cannot load {specs_path}")
+    specs_mod = importlib.util.module_from_spec(specs_mod_spec)
+    specs_mod_spec.loader.exec_module(specs_mod)
+    raw_spec = specs_mod.SPECS.get(name)
+    if raw_spec is None:
+        raise KeyError(f"no spec found for '{name}' in mlx/kernels/common/specs.py")
+
     try:
+        raw_outputs = raw_spec["outputs_fn"](mod)
+        outputs = [Output(**o) if isinstance(o, dict) else o for o in raw_outputs]
         spec = BaselineSpec(
             name=name,
-            metal_function=getattr(mod, "metal_function"),
-            threadgroup=tuple(getattr(mod, "threadgroup")),
-            input_bindings=tuple(getattr(mod, "input_bindings")),
-            outputs=list(getattr(mod, "outputs")),
-            rtol=getattr(mod, "rtol", 1e-4),
-            atol=getattr(mod, "atol", 1e-5),
-            best_for=tuple(getattr(mod, "BEST_FOR", ())),
+            metal_function=raw_spec["metal_function"],
+            threadgroup=tuple(raw_spec["threadgroup"]),
+            input_bindings=tuple(raw_spec["input_bindings"]),
+            outputs=outputs,
+            rtol=raw_spec.get("rtol", 1e-4),
+            atol=raw_spec.get("atol", 1e-5),
+            best_for=tuple(raw_spec.get("BEST_FOR", ())),
         )
-    except AttributeError as e:
-        raise AttributeError(f"{name}.py is missing a BaselineSpec field: {e}") from e
+    except KeyError as e:
+        raise KeyError(f"spec for '{name}' missing field: {e}") from e
     except ValidationError as e:
-        raise ValueError(f"{name}.py BaselineSpec invalid:\n{e}") from e
+        raise ValueError(f"spec for '{name}' invalid:\n{e}") from e
 
-    return Baseline(name=name, module=mod, metallib=metallib, spec=spec)
+    return Baseline(name=name, module=mod, metallib=metallib, spec=spec, raw_spec=raw_spec)
 
 
 def build_manifest(b, inputs, *, input_paths, output_paths, warmup, iters):
