@@ -179,10 +179,6 @@ def load_baseline(name):
     mod = importlib.util.module_from_spec(mod_spec)
     mod_spec.loader.exec_module(mod)
 
-    for attr in ("make_inputs", "reference"):
-        if not callable(getattr(mod, attr, None)):
-            raise AttributeError(f"{name}.py: required callable `{attr}` missing")
-
     # Load kernel spec from shared specs.py
     specs_path = BASELINE_ROOT / _set / "specs.py"
     if str(Path(__file__).resolve().parent) not in sys.path:
@@ -195,6 +191,30 @@ def load_baseline(name):
     raw_spec = specs_mod.SPECS.get(name)
     if raw_spec is None:
         raise KeyError(f"no spec found for '{name}' in mlx/kernels/common/specs.py")
+
+    # Inject shapes from spec into module
+    for k, v in raw_spec.get("shapes", {}).items():
+        setattr(mod, k, v)
+
+    # Auto-generate boilerplate from spec
+    _model_cls = getattr(mod, "Model", None)
+    if _model_cls is None:
+        raise AttributeError(f"{name}.py: missing Model class")
+    _model_inst = _model_cls()
+
+    get_inputs_fn = raw_spec.get("get_inputs_fn")
+    if get_inputs_fn is None:
+        raise KeyError(f"spec for '{name}' missing get_inputs_fn")
+
+    def _make_inputs(seed):
+        mx.random.seed(seed)
+        return list(get_inputs_fn(mod))
+
+    def _reference(*inputs):
+        return _model_inst.forward(*inputs)
+
+    mod.make_inputs = _make_inputs
+    mod.reference = _reference
 
     try:
         raw_outputs = raw_spec["outputs_fn"](mod)

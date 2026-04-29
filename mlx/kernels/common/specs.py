@@ -1,16 +1,8 @@
-"""Kernel specifications.
+"""Kernel specifications consumed by mlx_helpers.load_baseline()."""
 
-Each entry is a plain dict consumed by mlx_helpers.load_baseline().
-Keys:
-    metal_function, threadgroup, input_bindings, outputs_fn,
-    rtol, atol, grid_fn, scalars_fn, flops_fn, bytes_fn, BEST_FOR
-Functions receive (module, inputs) and return the appropriate value.
-"""
+import mlx.core as mx
 
 SPECS = {}
-
-
-# --- Matrix ops ---
 
 SPECS["sqr_mm"] = dict(
     metal_function="sqr_matmul_f32",
@@ -22,6 +14,11 @@ SPECS["sqr_mm"] = dict(
     scalars_fn=lambda mod, inputs: [dict(binding=3, dtype="u32", value=mod.N)],
     flops_fn=lambda mod, inputs: 2 * mod.N * mod.N * mod.N,
     bytes_fn=lambda mod, inputs: 3 * mod.N * mod.N * 4,
+    shapes=dict(N=1024),
+    get_inputs_fn=lambda mod: [
+        mx.random.normal((mod.N, mod.N), dtype=mx.float32),
+        mx.random.normal((mod.N, mod.N), dtype=mx.float32),
+    ],
 )
 
 SPECS["rect_mm"] = dict(
@@ -38,6 +35,11 @@ SPECS["rect_mm"] = dict(
     ],
     flops_fn=lambda mod, inputs: 2 * mod.M * mod.N * mod.K,
     bytes_fn=lambda mod, inputs: 4 * (mod.M * mod.K + mod.K * mod.N + mod.M * mod.N),
+    shapes=dict(M=1024, K=4096, N=2048),
+    get_inputs_fn=lambda mod: [
+        mx.random.normal((mod.M, mod.K), dtype=mx.float32),
+        mx.random.normal((mod.K, mod.N), dtype=mx.float32),
+    ],
 )
 
 SPECS["batch_mm"] = dict(
@@ -54,6 +56,11 @@ SPECS["batch_mm"] = dict(
     ],
     flops_fn=lambda mod, inputs: mod.batch_size * 2 * mod.M * mod.N * mod.K,
     bytes_fn=lambda mod, inputs: mod.batch_size * 4 * (mod.M * mod.K + mod.K * mod.N + mod.M * mod.N),
+    shapes=dict(batch_size=128, M=128, K=256, N=512),
+    get_inputs_fn=lambda mod: [
+        mx.random.normal((mod.batch_size, mod.M, mod.K), dtype=mx.float32),
+        mx.random.normal((mod.batch_size, mod.K, mod.N), dtype=mx.float32),
+    ],
 )
 
 SPECS["relu"] = dict(
@@ -69,4 +76,8 @@ SPECS["relu"] = dict(
     ],
     flops_fn=lambda mod, inputs: mod.batch_size * mod.dim,
     bytes_fn=lambda mod, inputs: 2 * mod.batch_size * mod.dim * 4,
+    shapes=dict(batch_size=16, dim=16384),
+    get_inputs_fn=lambda mod: [
+        mx.random.normal((mod.batch_size, mod.dim), dtype=mx.float32),
+    ],
 )
