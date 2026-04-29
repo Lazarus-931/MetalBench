@@ -55,3 +55,18 @@ SPECS["batch_mm"] = dict(
     flops_fn=lambda mod, inputs: mod.batch_size * 2 * mod.M * mod.N * mod.K,
     bytes_fn=lambda mod, inputs: mod.batch_size * 4 * (mod.M * mod.K + mod.K * mod.N + mod.M * mod.N),
 )
+
+SPECS["relu"] = dict(
+    metal_function="relu_f32",
+    threadgroup=(1024, 1, 1),
+    input_bindings=(0,),
+    outputs_fn=lambda mod: [dict(binding=1, dtype="f32", shape=(mod.batch_size, mod.dim))],
+    rtol=0, atol=0,
+    grid_fn=lambda mod, inputs: (64 * 1024, 1, 1),
+    scalars_fn=lambda mod, inputs: [
+        dict(binding=2, dtype="u32", value=mod.batch_size * mod.dim),
+        dict(binding=3, dtype="u32", value=64 * 1024),
+    ],
+    flops_fn=lambda mod, inputs: mod.batch_size * mod.dim,
+    bytes_fn=lambda mod, inputs: 2 * mod.batch_size * mod.dim * 4,
+)

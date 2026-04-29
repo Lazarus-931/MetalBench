@@ -1,31 +1,37 @@
-# ReLU
-
-import mlx
 import mlx.core as mx
+from mlx import nn
+
 
 class Model(nn.Module):
-    """
-    Simple model that performs a ReLU activation.
-    """
+    """ReLU activation: out = max(x, 0)."""
     def __init__(self):
         super(Model, self).__init__()
-    
+
     def forward(self, x: mx.array) -> mx.array:
-        """
-        Applies ReLU activation to the input array.
+        """Applies ReLU activation element-wise to input array of any shape."""
+        return mx.maximum(x, 0.0)
 
-        Args:
-            x (mx.array): Input array of any shape.
-
-        Returns:
-            mx.array: Output array with ReLU applied, same shape as input.
-        """
-        return mx.relu(x)
 
 batch_size = 16
 dim = 16384
 
+
 def get_inputs():
-    x = mx.randn(batch_size, dim)
+    x = mx.random.normal((batch_size, dim), dtype=mx.float32)
     return [x]
 
+
+def get_init_inputs():
+    return []
+
+
+def make_inputs(seed: int):
+    mx.random.seed(seed)
+    return get_inputs()
+
+
+_model = Model()
+
+
+def reference(x):
+    return _model.forward(x)
