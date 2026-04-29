@@ -49,20 +49,20 @@
       "updated_at": "2026-04-29T20:51:40+00:00"
     },
     "relu": {
-      "best_time_ms": 0.019667,
-      "speedup_vs_mlx": 10.177810915678599,
-      "gflops": 13.329130014745513,
-      "gbps": 106.6330401179641,
+      "best_time_ms": 0.019542,
+      "speedup_vs_mlx": 9.967863855008678,
+      "gflops": 13.414389520008188,
+      "gbps": 107.3151161600655,
       "arith_intensity": 0.125,
-      "stability": 0.998071555442781,
+      "stability": 0.8813966800228963,
       "tg_static_mem_bytes": 0,
       "pso_max_threads_per_tg": 1024,
-      "iters": 100,
+      "iters": 200,
       "target": "speed",
       "max_err": 0.0,
       "metal_source_path": "src/kernels/common/relu.metal",
-      "metal_source": "// relu: out = max(x, 0). 1024 thr/tg, float4 vectorized, grid-stride loop.\n#include <metal_stdlib>\nusing namespace metal;\n\nkernel void relu_f32(\n    device const float*  x         [[buffer(0)]],\n    device       float*  y         [[buffer(1)]],\n    constant     uint&   N         [[buffer(2)]],\n    constant     uint&   grid_size [[buffer(3)]],\n    uint  tid                     [[thread_position_in_grid]])\n{\n    const uint n4 = N / 4;\n    for (uint i = tid; i < n4; i += grid_size) {\n        float4 v = *reinterpret_cast<const device float4*>(&x[i * 4]);\n        v = fmax(v, 0.0f);\n        *reinterpret_cast<device float4*>(&y[i * 4]) = v;\n    }\n    // Tail: scalar cleanup for remaining elements.\n    for (uint i = n4 * 4 + tid; i < N; i += grid_size) {\n        float v = x[i];\n        y[i] = fmax(v, 0.0f);\n    }\n}\n",
-      "updated_at": "2026-04-29T20:42:35+00:00"
+      "metal_source": "// relu: out = max(x, 0). 1024 thr/tg, float4, grid-stride.\n#include <metal_stdlib>\nusing namespace metal;\n\nkernel void relu_f32(\n    device const float*  x         [[buffer(0)]],\n    device       float*  y         [[buffer(1)]],\n    constant     uint&   N         [[buffer(2)]],\n    constant     uint&   grid_size [[buffer(3)]],\n    uint  tid                     [[thread_position_in_grid]])\n{\n    const uint n4 = N / 4;\n    for (uint i = tid; i < n4; i += grid_size) {\n        float4 v = *(reinterpret_cast<const device float4*>(&x[i * 4]));\n        *(reinterpret_cast<device float4*>(&y[i * 4])) = fmax(v, 0.0f);\n    }\n    for (uint i = n4 * 4 + tid; i < N; i += grid_size) {\n        y[i] = fmax(x[i], 0.0f);\n    }\n}\n",
+      "updated_at": "2026-04-29T21:29:36+00:00"
     },
     "sigmoid": {
       "best_time_ms": 0.019917,
