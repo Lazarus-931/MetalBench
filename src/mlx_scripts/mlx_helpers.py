@@ -1,118 +1,158 @@
-"""Shared helpers for MLX baseline scripts and the harness.
+"""Shared helpers for MLX baselines and the harness.
 
-Each baseline lives at `python/metalbench/<name>.py` and pairs 1:1 with a
-kernel at `src/kernels/<name>/kernel.metal` → `build/<name>.metallib`.
+Each baseline lives at `mlx/kernels/<set>/<name>.py` and pairs 1:1 with a
+kernel at `src/kernels/<set>/<name>.metal` → `build/<name>.metallib`.
 
-A baseline module is expected to expose:
-    metal_function : str                   # kernel symbol in the metallib
+Required baseline attributes:
+    metal_function : str                 — kernel symbol in the metallib
     threadgroup    : (int, int, int)
-    input_bindings : tuple[int, ...]       # binding index per input, in order
-    outputs        : list[Output]          # what the host allocates + reads back
-    make_inputs(seed) -> list[mx.array]
-    reference(*inputs) -> mx.array | tuple[mx.array, ...]
-optional:
-    scalars(inputs) -> list[Scalar]        # default: []
-    grid(inputs)    -> (int, int, int)     # default: outputs[0].shape padded to 3D
-    rtol, atol      : float                # default: 1e-4, 1e-5
-
+    input_bindings : tuple[int, ...]
+    outputs        : list[Output]
+    make_inputs(seed)         -> list[mx.array]
+    reference(*inputs)        -> mx.array | tuple
+Optional:
+    scalars(inputs)           -> list[Scalar]
+    grid(inputs)              -> (int, int, int)
+    flops(inputs)  -> int     — for GFLOPS metric
+    bytes(inputs)  -> int     — for GB/s metric
+    BEST_FOR       : list[str] — chip families this kernel is the best choice for
+    rtol, atol     : float
 """
 from __future__ import annotations
 import contextlib
 import importlib.util
 import platform
 import subprocess
-from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Iterator, Sequence, Tuple
 
 import numpy as np
 import mlx.core as mx
+from pydantic import BaseModel, Field, ValidationError, field_validator
 
-REPO_ROOT = Path(__file__).resolve().parents[2]
-BUILD_DIR    = REPO_ROOT / "build"
-HOST_BIN     = BUILD_DIR / "metalbench_host"
-BASELINE_ROOT = REPO_ROOT / "python" / "kernels"   # contains common/, standard/, full/
-KERNEL_ROOT   = REPO_ROOT / "src" / "kernels"      # ditto
+REPO_ROOT     = Path(__file__).resolve().parents[2]
+BUILD_DIR     = REPO_ROOT / "build"
+HOST_BIN      = BUILD_DIR / "metalbench_host"
+BASELINE_ROOT = REPO_ROOT / "mlx" / "kernels"
+KERNEL_ROOT   = REPO_ROOT / "src" / "kernels"
 RESULTS_ROOT  = REPO_ROOT / "results"
 SETS = ("common", "standard", "full")
 
-DType = str  # "f32" | "f16" | "i32" | "u32"
-
-DTYPE_NP = {"f32": np.float32, "f16": np.float16, "i32": np.int32, "u32": np.uint32}
+DType = str
+DTYPE_NP    = {"f32": np.float32, "f16": np.float16, "i32": np.int32, "u32": np.uint32}
 DTYPE_BYTES = {"f32": 4, "f16": 2, "i32": 4, "u32": 4}
-
 MX_DTYPE_TAG = {
-    mx.float32: "f32",
-    mx.float16: "f16",
-    mx.int32:   "i32",
-    mx.uint32:  "u32",
+    mx.float32: "f32", mx.float16: "f16",
+    mx.int32:   "i32", mx.uint32:  "u32",
 }
+_VALID_DTYPES = ("f32", "f16", "i32", "u32")
 
 
-@dataclass
-class Output:
-    binding: int
-    dtype: DType
-    shape: Sequence[int]
+class Output(BaseModel):
+    binding: int = Field(ge=0, lt=32)
+    dtype:   str
+    shape:   Tuple[int, ...]
+
+    @field_validator("dtype")
+    @classmethod
+    def _ok(cls, v):
+        if v not in _VALID_DTYPES:
+            raise ValueError(f"dtype must be {_VALID_DTYPES}, got {v!r}")
+        return v
 
 
-@dataclass
-class Scalar:
-    binding: int
-    dtype: DType    # "u32" | "i32" | "f32"
-    value: float | int
+class Scalar(BaseModel):
+    binding: int = Field(ge=0, lt=32)
+    dtype:   str
+    value:   float | int
+
+    @field_validator("dtype")
+    @classmethod
+    def _ok(cls, v):
+        if v not in ("u32", "i32", "f32"):
+            raise ValueError(f"scalar dtype must be u32|i32|f32, got {v!r}")
+        return v
 
 
-@dataclass
+class BaselineSpec(BaseModel):
+    name:           str
+    metal_function: str
+    threadgroup:    Tuple[int, int, int]
+    input_bindings: Tuple[int, ...]
+    outputs:        list[Output]
+    rtol:           float = 1e-4
+    atol:           float = 1e-5
+    best_for:       Tuple[str, ...] = ()
+
+    @field_validator("threadgroup")
+    @classmethod
+    def _tg_pos(cls, v):
+        if any(x <= 0 for x in v):
+            raise ValueError(f"threadgroup dims must be > 0, got {v}")
+        return v
+
+    @field_validator("input_bindings")
+    @classmethod
+    def _unique(cls, v):
+        if len(set(v)) != len(v):
+            raise ValueError(f"input_bindings must be unique, got {v}")
+        return v
+
+
 class Baseline:
-    """Resolved baseline — module + derived paths."""
-    name: str
-    module: Any
-    metallib: Path
+    def __init__(self, name, module, metallib, spec):
+        self.name, self.module, self.metallib, self._spec = name, module, metallib, spec
 
     @property
-    def metal_function(self) -> str:    return self.module.metal_function
+    def metal_function(self): return self._spec.metal_function
     @property
-    def threadgroup(self) -> Tuple[int, int, int]: return tuple(self.module.threadgroup)
+    def threadgroup(self):    return self._spec.threadgroup
     @property
-    def input_bindings(self) -> Tuple[int, ...]:   return tuple(self.module.input_bindings)
+    def input_bindings(self): return self._spec.input_bindings
     @property
-    def outputs(self) -> list[Output]:  return list(self.module.outputs)
+    def outputs(self):        return self._spec.outputs
     @property
-    def rtol(self) -> float:            return float(getattr(self.module, "rtol", 1e-4))
+    def rtol(self):           return self._spec.rtol
     @property
-    def atol(self) -> float:            return float(getattr(self.module, "atol", 1e-5))
+    def atol(self):           return self._spec.atol
+    @property
+    def best_for(self):       return self._spec.best_for
 
-    def make_inputs(self, seed: int):   return list(self.module.make_inputs(seed))
-    def reference(self, *inputs):       return self.module.reference(*inputs)
+    def make_inputs(self, seed): return list(self.module.make_inputs(seed))
+    def reference(self, *inputs): return self.module.reference(*inputs)
 
-    def scalars(self, inputs) -> list[Scalar]:
+    def flops(self, inputs):
+        fn = getattr(self.module, "flops", None)
+        return int(fn(inputs)) if fn else None
+
+    def bytes(self, inputs):
+        fn = getattr(self.module, "bytes", None)
+        return int(fn(inputs)) if fn else None
+
+    def scalars(self, inputs):
         fn = getattr(self.module, "scalars", None)
         return list(fn(inputs)) if fn else []
 
-    def grid(self, inputs) -> Tuple[int, int, int]:
+    def grid(self, inputs):
         fn = getattr(self.module, "grid", None)
         if fn:
             return tuple(fn(inputs))
-        # default: the first output's shape padded to 3D
         shp = list(self.outputs[0].shape) + [1, 1, 1]
         return (int(shp[0]), int(shp[1]), int(shp[2]))
 
 
-def _find_baseline_path(name: str) -> tuple[Path, str]:
-    """Search python/kernels/<set>/<name>.py across common/standard/full."""
+def _find_baseline(name):
     for s in SETS:
         p = BASELINE_ROOT / s / f"{name}.py"
         if p.exists():
             return p, s
     raise FileNotFoundError(
-        f"baseline not found: searched python/kernels/{{{','.join(SETS)}}}/{name}.py"
+        f"baseline not found: searched mlx/kernels/{{{','.join(SETS)}}}/{name}.py"
     )
 
 
-def load_baseline(name: str) -> Baseline:
-    """Locate python/kernels/<set>/<name>.py and the matching metallib."""
-    path, _set = _find_baseline_path(name)
+def load_baseline(name):
+    path, _set = _find_baseline(name)
 
     metallib = BUILD_DIR / f"{name}.metallib"
     if not metallib.exists():
@@ -121,40 +161,50 @@ def load_baseline(name: str) -> Baseline:
             f"expected source at {KERNEL_ROOT / _set / f'{name}.metal'}; run `make`."
         )
 
-    spec = importlib.util.spec_from_file_location(f"_mb_baseline_{name}", path)
-    if spec is None or spec.loader is None:
+    mod_spec = importlib.util.spec_from_file_location(f"_mb_{name}", path)
+    if mod_spec is None or mod_spec.loader is None:
         raise ImportError(f"cannot load {path}")
-    mod = importlib.util.module_from_spec(spec)
-    spec.loader.exec_module(mod)
+    mod = importlib.util.module_from_spec(mod_spec)
+    mod_spec.loader.exec_module(mod)
 
-    for attr in ("metal_function", "threadgroup", "input_bindings",
-                 "outputs", "make_inputs", "reference"):
-        if not hasattr(mod, attr):
-            raise AttributeError(f"{name}.py missing required attribute `{attr}`")
+    for attr in ("make_inputs", "reference"):
+        if not callable(getattr(mod, attr, None)):
+            raise AttributeError(f"{name}.py: required callable `{attr}` missing")
 
-    return Baseline(name=name, module=mod, metallib=metallib)
+    try:
+        spec = BaselineSpec(
+            name=name,
+            metal_function=getattr(mod, "metal_function"),
+            threadgroup=tuple(getattr(mod, "threadgroup")),
+            input_bindings=tuple(getattr(mod, "input_bindings")),
+            outputs=list(getattr(mod, "outputs")),
+            rtol=getattr(mod, "rtol", 1e-4),
+            atol=getattr(mod, "atol", 1e-5),
+            best_for=tuple(getattr(mod, "BEST_FOR", ())),
+        )
+    except AttributeError as e:
+        raise AttributeError(f"{name}.py is missing a BaselineSpec field: {e}") from e
+    except ValidationError as e:
+        raise ValueError(f"{name}.py BaselineSpec invalid:\n{e}") from e
+
+    return Baseline(name=name, module=mod, metallib=metallib, spec=spec)
 
 
-def build_manifest(b: Baseline, inputs: Sequence[mx.array],
-                   *, input_paths: Sequence[Path], output_paths: Sequence[Path],
-                   warmup: int, iters: int) -> dict:
-    """Compose the JSON manifest the host consumes. Caller writes the files."""
+def build_manifest(b, inputs, *, input_paths, output_paths, warmup, iters):
     if len(input_paths) != len(b.input_bindings):
         raise ValueError("input_paths must match input_bindings")
     if len(output_paths) != len(b.outputs):
         raise ValueError("output_paths must match outputs")
 
-    buffers: list[dict] = []
+    buffers = []
     for binding, path in zip(b.input_bindings, input_paths):
         buffers.append({"binding": int(binding), "role": "input", "path": str(path)})
-
     for o, path in zip(b.outputs, output_paths):
-        n = int(np.prod(o.shape))
         buffers.append({
             "binding": int(o.binding), "role": "output",
-            "path": str(path), "size": n * DTYPE_BYTES[o.dtype],
+            "path": str(path),
+            "size": int(np.prod(o.shape)) * DTYPE_BYTES[o.dtype],
         })
-
     for s in b.scalars(inputs):
         buffers.append({
             "binding": int(s.binding), "role": "scalar",
@@ -172,49 +222,31 @@ def build_manifest(b: Baseline, inputs: Sequence[mx.array],
     }
 
 
-# --- chip bucketing ----------------------------------------------------------
+# --- chip detection (mirrors src/metal_scripts/setup.cpp) -------------------
 
 _CHIP_TYPES = [
-    ("M4 Max",   "m4_max"), ("M4 Pro",   "m4_pro"), ("M4",       "m4"),
+    ("M4 Max", "m4_max"), ("M4 Pro", "m4_pro"), ("M4", "m4"),
     ("M3 Ultra", "m3_ultra"), ("M3 Max", "m3_max"), ("M3 Pro", "m3_pro"), ("M3", "m3"),
     ("M2 Ultra", "m2_ultra"), ("M2 Max", "m2_max"), ("M2 Pro", "m2_pro"), ("M2", "m2"),
     ("M1 Ultra", "m1_ultra"), ("M1 Max", "m1_max"), ("M1 Pro", "m1_pro"), ("M1", "m1"),
 ]
 
 
-def chip_info() -> dict:
-    """Detect the host chip. Mirrors src/metal_scripts/setup.cpp::detect_chip().
-
-    Returns:
-        {"type":"m2_max","name":"Apple M2 Max","bucket":"apple-m2-max",
-         "cpu_cores":N,"gpu_cores":N,"ram_bytes":N}
-    """
-    name = "unknown"
+def _sysctl(key):
     try:
-        name = subprocess.check_output(
-            ["sysctl", "-n", "machdep.cpu.brand_string"], text=True
-        ).strip()
+        return subprocess.check_output(["sysctl", "-n", key], text=True).strip()
     except Exception:
-        pass
+        return ""
 
-    chip_type = "unknown"
-    for needle, tag in _CHIP_TYPES:
-        if needle in name:
-            chip_type = tag
-            break
 
-    cpu_cores = 0
-    ram_bytes = 0
-    try:
-        cpu_cores = int(subprocess.check_output(
-            ["sysctl", "-n", "hw.physicalcpu"], text=True).strip())
-    except Exception:
-        pass
-    try:
-        ram_bytes = int(subprocess.check_output(
-            ["sysctl", "-n", "hw.memsize"], text=True).strip())
-    except Exception:
-        pass
+def chip_info():
+    name = _sysctl("machdep.cpu.brand_string") or "unknown"
+    chip_type = next((tag for needle, tag in _CHIP_TYPES if needle in name), "unknown")
+
+    try: cpu_cores = int(_sysctl("hw.physicalcpu") or 0)
+    except Exception: cpu_cores = 0
+    try: ram_bytes = int(_sysctl("hw.memsize") or 0)
+    except Exception: ram_bytes = 0
 
     gpu_cores = 0
     try:
@@ -222,8 +254,7 @@ def chip_info() -> dict:
             ["system_profiler", "SPDisplaysDataType"], text=True, timeout=5)
         import re
         m = re.search(r"Total Number of Cores:\s*(\d+)", sp)
-        if m:
-            gpu_cores = int(m.group(1))
+        if m: gpu_cores = int(m.group(1))
     except Exception:
         pass
 
@@ -237,46 +268,28 @@ def chip_info() -> dict:
     }
 
 
-def bucket_key_from_name(name: str) -> str:
-    s = "".join(
-        (c.lower() if c.isalnum() else "-") for c in name
-    )
+def bucket_key_from_name(name):
+    s = "".join((c.lower() if c.isalnum() else "-") for c in name)
     while "--" in s:
         s = s.replace("--", "-")
     return s.strip("-") or "unknown"
 
 
-def bucket_key() -> str:
-    """Canonical chip identifier for partitioning results.
-
-    Derived from MTLDevice.name → sanitized lowercase with hyphens, e.g.
-    "Apple M2 Max" → "apple-m2-max". Per-chip results live at
-    `results/<bucket_key>/<kernel>.json`. GPU core count + RAM live inside
-    the JSON for finer-grained sub-bucketing later (e.g. M2 Max 30c vs 38c).
-    """
+def bucket_key():
     return chip_info()["bucket"]
 
 
-# --- MLX + system introspection ----------------------------------------------
+# --- MLX device + capture helpers -------------------------------------------
 
-def device_info() -> dict:
-    """Identify the host bucket: chip + Metal device + memory."""
-    info: dict = {
-        "machine":   platform.machine(),
-        "os":        f"{platform.system()} {platform.release()}",
-    }
+def device_info():
+    info: dict = {"machine": platform.machine(), "os": f"{platform.system()} {platform.release()}"}
     for key, label in [
         ("machdep.cpu.brand_string", "cpu_brand"),
-        ("hw.model",                 "hw_model"),
-        ("hw.memsize",               "memory_bytes"),
+        ("hw.model", "hw_model"),
+        ("hw.memsize", "memory_bytes"),
     ]:
-        try:
-            info[label] = subprocess.check_output(
-                ["sysctl", "-n", key], text=True
-            ).strip()
-        except Exception:
-            pass
-
+        v = _sysctl(key)
+        if v: info[label] = v
     try:
         info["mlx_metal_available"] = bool(mx.metal.is_available())
         info["mlx_device_info"]     = mx.metal.device_info()
@@ -286,31 +299,21 @@ def device_info() -> dict:
 
 
 @contextlib.contextmanager
-def capture(path: str | Path) -> Iterator[Path]:
-    """Record a Metal GPU trace of MLX dispatches.
-
-    Wrap the timed loop in this to inspect what MLX is sending to the GPU —
-    the resulting .gputrace opens directly in Xcode (Debug Navigator → Capture).
-    Closest equivalent to `torch.compile`'s IR dump for built-in MLX ops.
-    """
+def capture(path):
+    """Record a Metal GPU trace of MLX dispatches. Open the .gputrace in Xcode."""
     p = Path(path).expanduser().resolve()
     p.parent.mkdir(parents=True, exist_ok=True)
     mx.metal.start_capture(str(p))
-    try:
-        yield p
-    finally:
-        mx.metal.stop_capture()
+    try: yield p
+    finally: mx.metal.stop_capture()
 
 
-def array_summary(arr) -> dict:
-    """Quick stats for sanity-checking an MLX or numpy array."""
+def array_summary(arr):
     if isinstance(arr, mx.array):
         mx.eval(arr)
-        np_arr = np.asarray(arr)
-        dtype = str(arr.dtype)
+        np_arr = np.asarray(arr); dtype = str(arr.dtype)
     else:
-        np_arr = np.asarray(arr)
-        dtype = str(np_arr.dtype)
+        np_arr = np.asarray(arr); dtype = str(np_arr.dtype)
     flat = np_arr.astype(np.float64, copy=False).ravel()
     return {
         "shape": tuple(np_arr.shape),
@@ -324,7 +327,7 @@ def array_summary(arr) -> dict:
     }
 
 
-def mx_to_np_bytes(arr: mx.array) -> tuple[np.ndarray, str]:
+def mx_to_np_bytes(arr):
     tag = MX_DTYPE_TAG.get(arr.dtype)
     if tag is None:
         raise ValueError(f"unsupported dtype {arr.dtype}; extend MX_DTYPE_TAG")

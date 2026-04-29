@@ -30,6 +30,8 @@ fileGroups:
   - bench
   - README.md
   - KERNELS.md
+  - AGENTS.md
+  - setup.py
   - requirements.txt
   - .gitignore
 

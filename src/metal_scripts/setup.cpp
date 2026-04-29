@@ -1,7 +1,9 @@
 #include "setup.h"
 #include <sys/sysctl.h>
 #include <cstdio>
+#include <cstdlib>
 #include <cstring>
+#include <regex>
 
 namespace metalbench {
 
@@ -79,6 +81,28 @@ static std::string make_bucket(const std::string& name) {
     return s.empty() ? "unknown" : s;
 }
 
+bool is_mac() {
+    std::string os = sysctl_str("kern.ostype");
+    return os == "Darwin";
+}
+
+// Parse `ioreg -lr -k gpu-core-count` for the first integer following
+// "gpu-core-count" = . Returns 0 if unavailable.
+static int detect_gpu_cores() {
+    FILE* p = popen("ioreg -lr -k gpu-core-count 2>/dev/null", "r");
+    if (!p) return 0;
+    std::string out;
+    char buf[256];
+    while (fgets(buf, sizeof(buf), p)) out.append(buf);
+    pclose(p);
+    std::smatch m;
+    std::regex re("gpu-core-count\"\\s*=\\s*(\\d+)");
+    if (std::regex_search(out, m, re) && m.size() >= 2) {
+        return std::atoi(m[1].str().c_str());
+    }
+    return 0;
+}
+
 MChip detect_chip() {
     MChip chip;
     chip.name      = sysctl_str("machdep.cpu.brand_string");
@@ -86,6 +110,7 @@ MChip detect_chip() {
     chip.type      = parse_type(chip.name);
     chip.bucket    = make_bucket(chip.name);
     chip.cpu_cores = (int)sysctl_int("hw.physicalcpu");
+    chip.gpu_cores = detect_gpu_cores();
     chip.ram_bytes = sysctl_int("hw.memsize");
     return chip;
 }

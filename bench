@@ -1,37 +1,32 @@
 #!/usr/bin/env bash
-# bench — one-command MetalBench runner.
-#
-#   ./bench <name>            # build (if needed) + run + save to results/<chip>/<name>.json
-#   ./bench <name> --no-save  # don't write the result file
-#   ./bench <name> -- --capture out.gputrace
-#                             # extra args after `--` pass through to harness.py
-#
-# Defaults: warmup=10 iters=100 (set in harness.py).
+# bench <name>            — build, run, save to results/<chip>/<name>.json
+# bench <name> --no-save  — skip the save
+# bench <name> -- --target compute --iters 200
+#                         — pass extra args through to harness.py
 set -euo pipefail
-
-repo_root="$(cd "$(dirname "$0")" && pwd)"
-cd "$repo_root"
+cd "$(dirname "$0")"
 
 if [ $# -lt 1 ]; then
   echo "usage: ./bench <name> [--no-save] [-- <harness args>]" >&2
-  echo "       e.g. ./bench sqr_matmul" >&2
   exit 64
 fi
 
 name="$1"; shift
-save_flag="--save"
-passthrough=()
+save="--save"
+extra=()
 
 while [ $# -gt 0 ]; do
   case "$1" in
-    --no-save) save_flag=""; shift ;;
-    --) shift; passthrough=("$@"); break ;;
-    *)  passthrough+=("$1"); shift ;;
+    --no-save) save=""; shift ;;
+    --) shift; extra=("$@"); break ;;
+    *)  extra+=("$1"); shift ;;
   esac
 done
 
-# Build only if something has changed.
 make --silent all 1>&2
-
-echo "[bench] running '$name' (warmup=10, iters=100, save=${save_flag:+on}${save_flag:-off})" >&2
-exec python3 src/mlx_scripts/harness.py "$name" $save_flag "${passthrough[@]}"
+if [ -n "$save" ]; then
+  echo "[bench] running '$name' (save=on)" >&2
+else
+  echo "[bench] running '$name' (save=off)" >&2
+fi
+exec python3 src/mlx_scripts/harness.py "$name" ${save:-} "${extra[@]+"${extra[@]}"}"

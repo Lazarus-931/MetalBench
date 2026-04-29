@@ -27,11 +27,16 @@ struct MChip {
     std::string name      = "unknown";   // raw "Apple M2 Max"
     std::string bucket    = "unknown";   // sanitized "apple-m2-max"
     int         cpu_cores = 0;           // hw.physicalcpu
-    int         gpu_cores = 0;           // best-effort; 0 if unknown
+    int         gpu_cores = 0;           // ioreg gpu-core-count, 0 if unknown
     long long   ram_bytes = 0;           // hw.memsize
 };
 
-// Inspect the host. Cheap (one sysctl per field).
+// Cheap macOS check (sysctl kern.ostype == "Darwin"). The host binary
+// cannot link Metal.framework on non-Mac platforms anyway, but this is
+// defense-in-depth + a clear fail-fast message.
+bool is_mac();
+
+// Inspect the host. Sysctl + one ioreg shell-out for GPU core count (~10ms).
 MChip detect_chip();
 
 // JSON object literal: {"type":"m2_max","name":"...","bucket":"...","cpu_cores":N,...}

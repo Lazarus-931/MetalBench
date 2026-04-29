@@ -1,32 +1,8 @@
-// MetalBench host runner.
-//
-// Generic dispatcher: takes a JSON manifest describing one kernel launch,
-// loads the metallib, binds buffers/scalars, runs warmup + timed iterations,
-// writes outputs back to disk, and prints timing JSON to stdout. The actual
-// dispatch loop and Metal cache helpers live in timing.{h,mm}.
-//
-// Manifest schema:
-//   {
-//     "function":    "kernel_name",
-//     "metallib":    "/abs/path/to/x.metallib",
-//     "buffers": [
-//       {"binding": 0, "role": "input",  "path": "/tmp/in0.bin"},
-//       {"binding": 1, "role": "output", "path": "/tmp/out0.bin", "size": 4096},
-//       {"binding": 2, "role": "scalar", "dtype": "u32", "value": 1024}
-//     ],
-//     "grid":        [N, 1, 1],
-//     "threadgroup": [64, 1, 1],
-//     "warmup":      5,
-//     "iters":       50
-//   }
-//
-// Stdout (last line):
-//   {"device":"...","min_ms":..,"median_ms":..,"mean_ms":..,"iters":..}
-
+// Generic dispatcher: read JSON manifest, bind buffers, run warmup + timed
+// iterations, write outputs back, print timing JSON to stdout.
 #import  <Metal/Metal.h>
 #import  <Foundation/Foundation.h>
 #include <cstdio>
-#include <cstdint>
 #include <cstring>
 #include <vector>
 
@@ -39,10 +15,9 @@ using metalbench::runTimedDispatches;
 using metalbench::MChip;
 using metalbench::detect_chip;
 
-static NSString* argValue(int argc, const char** argv, const char* key) {
-    for (int i = 1; i + 1 < argc; i++) {
+static NSString* arg(int argc, const char** argv, const char* key) {
+    for (int i = 1; i + 1 < argc; i++)
         if (strcmp(argv[i], key) == 0) return @(argv[i + 1]);
-    }
     return nil;
 }
 
@@ -52,14 +27,21 @@ static int die(const char* msg, NSError* err = nil) {
     return 1;
 }
 
-static MTLSize sizeFromArray(NSArray* a) {
+static MTLSize sz3(NSArray* a) {
     return MTLSizeMake([a[0] unsignedLongValue],
                        [a[1] unsignedLongValue],
                        [a[2] unsignedLongValue]);
 }
 
 int main(int argc, const char** argv) { @autoreleasepool {
-    NSString* manifestPath = argValue(argc, argv, "--manifest");
+    if (!metalbench::is_mac()) return die("not running on macOS (Darwin)");
+
+    MChip chip = detect_chip();
+    fprintf(stderr, "[host] %s (%s) | %d CPU | %d GPU cores | %.0f GB\n",
+            chip.name.c_str(), metalbench::type_name(chip.type),
+            chip.cpu_cores, chip.gpu_cores, chip.ram_bytes / 1e9);
+
+    NSString* manifestPath = arg(argc, argv, "--manifest");
     if (!manifestPath) return die("missing --manifest <path>");
 
     NSData* mdata = [NSData dataWithContentsOfFile:manifestPath];
@@ -72,8 +54,6 @@ int main(int argc, const char** argv) { @autoreleasepool {
     NSString* function = manifest[@"function"];
     NSString* libPath  = manifest[@"metallib"];
     NSArray*  bspecs   = manifest[@"buffers"];
-    NSArray*  gridA    = manifest[@"grid"];
-    NSArray*  tgA      = manifest[@"threadgroup"];
     int warmup = [manifest[@"warmup"] intValue];
     int iters  = [manifest[@"iters"]  intValue];
 
@@ -84,15 +64,20 @@ int main(int argc, const char** argv) { @autoreleasepool {
     if (err) return die("load metallib", err);
 
     id<MTLFunction> func = [library newFunctionWithName:function];
-    if (!func) return die([NSString stringWithFormat:@"function %@ not found in metallib", function].UTF8String);
+    if (!func) return die([NSString stringWithFormat:@"function %@ not found", function].UTF8String);
 
     id<MTLComputePipelineState> pso = [device newComputePipelineStateWithFunction:func error:&err];
     if (err) return die("pipeline state", err);
 
     id<MTLCommandQueue> queue = [device newCommandQueue];
 
-    std::vector<Binding> bindings;
+    fprintf(stderr,
+            "[host] kernel `%s` ready | tg_mem=%lu B | max_thr/tg=%lu | setup complete\n",
+            function.UTF8String,
+            (unsigned long)pso.staticThreadgroupMemoryLength,
+            (unsigned long)pso.maxTotalThreadsPerThreadgroup);
 
+    std::vector<Binding> bindings;
     struct Output { id<MTLBuffer> buf; NSString* path; NSUInteger size; };
     std::vector<Output> outputs;
 
@@ -103,8 +88,7 @@ int main(int argc, const char** argv) { @autoreleasepool {
         if ([role isEqualToString:@"input"]) {
             NSData* d = [NSData dataWithContentsOfFile:b[@"path"]];
             if (!d) return die([NSString stringWithFormat:@"cannot read input %@", b[@"path"]].UTF8String);
-            id<MTLBuffer> buf = [device newBufferWithBytes:d.bytes
-                                                    length:d.length
+            id<MTLBuffer> buf = [device newBufferWithBytes:d.bytes length:d.length
                                                    options:MTLResourceStorageModeShared];
             bindings.push_back({buf, idx});
 
@@ -129,10 +113,10 @@ int main(int argc, const char** argv) { @autoreleasepool {
         }
     }
 
-    MTLSize grid = sizeFromArray(gridA);
-    MTLSize tg   = sizeFromArray(tgA);
-
-    TimingResult t = runTimedDispatches(queue, pso, bindings, grid, tg, warmup, iters);
+    TimingResult t = runTimedDispatches(queue, pso, bindings,
+                                        sz3(manifest[@"grid"]),
+                                        sz3(manifest[@"threadgroup"]),
+                                        warmup, iters);
 
     for (auto& o : outputs) {
         NSData* d = [NSData dataWithBytesNoCopy:o.buf.contents length:o.size freeWhenDone:NO];
@@ -140,16 +124,17 @@ int main(int argc, const char** argv) { @autoreleasepool {
             return die([NSString stringWithFormat:@"cannot write output %@", o.path].UTF8String);
     }
 
-    MChip chip = detect_chip();
-    if (chip.gpu_cores == 0 && device) {
-        // MTLDevice can't directly report core count, but its name is the
-        // same string sysctl returned — keep them aligned.
-        chip.name = std::string(device.name.UTF8String);
-    }
-    printf("{\"chip\":%s,\"metal_device\":\"%s\","
-           "\"min_ms\":%.6f,\"median_ms\":%.6f,\"mean_ms\":%.6f,\"iters\":%d}\n",
-           metalbench::to_json(chip).c_str(),
-           device.name.UTF8String ?: "unknown",
-           t.min_ms, t.median_ms, t.mean_ms, t.iters);
+    if (device && chip.name == "unknown") chip.name = std::string(device.name.UTF8String);
+
+    // JSON to stdout — internal protocol consumed by harness.py, not the user.
+    printf(
+      "{\"chip\":%s,\"metal_device\":\"%s\","
+      "\"tg_static_mem_bytes\":%lu,\"pso_max_threads_per_tg\":%lu,"
+      "\"min_ms\":%.6f,\"median_ms\":%.6f,\"mean_ms\":%.6f,\"iters\":%d}\n",
+      metalbench::to_json(chip).c_str(),
+      device.name.UTF8String ?: "unknown",
+      (unsigned long)pso.staticThreadgroupMemoryLength,
+      (unsigned long)pso.maxTotalThreadsPerThreadgroup,
+      t.min_ms, t.median_ms, t.mean_ms, t.iters);
     return 0;
 }}

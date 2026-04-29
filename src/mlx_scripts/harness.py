@@ -1,13 +1,10 @@
 #!/usr/bin/env python3
-"""MetalBench accuracy + speed harness.
+"""MetalBench harness: dispatch a kernel, time it, grade it.
 
-    python src/scripts/harness.py <name> [--iters 100] [--warmup 10]
-                                          [--seed 0] [--dry-run]
-                                          [--capture path.gputrace]
-
-Loads python/metalbench/<name>.py, dispatches build/<name>.metallib via the
-host binary, times the MLX reference, compares correctness, prints a JSON
-report. Exit code = 0 iff correct.
+    python src/mlx_scripts/harness.py <name> [--target speed|compute|memory|stable|balanced]
+                                              [--iters 100] [--warmup 10] [--seed 0]
+                                              [--save] [--cold-start] [--dry-run]
+                                              [--capture out.gputrace]
 """
 from __future__ import annotations
 import argparse
@@ -20,13 +17,12 @@ from pathlib import Path
 import numpy as np
 import mlx.core as mx
 
-# Allow `import mlx_helpers` / `import timing` regardless of cwd.
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 import mlx_helpers as H
 from timing import time_mlx, warm_jit
 
 
-def _allclose(actual, expected, rtol: float, atol: float):
+def _allclose(actual, expected, rtol, atol):
     a = np.asarray(actual).astype(np.float64)
     b = np.asarray(expected).astype(np.float64)
     if a.shape != b.shape:
@@ -36,9 +32,7 @@ def _allclose(actual, expected, rtol: float, atol: float):
     return bool(np.all(diff <= tol)), float(diff.max()) if a.size else 0.0
 
 
-# --- dispatch ----------------------------------------------------------------
-
-def _run_host(manifest: dict, manifest_path: Path) -> dict:
+def _run_host(manifest, manifest_path):
     if not H.HOST_BIN.exists():
         raise RuntimeError(f"host binary missing: {H.HOST_BIN}\nrun `make host`")
     manifest_path.write_text(json.dumps(manifest))
@@ -46,16 +40,16 @@ def _run_host(manifest: dict, manifest_path: Path) -> dict:
         [str(H.HOST_BIN), "--manifest", str(manifest_path)],
         capture_output=True, text=True,
     )
+    # Forward host's stderr banner ([host] device, [host] kernel ready) up to user.
+    if proc.stderr:
+        sys.stderr.write(proc.stderr)
     if proc.returncode != 0:
-        raise RuntimeError(f"host failed (exit {proc.returncode}):\n{proc.stderr.strip()}")
+        raise RuntimeError(f"host failed (exit {proc.returncode})")
     return json.loads(proc.stdout.strip().splitlines()[-1])
 
 
-# --- main --------------------------------------------------------------------
-
-def evaluate(name: str, *, seed: int, warmup: int, iters: int,
-             dry_run: bool = False, capture_path: str | None = None,
-             cold_start: bool = False) -> dict:
+def evaluate(name, *, seed, warmup, iters, dry_run=False,
+             capture_path=None, cold_start=False):
     b = H.load_baseline(name)
     inputs = b.make_inputs(seed)
     for x in inputs: mx.eval(x)
@@ -78,14 +72,14 @@ def evaluate(name: str, *, seed: int, warmup: int, iters: int,
 
         k_t = _run_host(manifest, tmp / "manifest.json")
 
-        kernel_outs: list[mx.array] = []
-        for o, path in zip(b.outputs, out_paths):
-            arr = np.fromfile(path, dtype=H.DTYPE_NP[o.dtype]).reshape(o.shape)
-            kernel_outs.append(mx.array(arr))
+        kernel_outs = [
+            mx.array(np.fromfile(p, dtype=H.DTYPE_NP[o.dtype]).reshape(o.shape))
+            for o, p in zip(b.outputs, out_paths)
+        ]
 
     warm_jit(b.reference, *inputs)
-    ref_outs_raw = b.reference(*inputs)
-    ref_outs = list(ref_outs_raw) if isinstance(ref_outs_raw, (list, tuple)) else [ref_outs_raw]
+    ref_out = b.reference(*inputs)
+    ref_outs = list(ref_out) if isinstance(ref_out, (list, tuple)) else [ref_out]
     for r in ref_outs: mx.eval(r)
     mx.synchronize()
 
@@ -98,8 +92,7 @@ def evaluate(name: str, *, seed: int, warmup: int, iters: int,
 
     if len(kernel_outs) != len(ref_outs):
         raise RuntimeError(
-            f"{name}: kernel produced {len(kernel_outs)} outputs, "
-            f"reference produced {len(ref_outs)}"
+            f"{name}: kernel={len(kernel_outs)} outputs, ref={len(ref_outs)}"
         )
 
     per_output = []
@@ -110,12 +103,29 @@ def evaluate(name: str, *, seed: int, warmup: int, iters: int,
     correct = all(o["ok"] for o in per_output)
     speedup = (r_t["median_ms"] / k_t["median_ms"]) if k_t["median_ms"] > 0 else float("inf")
 
-    chip = H.chip_info()
+    metrics = {"speedup": speedup}
+    median_s = k_t["median_ms"] / 1000.0
+    if median_s > 0:
+        if (f := b.flops(inputs)) is not None:
+            metrics["gflops"] = f / median_s / 1e9
+        if (nb := b.bytes(inputs)) is not None:
+            metrics["gbps"] = nb / median_s / 1e9
+        if f is not None and nb is not None and nb > 0:
+            metrics["arith_intensity"] = f / nb
+
+    # Stability proxy from min/median/mean (we don't keep the full timing list).
+    mean_ms = k_t["mean_ms"]
+    cv = abs(k_t["median_ms"] - mean_ms) / mean_ms if mean_ms > 0 else 0.0
+    metrics["stability"] = max(0.0, 1.0 - cv)
+
     return {
         "task":             name,
-        "chip":             chip,
-        "metal_device":     k_t.get("metal_device", k_t.get("device", "unknown")),
+        "chip":             H.chip_info(),
+        "metal_device":     k_t.get("metal_device", "unknown"),
+        "tg_static_mem_bytes":     k_t.get("tg_static_mem_bytes"),
+        "pso_max_threads_per_tg":  k_t.get("pso_max_threads_per_tg"),
         "correct":          correct,
+        "metrics":          metrics,
         "speedup":          speedup,
         "kernel_timing":    k_t,
         "reference_timing": r_t,
@@ -123,48 +133,123 @@ def evaluate(name: str, *, seed: int, warmup: int, iters: int,
     }
 
 
-def main(argv=None) -> int:
+# Each target picks ONE primary metric to optimize. Higher = better.
+TARGETS = {
+    "speed":    lambda m: m.get("speedup",   0.0),
+    "compute":  lambda m: m.get("gflops",    0.0),
+    "memory":   lambda m: m.get("gbps",      0.0),
+    "stable":   lambda m: m.get("stability", 0.0),
+    "balanced": lambda m: (
+        0.5 * m.get("speedup", 0.0)
+      + 0.3 * (m.get("gflops", 0.0) / 1000.0)
+      + 0.2 * m.get("stability", 0.0)
+    ),
+}
+
+
+def grade(metrics, target):
+    fn = TARGETS.get(target)
+    if fn is None:
+        raise SystemExit(f"unknown target '{target}'; pick {list(TARGETS)}")
+    return float(fn(metrics))
+
+
+def _bytes_human(n):
+    for u in ("B", "KB", "MB", "GB"):
+        if n < 1024: return f"{n:.0f}{u}"
+        n /= 1024
+    return f"{n:.0f}TB"
+
+
+def _print_report(result, target, score):
+    """Human-readable report. Replaces JSON dump on stdout."""
+    chip   = result["chip"]
+    m      = result["metrics"]
+    k_t    = result["kernel_timing"]
+    r_t    = result["reference_timing"]
+    outs   = result["outputs"]
+
+    line = "─" * 72
+    print(line)
+    print(f"  {result['task']}    target={target}   score={score:.3f}")
+    print(line)
+    print(f"  device      : {chip['name']} ({chip['type']})  "
+          f"{chip['cpu_cores']} CPU / {chip['gpu_cores']} GPU / "
+          f"{chip['ram_bytes']/1e9:.0f} GB")
+    if result.get("tg_static_mem_bytes") is not None:
+        print(f"  occupancy   : tg_mem={_bytes_human(result['tg_static_mem_bytes'])}  "
+              f"max_thr/tg={result['pso_max_threads_per_tg']}")
+    print()
+    status = "✓ correct " if result["correct"] else "✗ INCORRECT"
+    max_err = max((o["max_err"] for o in outs), default=0.0)
+    print(f"  correctness : {status}    max_err={max_err:.3e}")
+    print(f"  speedup     : {m.get('speedup', 0):.2f}× vs MLX")
+    print(f"  kernel      : {k_t['median_ms']:.3f} ms  "
+          f"(min {k_t['min_ms']:.3f}, mean {k_t['mean_ms']:.3f}, n={k_t['iters']})")
+    print(f"  mlx ref     : {r_t['median_ms']:.3f} ms  "
+          f"(min {r_t['min_ms']:.3f}, mean {r_t['mean_ms']:.3f}, n={r_t['iters']})")
+    if "gflops" in m:
+        print(f"  compute     : {m['gflops']:.1f} GFLOPS")
+    if "gbps" in m:
+        print(f"  bandwidth   : {m['gbps']:.1f} GB/s")
+    if "arith_intensity" in m:
+        print(f"  arith int.  : {m['arith_intensity']:.1f} FLOPs/byte")
+    print(f"  stability   : {m['stability']:.2f}  (1.0 = perfectly consistent)")
+    print(line)
+
+
+def main(argv=None):
     ap = argparse.ArgumentParser(prog="metalbench-harness")
-    ap.add_argument("name", help="baseline name (matches python/metalbench/<name>.py)")
-    ap.add_argument("--seed",    type=int, default=0)
-    ap.add_argument("--warmup",  type=int, default=10,
-                    help="warmup iterations before timing (default 10)")
-    ap.add_argument("--iters",   type=int, default=100,
-                    help="timed iterations to average over (default 100)")
-    ap.add_argument("--dry-run", action="store_true",
-                    help="build the manifest and print it; don't dispatch")
-    ap.add_argument("--capture", default=None,
-                    help="record an MLX .gputrace at this path (open in Xcode)")
+    ap.add_argument("name")
+    ap.add_argument("--seed",       type=int, default=0)
+    ap.add_argument("--warmup",     type=int, default=10)
+    ap.add_argument("--iters",      type=int, default=100)
+    ap.add_argument("--dry-run",    action="store_true")
+    ap.add_argument("--capture",    default=None,
+                    help="record an MLX .gputrace at this path")
     ap.add_argument("--cold-start", action="store_true",
-                    help="clear MLX kernel cache before timing; measure first-launch latency")
-    ap.add_argument("--save",    action="store_true",
-                    help="write the result JSON to results/<chip-bucket>/<name>.json")
+                    help="clear MLX kernel cache before timing")
+    ap.add_argument("--save",       action="store_true",
+                    help="save full JSON to results/<chip>/<name>.json")
+    ap.add_argument("--target",     default="speed", choices=list(TARGETS.keys()))
     args = ap.parse_args(argv)
 
-    # Identify the chip BEFORE doing any work so the user sees what bucket
-    # this run will land in. Refusing to proceed on Unknown is too strict
-    # (works fine on simulators / future chips) — just call it out.
     chip = H.chip_info()
-    print(
-        f"[chip] {chip['type']:>8s}  "
-        f"name='{chip['name']}'  bucket='{chip['bucket']}'  "
-        f"cpu={chip['cpu_cores']}  gpu={chip['gpu_cores']}  "
-        f"ram={chip['ram_bytes']/1e9:.0f}GB",
-        file=sys.stderr,
-    )
+    print(f"[chip] {chip['type']:>8s}  '{chip['name']}'  "
+          f"cpu={chip['cpu_cores']}  gpu={chip['gpu_cores']}  "
+          f"ram={chip['ram_bytes']/1e9:.0f}GB", file=sys.stderr)
+
     if chip["type"] == "unknown":
-        print(
-            "[chip] WARNING: chip type unrecognized; results still saved under "
-            f"'results/{chip['bucket']}/' but cross-machine comparison may be off.",
-            file=sys.stderr,
-        )
+        print(f"[chip] WARN: unrecognized chip; bucket='{chip['bucket']}'",
+              file=sys.stderr)
+
+    try:
+        bf = H.load_baseline(args.name).best_for
+        if bf and "all" not in bf and chip["type"] not in bf:
+            print(f"[bench] kernel `{args.name}` BEST_FOR={list(bf)}; "
+                  f"current chip '{chip['type']}' not in that list",
+                  file=sys.stderr)
+        elif bf:
+            print(f"[bench] kernel `{args.name}` BEST_FOR={list(bf)}",
+                  file=sys.stderr)
+    except Exception:
+        pass
 
     result = evaluate(args.name, seed=args.seed, warmup=args.warmup,
                       iters=args.iters, dry_run=args.dry_run,
                       capture_path=args.capture, cold_start=args.cold_start)
-    print(json.dumps(result, indent=2))
 
-    if args.save and not args.dry_run:
+    if args.dry_run:
+        # For dry run, print the manifest as text dump (it's the only artifact).
+        print(json.dumps(result["manifest"], indent=2))
+        return 0
+
+    score = grade(result["metrics"], args.target)
+    result["target"] = args.target
+    result["score"]  = score
+    _print_report(result, args.target, score)
+
+    if args.save:
         bucket = H.bucket_key()
         out_dir = H.RESULTS_ROOT / bucket
         out_dir.mkdir(parents=True, exist_ok=True)
@@ -172,8 +257,6 @@ def main(argv=None) -> int:
         out_path.write_text(json.dumps(result, indent=2))
         print(f"saved → {out_path.relative_to(H.REPO_ROOT)}", file=sys.stderr)
 
-    if args.dry_run:
-        return 0
     return 0 if result["correct"] else 1
 
 
