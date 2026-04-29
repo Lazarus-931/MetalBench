@@ -1,0 +1,488 @@
+// !$*UTF8*$!
+{
+	archiveVersion = 1;
+	classes = {
+	};
+	objectVersion = 63;
+	objects = {
+
+/* Begin PBXBuildFile section */
+		4A6A7B65D5F7CC3DDEFDBE3A /* main.mm in Sources */ = {isa = PBXBuildFile; fileRef = CBE4FEF4C489B1135020C8E4 /* main.mm */; };
+		617DA154C6738F8F16FD15F9 /* Metal.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = DBE64E8F4CBB98593DCE2645 /* Metal.framework */; };
+		C5120AB0C733C0DFDA34EA1F /* Foundation.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = 3E07F943E982B04F763197D0 /* Foundation.framework */; };
+		D1A4647BEEF05DDA7B668A90 /* timing.mm in Sources */ = {isa = PBXBuildFile; fileRef = 835E4B60C38122BB52CEAA25 /* timing.mm */; };
+		D630ECD34BDD2A0E54B9D8DE /* setup.cpp in Sources */ = {isa = PBXBuildFile; fileRef = 5D2A4530E6D0E23F24CFC066 /* setup.cpp */; };
+/* End PBXBuildFile section */
+
+/* Begin PBXFileReference section */
+		064E4A2187C911C6C3BB8E9A /* README.md */ = {isa = PBXFileReference; lastKnownFileType = net.daringfireball.markdown; path = README.md; sourceTree = "<group>"; };
+		15EC3B643720C5A8EAE57A71 /* sqr_mm.py */ = {isa = PBXFileReference; lastKnownFileType = text.script.python; path = sqr_mm.py; sourceTree = "<group>"; };
+		1696DC75094811F8960A2794 /* .gitkeep */ = {isa = PBXFileReference; lastKnownFileType = text; path = .gitkeep; sourceTree = "<group>"; };
+		23C4F16A5B4D5A9D8EE8E209 /* .gitkeep */ = {isa = PBXFileReference; lastKnownFileType = text; path = .gitkeep; sourceTree = "<group>"; };
+		282BF8EA150C5D3F84A4F893 /* .gitignore */ = {isa = PBXFileReference; lastKnownFileType = text; path = .gitignore; sourceTree = "<group>"; };
+		322C8F690AD8ADD91029C013 /* diff_arrays.py */ = {isa = PBXFileReference; lastKnownFileType = text.script.python; path = diff_arrays.py; sourceTree = "<group>"; };
+		3DE00B251EC3B3CA203572DC /* metalbench_host */ = {isa = PBXFileReference; includeInIndex = 0; lastKnownFileType = text; path = metalbench_host; sourceTree = BUILT_PRODUCTS_DIR; };
+		3E07F943E982B04F763197D0 /* Foundation.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = Foundation.framework; path = System/Library/Frameworks/Foundation.framework; sourceTree = SDKROOT; };
+		3F235C18F76358BE306D469A /* harness.py */ = {isa = PBXFileReference; lastKnownFileType = text.script.python; path = harness.py; sourceTree = "<group>"; };
+		4E9528D09ED392CFE83EEA8D /* setup.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; path = setup.h; sourceTree = "<group>"; };
+		587DFAF1FAE41F6F4B95E506 /* utils.metal */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.metal; path = utils.metal; sourceTree = "<group>"; };
+		5D2A4530E6D0E23F24CFC066 /* setup.cpp */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.cpp.cpp; path = setup.cpp; sourceTree = "<group>"; };
+		835E4B60C38122BB52CEAA25 /* timing.mm */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.cpp.objcpp; path = timing.mm; sourceTree = "<group>"; };
+		8E534A629CE4E243106C9600 /* batch_mm.py */ = {isa = PBXFileReference; lastKnownFileType = text.script.python; path = batch_mm.py; sourceTree = "<group>"; };
+		968917A6627E2695879B34EE /* KERNELS.md */ = {isa = PBXFileReference; lastKnownFileType = net.daringfireball.markdown; path = KERNELS.md; sourceTree = "<group>"; };
+		987AC6C7AA7AD26AB35C91BC /* requirements.txt */ = {isa = PBXFileReference; lastKnownFileType = text; path = requirements.txt; sourceTree = "<group>"; };
+		9F9647238481D80B5F892D65 /* timing.py */ = {isa = PBXFileReference; lastKnownFileType = text.script.python; path = timing.py; sourceTree = "<group>"; };
+		BDC7226AE1263B665F93E7DE /* sqr_mm.metal */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.metal; path = sqr_mm.metal; sourceTree = "<group>"; };
+		C08B1E0DCCE705695A79195E /* Makefile */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.make; path = Makefile; sourceTree = "<group>"; };
+		CBE4FEF4C489B1135020C8E4 /* main.mm */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.cpp.objcpp; path = main.mm; sourceTree = "<group>"; };
+		CE89C5456A0703E8FF7231EC /* timing.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; path = timing.h; sourceTree = "<group>"; };
+		D2608C0C6FFAA1DF1506DE23 /* .gitkeep */ = {isa = PBXFileReference; lastKnownFileType = text; path = .gitkeep; sourceTree = "<group>"; };
+		D6E5167D2FA0F80F000244B4 /* relu.py */ = {isa = PBXFileReference; lastKnownFileType = text.script.python; path = relu.py; sourceTree = "<group>"; };
+		D6E5167E2FA0F860000244B4 /* leaky_relu.py */ = {isa = PBXFileReference; lastKnownFileType = text.script.python; path = leaky_relu.py; sourceTree = "<group>"; };
+		D6E516802FA0F910000244B4 /* rect_mm.metal */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.metal; path = rect_mm.metal; sourceTree = "<group>"; };
+		D6E516812FA0F91D000244B4 /* batch_mm.metal */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.metal; path = batch_mm.metal; sourceTree = "<group>"; };
+		D6E516822FA0F925000244B4 /* relu.metal */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.metal; path = relu.metal; sourceTree = "<group>"; };
+		D6E516832FA0F92E000244B4 /* leaky_relu.metal */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.metal; path = leaky_relu.metal; sourceTree = "<group>"; };
+		A121763939874D69A803F6A1 /* sigmoid.metal */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.metal; path = sigmoid.metal; sourceTree = "<group>"; };
+		CA02192FE6F94F1C871223D5 /* swish.metal */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.metal; path = swish.metal; sourceTree = "<group>"; };
+		CE3FC1BA519447EEB246D785 /* layer_norm.metal */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.metal; path = layer_norm.metal; sourceTree = "<group>"; };
+
+		D6E516872FA0FE1F000244B4 /* sigmoid.py */ = {isa = PBXFileReference; lastKnownFileType = text.script.python; path = sigmoid.py; sourceTree = "<group>"; };
+		D6E516882FA0FE26000244B4 /* swish.py */ = {isa = PBXFileReference; lastKnownFileType = text.script.python; path = swish.py; sourceTree = "<group>"; };
+		D6E516892FA0FE51000244B4 /* layer_norm.py */ = {isa = PBXFileReference; lastKnownFileType = text.script.python; path = layer_norm.py; sourceTree = "<group>"; };
+		DAB3262E3048AEAA1A747558 /* bench */ = {isa = PBXFileReference; lastKnownFileType = text; path = bench; sourceTree = "<group>"; };
+		DBE64E8F4CBB98593DCE2645 /* Metal.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = Metal.framework; path = System/Library/Frameworks/Metal.framework; sourceTree = SDKROOT; };
+		F7B6069FDFBAFEA796F69E95 /* rect_mm.py */ = {isa = PBXFileReference; lastKnownFileType = text.script.python; path = rect_mm.py; sourceTree = "<group>"; };
+		F7FC57FEE2EC2554426D0CFB /* mlx_helpers.py */ = {isa = PBXFileReference; lastKnownFileType = text.script.python; path = mlx_helpers.py; sourceTree = "<group>"; };
+/* End PBXFileReference section */
+
+/* Begin PBXFrameworksBuildPhase section */
+		F42994CE781E3AEA026E36F2 /* Frameworks */ = {
+			isa = PBXFrameworksBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				617DA154C6738F8F16FD15F9 /* Metal.framework in Frameworks */,
+				C5120AB0C733C0DFDA34EA1F /* Foundation.framework in Frameworks */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXFrameworksBuildPhase section */
+
+/* Begin PBXGroup section */
+		0CAF74300F0CFCCBBC5536D1 /* full */ = {
+			isa = PBXGroup;
+			children = (
+			);
+			path = full;
+			sourceTree = "<group>";
+		};
+		0FAC9E1FB23491434BEAD9BE /* full */ = {
+			isa = PBXGroup;
+			children = (
+			);
+			path = full;
+			sourceTree = "<group>";
+		};
+		14C3CC15BC7E896ACF7C9768 /* standard */ = {
+			isa = PBXGroup;
+			children = (
+			);
+			path = standard;
+			sourceTree = "<group>";
+		};
+		298DFF31DEFA443F458DE373 /* mlx */ = {
+			isa = PBXGroup;
+			children = (
+				57D2EF9D89EF2FA8A9AB7FBC /* kernels */,
+			);
+			path = mlx;
+			sourceTree = "<group>";
+		};
+		2E6CFA6687745BF12E32BBE9 /* src */ = {
+			isa = PBXGroup;
+			children = (
+				B149EC2EFD594EC880624B7B /* kernels */,
+				4893AF63F0ACD493740E1617 /* metal_scripts */,
+				30A420FD60444F1619CE5B81 /* mlx_scripts */,
+			);
+			path = src;
+			sourceTree = "<group>";
+		};
+		2EACAEC7584328DE8425C69B = {
+			isa = PBXGroup;
+			children = (
+				282BF8EA150C5D3F84A4F893 /* .gitignore */,
+				DAB3262E3048AEAA1A747558 /* bench */,
+				968917A6627E2695879B34EE /* KERNELS.md */,
+				C08B1E0DCCE705695A79195E /* Makefile */,
+				064E4A2187C911C6C3BB8E9A /* README.md */,
+				987AC6C7AA7AD26AB35C91BC /* requirements.txt */,
+				9EBCB327D7383224CDFE4F99 /* harness */,
+				298DFF31DEFA443F458DE373 /* mlx */,
+				4B8FCD6E6D28234EC34D79B8 /* results */,
+				2E6CFA6687745BF12E32BBE9 /* src */,
+				62C86BDBC67A312222868B44 /* Frameworks */,
+				F762AD7396A3FD8C7C1615D3 /* Products */,
+			);
+			sourceTree = "<group>";
+		};
+		30A420FD60444F1619CE5B81 /* mlx_scripts */ = {
+			isa = PBXGroup;
+			children = (
+				322C8F690AD8ADD91029C013 /* diff_arrays.py */,
+				3F235C18F76358BE306D469A /* harness.py */,
+				F7FC57FEE2EC2554426D0CFB /* mlx_helpers.py */,
+				9F9647238481D80B5F892D65 /* timing.py */,
+			);
+			path = mlx_scripts;
+			sourceTree = "<group>";
+		};
+		4893AF63F0ACD493740E1617 /* metal_scripts */ = {
+			isa = PBXGroup;
+			children = (
+				CBE4FEF4C489B1135020C8E4 /* main.mm */,
+				5D2A4530E6D0E23F24CFC066 /* setup.cpp */,
+				4E9528D09ED392CFE83EEA8D /* setup.h */,
+				CE89C5456A0703E8FF7231EC /* timing.h */,
+				835E4B60C38122BB52CEAA25 /* timing.mm */,
+			);
+			path = metal_scripts;
+			sourceTree = "<group>";
+		};
+		4B8FCD6E6D28234EC34D79B8 /* results */ = {
+			isa = PBXGroup;
+			children = (
+				1696DC75094811F8960A2794 /* .gitkeep */,
+			);
+			path = results;
+			sourceTree = "<group>";
+		};
+		55A4543898C61AB850DDC7A2 /* common */ = {
+			isa = PBXGroup;
+			children = (
+				D6E516832FA0F92E000244B4 /* leaky_relu.metal */,
+				A121763939874D69A803F6A1 /* sigmoid.metal */,
+				CA02192FE6F94F1C871223D5 /* swish.metal */,
+				CE3FC1BA519447EEB246D785 /* layer_norm.metal */,
+				D6E516822FA0F925000244B4 /* relu.metal */,
+				D6E516812FA0F91D000244B4 /* batch_mm.metal */,
+				D6E516802FA0F910000244B4 /* rect_mm.metal */,
+				BDC7226AE1263B665F93E7DE /* sqr_mm.metal */,
+			);
+			path = common;
+			sourceTree = "<group>";
+		};
+		57D2EF9D89EF2FA8A9AB7FBC /* kernels */ = {
+			isa = PBXGroup;
+			children = (
+				23C4F16A5B4D5A9D8EE8E209 /* .gitkeep */,
+				8E6703939186E35201CB0431 /* common */,
+				0CAF74300F0CFCCBBC5536D1 /* full */,
+				EB153578DBC7C90B03DA165C /* standard */,
+			);
+			path = kernels;
+			sourceTree = "<group>";
+		};
+		62C86BDBC67A312222868B44 /* Frameworks */ = {
+			isa = PBXGroup;
+			children = (
+				3E07F943E982B04F763197D0 /* Foundation.framework */,
+				DBE64E8F4CBB98593DCE2645 /* Metal.framework */,
+			);
+			name = Frameworks;
+			sourceTree = "<group>";
+		};
+		8E6703939186E35201CB0431 /* common */ = {
+			isa = PBXGroup;
+			children = (
+				D6E516892FA0FE51000244B4 /* layer_norm.py */,
+				D6E516882FA0FE26000244B4 /* swish.py */,
+				D6E516872FA0FE1F000244B4 /* sigmoid.py */,
+				D6E5167E2FA0F860000244B4 /* leaky_relu.py */,
+				D6E5167D2FA0F80F000244B4 /* relu.py */,
+				8E534A629CE4E243106C9600 /* batch_mm.py */,
+				F7B6069FDFBAFEA796F69E95 /* rect_mm.py */,
+				15EC3B643720C5A8EAE57A71 /* sqr_mm.py */,
+			);
+			path = common;
+			sourceTree = "<group>";
+		};
+		9EBCB327D7383224CDFE4F99 /* harness */ = {
+			isa = PBXGroup;
+			children = (
+			);
+			path = harness;
+			sourceTree = "<group>";
+		};
+		B149EC2EFD594EC880624B7B /* kernels */ = {
+			isa = PBXGroup;
+			children = (
+				D2608C0C6FFAA1DF1506DE23 /* .gitkeep */,
+				55A4543898C61AB850DDC7A2 /* common */,
+				0FAC9E1FB23491434BEAD9BE /* full */,
+				14C3CC15BC7E896ACF7C9768 /* standard */,
+				EDAD7E220C524EA18CE52ECB /* utils */,
+			);
+			path = kernels;
+			sourceTree = "<group>";
+		};
+		EB153578DBC7C90B03DA165C /* standard */ = {
+			isa = PBXGroup;
+			children = (
+			);
+			path = standard;
+			sourceTree = "<group>";
+		};
+		EDAD7E220C524EA18CE52ECB /* utils */ = {
+			isa = PBXGroup;
+			children = (
+				587DFAF1FAE41F6F4B95E506 /* utils.metal */,
+			);
+			path = utils;
+			sourceTree = "<group>";
+		};
+		F762AD7396A3FD8C7C1615D3 /* Products */ = {
+			isa = PBXGroup;
+			children = (
+				3DE00B251EC3B3CA203572DC /* metalbench_host */,
+			);
+			name = Products;
+			sourceTree = "<group>";
+		};
+/* End PBXGroup section */
+
+/* Begin PBXNativeTarget section */
+		E095FB16196479FAFDDF8155 /* metalbench_host */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = 84B4FDB537B3C14B7EAB5FD7 /* Build configuration list for PBXNativeTarget "metalbench_host" */;
+			buildPhases = (
+				4F6919116DE939AACE95C617 /* Sources */,
+				F42994CE781E3AEA026E36F2 /* Frameworks */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+			);
+			name = metalbench_host;
+			packageProductDependencies = (
+			);
+			productName = metalbench_host;
+			productReference = 3DE00B251EC3B3CA203572DC /* metalbench_host */;
+			productType = "com.apple.product-type.tool";
+		};
+/* End PBXNativeTarget section */
+
+/* Begin PBXProject section */
+		9A61D07F7331D51497AECA9C /* Project object */ = {
+			isa = PBXProject;
+			attributes = {
+				BuildIndependentTargetsInParallel = YES;
+				LastUpgradeCheck = 1430;
+			};
+			buildConfigurationList = A57FB82D7B3948E397B3D420 /* Build configuration list for PBXProject "MetalBench" */;
+			compatibilityVersion = "Xcode 14.0";
+			developmentRegion = en;
+			hasScannedForEncodings = 0;
+			knownRegions = (
+				Base,
+				en,
+			);
+			mainGroup = 2EACAEC7584328DE8425C69B;
+			minimizedProjectReferenceProxies = 1;
+			projectDirPath = "";
+			projectRoot = "";
+			targets = (
+				E095FB16196479FAFDDF8155 /* metalbench_host */,
+			);
+		};
+/* End PBXProject section */
+
+/* Begin PBXSourcesBuildPhase section */
+		4F6919116DE939AACE95C617 /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				4A6A7B65D5F7CC3DDEFDBE3A /* main.mm in Sources */,
+				D630ECD34BDD2A0E54B9D8DE /* setup.cpp in Sources */,
+				D1A4647BEEF05DDA7B668A90 /* timing.mm in Sources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXSourcesBuildPhase section */
+
+/* Begin XCBuildConfiguration section */
+		0AE32E9FA0C29FEDB99F0758 /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				COMBINE_HIDPI_IMAGES = YES;
+				EXECUTABLE_NAME = metalbench_host;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/../Frameworks",
+				);
+				PRODUCT_BUNDLE_IDENTIFIER = "com.metalbench.metalbench-host";
+				PRODUCT_NAME = metalbench_host;
+				SDKROOT = macosx;
+			};
+			name = Debug;
+		};
+		3374A41ABB0BCB9EDD6BE22F /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ALWAYS_SEARCH_USER_PATHS = NO;
+				CLANG_ANALYZER_NONNULL = YES;
+				CLANG_ANALYZER_NUMBER_OBJECT_CONVERSION = YES_AGGRESSIVE;
+				CLANG_CXX_LANGUAGE_STANDARD = "c++17";
+				CLANG_CXX_LIBRARY = "libc++";
+				CLANG_ENABLE_MODULES = YES;
+				CLANG_ENABLE_OBJC_ARC = YES;
+				CLANG_ENABLE_OBJC_WEAK = YES;
+				CLANG_WARN_BLOCK_CAPTURE_AUTORELEASING = YES;
+				CLANG_WARN_BOOL_CONVERSION = YES;
+				CLANG_WARN_COMMA = YES;
+				CLANG_WARN_CONSTANT_CONVERSION = YES;
+				CLANG_WARN_DEPRECATED_OBJC_IMPLEMENTATIONS = YES;
+				CLANG_WARN_DIRECT_OBJC_ISA_USAGE = YES_ERROR;
+				CLANG_WARN_DOCUMENTATION_COMMENTS = YES;
+				CLANG_WARN_EMPTY_BODY = YES;
+				CLANG_WARN_ENUM_CONVERSION = YES;
+				CLANG_WARN_INFINITE_RECURSION = YES;
+				CLANG_WARN_INT_CONVERSION = YES;
+				CLANG_WARN_NON_LITERAL_NULL_CONVERSION = YES;
+				CLANG_WARN_OBJC_IMPLICIT_RETAIN_SELF = YES;
+				CLANG_WARN_OBJC_LITERAL_CONVERSION = YES;
+				CLANG_WARN_OBJC_ROOT_CLASS = YES_ERROR;
+				CLANG_WARN_QUOTED_INCLUDE_IN_FRAMEWORK_HEADER = YES;
+				CLANG_WARN_RANGE_LOOP_ANALYSIS = YES;
+				CLANG_WARN_STRICT_PROTOTYPES = YES;
+				CLANG_WARN_SUSPICIOUS_MOVE = YES;
+				CLANG_WARN_UNGUARDED_AVAILABILITY = YES_AGGRESSIVE;
+				CLANG_WARN_UNREACHABLE_CODE = YES;
+				CLANG_WARN__DUPLICATE_METHOD_MATCH = YES;
+				COPY_PHASE_STRIP = NO;
+				DEBUG_INFORMATION_FORMAT = dwarf;
+				ENABLE_STRICT_OBJC_MSGSEND = YES;
+				ENABLE_TESTABILITY = YES;
+				GCC_C_LANGUAGE_STANDARD = gnu11;
+				GCC_DYNAMIC_NO_PIC = NO;
+				GCC_NO_COMMON_BLOCKS = YES;
+				GCC_OPTIMIZATION_LEVEL = 2;
+				GCC_PREPROCESSOR_DEFINITIONS = (
+					"$(inherited)",
+					"DEBUG=1",
+				);
+				GCC_WARN_64_TO_32_BIT_CONVERSION = YES;
+				GCC_WARN_ABOUT_RETURN_TYPE = YES_ERROR;
+				GCC_WARN_UNDECLARED_SELECTOR = YES;
+				GCC_WARN_UNINITIALIZED_AUTOS = YES_AGGRESSIVE;
+				GCC_WARN_UNUSED_FUNCTION = YES;
+				GCC_WARN_UNUSED_VARIABLE = YES;
+				MACOSX_DEPLOYMENT_TARGET = 13.0;
+				MTL_ENABLE_DEBUG_INFO = INCLUDE_SOURCE;
+				MTL_FAST_MATH = YES;
+				ONLY_ACTIVE_ARCH = YES;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SDKROOT = macosx;
+				SWIFT_ACTIVE_COMPILATION_CONDITIONS = DEBUG;
+				SWIFT_OPTIMIZATION_LEVEL = "-Onone";
+				SWIFT_VERSION = 5.0;
+			};
+			name = Debug;
+		};
+		A5D1F29E0362DA257F2D96B9 /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ALWAYS_SEARCH_USER_PATHS = NO;
+				CLANG_ANALYZER_NONNULL = YES;
+				CLANG_ANALYZER_NUMBER_OBJECT_CONVERSION = YES_AGGRESSIVE;
+				CLANG_CXX_LANGUAGE_STANDARD = "c++17";
+				CLANG_CXX_LIBRARY = "libc++";
+				CLANG_ENABLE_MODULES = YES;
+				CLANG_ENABLE_OBJC_ARC = YES;
+				CLANG_ENABLE_OBJC_WEAK = YES;
+				CLANG_WARN_BLOCK_CAPTURE_AUTORELEASING = YES;
+				CLANG_WARN_BOOL_CONVERSION = YES;
+				CLANG_WARN_COMMA = YES;
+				CLANG_WARN_CONSTANT_CONVERSION = YES;
+				CLANG_WARN_DEPRECATED_OBJC_IMPLEMENTATIONS = YES;
+				CLANG_WARN_DIRECT_OBJC_ISA_USAGE = YES_ERROR;
+				CLANG_WARN_DOCUMENTATION_COMMENTS = YES;
+				CLANG_WARN_EMPTY_BODY = YES;
+				CLANG_WARN_ENUM_CONVERSION = YES;
+				CLANG_WARN_INFINITE_RECURSION = YES;
+				CLANG_WARN_INT_CONVERSION = YES;
+				CLANG_WARN_NON_LITERAL_NULL_CONVERSION = YES;
+				CLANG_WARN_OBJC_IMPLICIT_RETAIN_SELF = YES;
+				CLANG_WARN_OBJC_LITERAL_CONVERSION = YES;
+				CLANG_WARN_OBJC_ROOT_CLASS = YES_ERROR;
+				CLANG_WARN_QUOTED_INCLUDE_IN_FRAMEWORK_HEADER = YES;
+				CLANG_WARN_RANGE_LOOP_ANALYSIS = YES;
+				CLANG_WARN_STRICT_PROTOTYPES = YES;
+				CLANG_WARN_SUSPICIOUS_MOVE = YES;
+				CLANG_WARN_UNGUARDED_AVAILABILITY = YES_AGGRESSIVE;
+				CLANG_WARN_UNREACHABLE_CODE = YES;
+				CLANG_WARN__DUPLICATE_METHOD_MATCH = YES;
+				COPY_PHASE_STRIP = NO;
+				DEBUG_INFORMATION_FORMAT = "dwarf-with-dsym";
+				ENABLE_NS_ASSERTIONS = NO;
+				ENABLE_STRICT_OBJC_MSGSEND = YES;
+				GCC_C_LANGUAGE_STANDARD = gnu11;
+				GCC_NO_COMMON_BLOCKS = YES;
+				GCC_OPTIMIZATION_LEVEL = 2;
+				GCC_WARN_64_TO_32_BIT_CONVERSION = YES;
+				GCC_WARN_ABOUT_RETURN_TYPE = YES_ERROR;
+				GCC_WARN_UNDECLARED_SELECTOR = YES;
+				GCC_WARN_UNINITIALIZED_AUTOS = YES_AGGRESSIVE;
+				GCC_WARN_UNUSED_FUNCTION = YES;
+				GCC_WARN_UNUSED_VARIABLE = YES;
+				MACOSX_DEPLOYMENT_TARGET = 13.0;
+				MTL_ENABLE_DEBUG_INFO = NO;
+				MTL_FAST_MATH = YES;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SDKROOT = macosx;
+				SWIFT_COMPILATION_MODE = wholemodule;
+				SWIFT_OPTIMIZATION_LEVEL = "-O";
+				SWIFT_VERSION = 5.0;
+			};
+			name = Release;
+		};
+		A95E841943A268EBAABBB35C /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				COMBINE_HIDPI_IMAGES = YES;
+				EXECUTABLE_NAME = metalbench_host;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/../Frameworks",
+				);
+				PRODUCT_BUNDLE_IDENTIFIER = "com.metalbench.metalbench-host";
+				PRODUCT_NAME = metalbench_host;
+				SDKROOT = macosx;
+			};
+			name = Release;
+		};
+/* End XCBuildConfiguration section */
+
+/* Begin XCConfigurationList section */
+		84B4FDB537B3C14B7EAB5FD7 /* Build configuration list for PBXNativeTarget "metalbench_host" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				0AE32E9FA0C29FEDB99F0758 /* Debug */,
+				A95E841943A268EBAABBB35C /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Debug;
+		};
+		A57FB82D7B3948E397B3D420 /* Build configuration list for PBXProject "MetalBench" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				3374A41ABB0BCB9EDD6BE22F /* Debug */,
+				A5D1F29E0362DA257F2D96B9 /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Debug;
+		};
+/* End XCConfigurationList section */
+	};
+	rootObject = 9A61D07F7331D51497AECA9C /* Project object */;
+}
