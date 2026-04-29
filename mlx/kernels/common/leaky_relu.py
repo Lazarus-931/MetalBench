@@ -1,36 +1,22 @@
-import mlx
 import mlx.core as mx
+from mlx import nn
+
 
 class Model(nn.Module):
-    """
-    Simple model that performs a LeakyReLU activation.
-    """
+    """LeakyReLU activation: out = x if x > 0 else negative_slope * x."""
     def __init__(self, negative_slope: float = 0.01):
-        """
-        Initializes the LeakyReLU module.
-
-        Args:
-            negative_slope (float, optional): The negative slope of the activation function. Defaults to 0.01.
-        """
         super(Model, self).__init__()
         self.negative_slope = negative_slope
-    
+
     def forward(self, x: mx.array) -> mx.array:
-        """
-        Applies LeakyReLU activation to the input array.
+        """Applies LeakyReLU activation element-wise."""
+        return mx.maximum(x, 0.0) + self.negative_slope * mx.minimum(x, 0.0)
 
-        Args:
-            x (mx.array): Input array of any shape.
-
-        Returns:
-            mx.array: Output array with LeakyReLU applied, same shape as input.
-        """
-        return mx.nn.leaky_relu(x, negative_slope=self.negative_slope)
-
-batch_size = 16
-dim = 16384
 
 def get_inputs():
-    x = mx.randn(batch_size, dim)
+    x = mx.random.normal((16, 16384), dtype=mx.float32)
     return [x]
 
+
+def get_init_inputs():
+    return []

@@ -63,6 +63,54 @@
       "metal_source_path": "src/kernels/common/relu.metal",
       "metal_source": "// relu: out = max(x, 0). 1024 thr/tg, float4 vectorized, grid-stride loop.\n#include <metal_stdlib>\nusing namespace metal;\n\nkernel void relu_f32(\n    device const float*  x         [[buffer(0)]],\n    device       float*  y         [[buffer(1)]],\n    constant     uint&   N         [[buffer(2)]],\n    constant     uint&   grid_size [[buffer(3)]],\n    uint  tid                     [[thread_position_in_grid]])\n{\n    const uint n4 = N / 4;\n    for (uint i = tid; i < n4; i += grid_size) {\n        float4 v = *reinterpret_cast<const device float4*>(&x[i * 4]);\n        v = fmax(v, 0.0f);\n        *reinterpret_cast<device float4*>(&y[i * 4]) = v;\n    }\n    // Tail: scalar cleanup for remaining elements.\n    for (uint i = n4 * 4 + tid; i < N; i += grid_size) {\n        float v = x[i];\n        y[i] = fmax(v, 0.0f);\n    }\n}\n",
       "updated_at": "2026-04-29T20:42:35+00:00"
+    },
+    "sigmoid": {
+      "best_time_ms": 0.019917,
+      "speedup_vs_mlx": 12.177588003737359,
+      "gflops": 52.647286237887236,
+      "gbps": 105.29457247577447,
+      "arith_intensity": 0.5,
+      "stability": 0.998796449526102,
+      "tg_static_mem_bytes": 0,
+      "pso_max_threads_per_tg": 1024,
+      "iters": 100,
+      "target": "speed",
+      "max_err": 1.1920928955078125e-07,
+      "metal_source_path": "src/kernels/common/sigmoid.metal",
+      "metal_source": "// sigmoid: out = 1 / (1 + exp(-x)). 1024 thr/tg, float4, grid-stride.\n#include <metal_stdlib>\nusing namespace metal;\n\nkernel void sigmoid_f32(\n    device const float*  x         [[buffer(0)]],\n    device       float*  y         [[buffer(1)]],\n    constant     uint&   N         [[buffer(2)]],\n    constant     uint&   grid_size [[buffer(3)]],\n    uint  tid                     [[thread_position_in_grid]])\n{\n    const uint n4 = N / 4;\n    for (uint i = tid; i < n4; i += grid_size) {\n        float4 v = *reinterpret_cast<const device float4*>(&x[i * 4]);\n        v = 1.0f / (1.0f + exp(-v));\n        *reinterpret_cast<device float4*>(&y[i * 4]) = v;\n    }\n    for (uint i = n4 * 4 + tid; i < N; i += grid_size) {\n        float v = x[i];\n        y[i] = 1.0f / (1.0f + exp(-v));\n    }\n}\n",
+      "updated_at": "2026-04-29T21:11:51+00:00"
+    },
+    "swish": {
+      "best_time_ms": 0.019917,
+      "speedup_vs_mlx": 13.217350366382874,
+      "gflops": 65.80910779735903,
+      "gbps": 105.29457247577447,
+      "arith_intensity": 0.625,
+      "stability": 0.9936639393334664,
+      "tg_static_mem_bytes": 0,
+      "pso_max_threads_per_tg": 1024,
+      "iters": 100,
+      "target": "speed",
+      "max_err": 4.76837158203125e-07,
+      "metal_source_path": "src/kernels/common/swish.metal",
+      "metal_source": "// swish: out = x * sigmoid(x) = x / (1 + exp(-x)). 1024 thr/tg, float4.\n#include <metal_stdlib>\nusing namespace metal;\n\nkernel void swish_f32(\n    device const float*  x         [[buffer(0)]],\n    device       float*  y         [[buffer(1)]],\n    constant     uint&   N         [[buffer(2)]],\n    constant     uint&   grid_size [[buffer(3)]],\n    uint  tid                     [[thread_position_in_grid]])\n{\n    const uint n4 = N / 4;\n    for (uint i = tid; i < n4; i += grid_size) {\n        float4 v = *reinterpret_cast<const device float4*>(&x[i * 4]);\n        v = v / (1.0f + exp(-v));\n        *reinterpret_cast<device float4*>(&y[i * 4]) = v;\n    }\n    for (uint i = n4 * 4 + tid; i < N; i += grid_size) {\n        float v = x[i];\n        y[i] = v / (1.0f + exp(-v));\n    }\n}\n",
+      "updated_at": "2026-04-29T21:11:53+00:00"
+    },
+    "leaky_relu": {
+      "best_time_ms": 0.019792,
+      "speedup_vs_mlx": 13.625051162944219,
+      "gflops": 39.73484236054972,
+      "gbps": 105.95957962813259,
+      "arith_intensity": 0.375,
+      "stability": 0.9976812178647041,
+      "tg_static_mem_bytes": 0,
+      "pso_max_threads_per_tg": 1024,
+      "iters": 100,
+      "target": "speed",
+      "max_err": 0.0,
+      "metal_source_path": "src/kernels/common/leaky_relu.metal",
+      "metal_source": "// leaky_relu: out = max(x, 0) + slope * min(x, 0). 1024 thr/tg, float4.\n#include <metal_stdlib>\nusing namespace metal;\n\nkernel void leaky_relu_f32(\n    device const float*  x         [[buffer(0)]],\n    device       float*  y         [[buffer(1)]],\n    constant     uint&   N         [[buffer(2)]],\n    constant     uint&   grid_size [[buffer(3)]],\n    constant     float&  slope     [[buffer(4)]],\n    uint  tid                     [[thread_position_in_grid]])\n{\n    const uint n4 = N / 4;\n    for (uint i = tid; i < n4; i += grid_size) {\n        float4 v = *reinterpret_cast<const device float4*>(&x[i * 4]);\n        v = fmax(v, 0.0f) + slope * fmin(v, 0.0f);\n        *reinterpret_cast<device float4*>(&y[i * 4]) = v;\n    }\n    for (uint i = n4 * 4 + tid; i < N; i += grid_size) {\n        float v = x[i];\n        y[i] = fmax(v, 0.0f) + slope * fmin(v, 0.0f);\n    }\n}\n",
+      "updated_at": "2026-04-29T21:11:54+00:00"
     }
   }
 }
