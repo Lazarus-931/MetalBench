@@ -1,5 +1,5 @@
 // rect_matmul: C = A @ B  (M×K @ K×N → M×N f32).
-// 64×64 tile, 256 thr, BK=16, double-buffered, float4 loads.
+// 64×64 tile, 256 thr (8 simdgroups 4×2), BK=16, double-buffered.
 #include <metal_stdlib>
 #include <metal_simdgroup>
 #include <metal_simdgroup_matrix>
@@ -10,9 +10,9 @@ constant constexpr uint BN           = 64;
 constant constexpr uint BK           = 16;
 constant constexpr uint SM           = 16;
 constant constexpr uint SN           = 32;
-constant constexpr uint SIMDS_N      = BN / SN;             // 2
-constant constexpr uint MMA_M        = SM / 8;              // 2
-constant constexpr uint MMA_N        = SN / 8;              // 4
+constant constexpr uint SIMDS_N      = BN / SN;
+constant constexpr uint MMA_M        = SM / 8;
+constant constexpr uint MMA_N        = SN / 8;
 
 kernel void rect_matmul_f32(
     device const float* A   [[buffer(0)]],
