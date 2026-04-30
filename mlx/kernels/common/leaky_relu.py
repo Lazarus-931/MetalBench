@@ -1,4 +1,5 @@
 import mlx.core as mx
+from mlx import nn
 
 from mlx_helpers import Output, Scalar, element_wise_spec
 
@@ -14,6 +15,14 @@ class Model(nn.Module):
 
 N_el = 16 * 16384
 globals().update(element_wise_spec("leaky_relu_f32", N_el, flops_mul=3))
+
+# Override scalars to include negative_slope
+def scalars(inputs):
+    return [
+        Scalar(binding=2, dtype="u32", value=N_el),
+        Scalar(binding=3, dtype="u32", value=64 * 1024),
+        Scalar(binding=4, dtype="f32", value=0.01),
+    ]
 
 
 def get_inputs():

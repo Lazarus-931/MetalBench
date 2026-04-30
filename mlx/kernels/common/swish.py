@@ -1,4 +1,5 @@
 import mlx.core as mx
+from mlx import nn
 
 from mlx_helpers import Output, Scalar, element_wise_spec
 

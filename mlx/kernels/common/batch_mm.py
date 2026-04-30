@@ -12,13 +12,13 @@ class Model(nn.Module):
         return mx.matmul(A, B)
 
 
-B, M, K, N = 128, 128, 256, 512
-globals().update(batched_matmul_spec("batch_matmul_f32", B, M, N, K))
+batch, M, K, N = 128, 128, 256, 512
+globals().update(batched_matmul_spec("batch_matmul_f32", batch, M, N, K))
 
 
 def get_inputs():
-    A = mx.random.normal((B, M, K), dtype=mx.float32)
-    B = mx.random.normal((B, K, N), dtype=mx.float32)
+    A = mx.random.normal((batch, M, K), dtype=mx.float32)
+    B = mx.random.normal((batch, K, N), dtype=mx.float32)
     return [A, B]
 
 

@@ -65,36 +65,36 @@
       "updated_at": "2026-04-29T21:29:36+00:00"
     },
     "sigmoid": {
-      "best_time_ms": 0.019917,
-      "speedup_vs_mlx": 12.177588003737359,
-      "gflops": 52.647286237887236,
-      "gbps": 105.29457247577447,
+      "best_time_ms": 0.019875,
+      "speedup_vs_mlx": 12.241104770006624,
+      "gflops": 52.75854088050313,
+      "gbps": 105.51708176100627,
       "arith_intensity": 0.5,
-      "stability": 0.998796449526102,
+      "stability": 0.9964403890504363,
       "tg_static_mem_bytes": 0,
       "pso_max_threads_per_tg": 1024,
-      "iters": 100,
+      "iters": 50,
       "target": "speed",
       "max_err": 1.1920928955078125e-07,
       "metal_source_path": "src/kernels/common/sigmoid.metal",
       "metal_source": "// sigmoid: out = 1 / (1 + exp(-x)). 1024 thr/tg, float4, grid-stride.\n#include <metal_stdlib>\nusing namespace metal;\n\nkernel void sigmoid_f32(\n    device const float*  x         [[buffer(0)]],\n    device       float*  y         [[buffer(1)]],\n    constant     uint&   N         [[buffer(2)]],\n    constant     uint&   grid_size [[buffer(3)]],\n    uint  tid                     [[thread_position_in_grid]])\n{\n    const uint n4 = N / 4;\n    for (uint i = tid; i < n4; i += grid_size) {\n        float4 v = *reinterpret_cast<const device float4*>(&x[i * 4]);\n        v = 1.0f / (1.0f + exp(-v));\n        *reinterpret_cast<device float4*>(&y[i * 4]) = v;\n    }\n    for (uint i = n4 * 4 + tid; i < N; i += grid_size) {\n        float v = x[i];\n        y[i] = 1.0f / (1.0f + exp(-v));\n    }\n}\n",
-      "updated_at": "2026-04-29T21:11:51+00:00"
+      "updated_at": "2026-04-30T02:45:21+00:00"
     },
     "swish": {
-      "best_time_ms": 0.019917,
-      "speedup_vs_mlx": 13.217350366382874,
-      "gflops": 65.80910779735903,
-      "gbps": 105.29457247577447,
+      "best_time_ms": 0.019875,
+      "speedup_vs_mlx": 12.591197126129138,
+      "gflops": 65.94817610062893,
+      "gbps": 105.51708176100627,
       "arith_intensity": 0.625,
-      "stability": 0.9936639393334664,
+      "stability": 0.9999496880660093,
       "tg_static_mem_bytes": 0,
       "pso_max_threads_per_tg": 1024,
-      "iters": 100,
+      "iters": 50,
       "target": "speed",
       "max_err": 4.76837158203125e-07,
       "metal_source_path": "src/kernels/common/swish.metal",
       "metal_source": "// swish: out = x * sigmoid(x) = x / (1 + exp(-x)). 1024 thr/tg, float4.\n#include <metal_stdlib>\nusing namespace metal;\n\nkernel void swish_f32(\n    device const float*  x         [[buffer(0)]],\n    device       float*  y         [[buffer(1)]],\n    constant     uint&   N         [[buffer(2)]],\n    constant     uint&   grid_size [[buffer(3)]],\n    uint  tid                     [[thread_position_in_grid]])\n{\n    const uint n4 = N / 4;\n    for (uint i = tid; i < n4; i += grid_size) {\n        float4 v = *reinterpret_cast<const device float4*>(&x[i * 4]);\n        v = v / (1.0f + exp(-v));\n        *reinterpret_cast<device float4*>(&y[i * 4]) = v;\n    }\n    for (uint i = n4 * 4 + tid; i < N; i += grid_size) {\n        float v = x[i];\n        y[i] = v / (1.0f + exp(-v));\n    }\n}\n",
-      "updated_at": "2026-04-29T21:11:53+00:00"
+      "updated_at": "2026-04-30T02:45:23+00:00"
     },
     "leaky_relu": {
       "best_time_ms": 0.019792,
@@ -113,20 +113,20 @@
       "updated_at": "2026-04-29T21:11:54+00:00"
     },
     "layer_norm": {
-      "best_time_ms": 0.192375,
-      "speedup_vs_mlx": 2.137315111589401,
-      "gflops": 38.1548122157245,
-      "gbps": 43.605499675113705,
+      "best_time_ms": 0.190625,
+      "speedup_vs_mlx": 2.060107520369233,
+      "gflops": 38.50508590163935,
+      "gbps": 44.0058124590164,
       "arith_intensity": 0.875,
-      "stability": 0.8964602924592485,
+      "stability": 0.99728476959779,
       "tg_static_mem_bytes": 256,
       "pso_max_threads_per_tg": 1024,
-      "iters": 20,
+      "iters": 50,
       "target": "speed",
       "max_err": 7.152557373046875e-07,
       "metal_source_path": "src/kernels/common/layer_norm.metal",
       "metal_source": "// layer_norm: y = (x - mean) * rsqrt(var + eps) per row.\n// 1024 thr/tg. Simdgroup reduction (fast) + tg reduction (5 steps).\n#include <metal_stdlib>\nusing namespace metal;\n\nkernel void layer_norm_f32(\n    device const float*  x       [[buffer(0)]],\n    device       float*  y       [[buffer(1)]],\n    constant     uint&   N       [[buffer(2)]],\n    constant     float&  eps     [[buffer(3)]],\n    uint3 tid                   [[thread_position_in_threadgroup]],\n    uint3 tgid                  [[threadgroup_position_in_grid]])\n{\n    const uint t = tid.x;\n    const uint row = tgid.y;\n    const uint off = row * N;\n\n    float val = x[off + t];\n    float s2  = val * val;\n\n    // Simdgroup reduction: 32 threads \u2192 1 partial sum.\n    float sum   = simd_sum(val);\n    float sumsq = simd_sum(s2);\n\n    // Threadgroup reduction across simdgroups (32 partial sums left).\n    // Each simdgroup's first thread (t % 32 == 0) writes its partial sum.\n    threadgroup float tg_sum[32];\n    threadgroup float tg_sumsq[32];\n    const uint sg = t >> 5;\n    if ((t & 31) == 0) {\n        tg_sum[sg]   = sum;\n        tg_sumsq[sg] = sumsq;\n    }\n    threadgroup_barrier(mem_flags::mem_threadgroup);\n\n    // First 32 threads reduce across simdgroups.\n    if (t < 32) {\n        sum   = tg_sum[t];\n        sumsq = tg_sumsq[t];\n        for (uint s = 16; s > 0; s >>= 1) {\n            sum   += simd_shuffle_down(sum,   s);\n            sumsq += simd_shuffle_down(sumsq, s);\n        }\n    }\n\n    // Broadcast results to all threads via threadgroup memory.\n    if (t < 32) {\n        tg_sum[t] = sum;\n    }\n    threadgroup_barrier(mem_flags::mem_threadgroup);\n    sum   = tg_sum[0]; // actually sum is the combined sum\n    // Wait, sum from simd_shuffle_down at t=0 is the total sum.\n    // But only thread 0 has the correct total. We need to broadcast.\n\n    // Simpler: broadcast via tg memory.\n    if (t == 0) {\n        tg_sum[0] = sum;\n        tg_sumsq[0] = sumsq;\n    }\n    threadgroup_barrier(mem_flags::mem_threadgroup);\n\n    float mean = tg_sum[0] / float(N);\n    float var  = max(tg_sumsq[0] / float(N) - mean * mean, 0.0f);\n    float inv_std = rsqrt(var + eps);\n\n    y[off + t] = (val - mean) * inv_std;\n}\n",
-      "updated_at": "2026-04-30T02:39:22+00:00"
+      "updated_at": "2026-04-30T02:41:04+00:00"
     },
     "gelu": {
       "best_time_ms": 0.019958,
@@ -145,20 +145,20 @@
       "updated_at": "2026-04-30T01:59:25+00:00"
     },
     "selu": {
-      "best_time_ms": 0.019792,
-      "speedup_vs_mlx": 10.513541120779832,
-      "gflops": 66.22473726758287,
-      "gbps": 105.95957962813259,
+      "best_time_ms": 0.01975,
+      "speedup_vs_mlx": 12.10546639712551,
+      "gflops": 66.36556962025317,
+      "gbps": 106.18491139240507,
       "arith_intensity": 0.625,
-      "stability": 0.9093498736503561,
+      "stability": 0.9956142561879316,
       "tg_static_mem_bytes": 0,
       "pso_max_threads_per_tg": 1024,
-      "iters": 100,
+      "iters": 50,
       "target": "speed",
       "max_err": 5.7220458984375e-06,
       "metal_source_path": "src/kernels/common/selu.metal",
       "metal_source": "// selu: scale * (max(x,0) + alpha * min(exp(x)-1, 0)).\n#include <metal_stdlib>\nusing namespace metal;\n\nconstant constexpr float selu_scale = 1.05070098f;\nconstant constexpr float selu_alpha = 1.67326324f;\n\nkernel void selu_f32(\n    device const float*  x         [[buffer(0)]],\n    device       float*  y         [[buffer(1)]],\n    constant     uint&   N         [[buffer(2)]],\n    constant     uint&   grid_size [[buffer(3)]],\n    uint  tid                     [[thread_position_in_grid]])\n{\n    const uint n4 = N / 4;\n    for (uint i = tid; i < n4; i += grid_size) {\n        float4 v = *(reinterpret_cast<const device float4*>(&x[i * 4]));\n        v = selu_scale * (fmax(v, 0.0f) + selu_alpha * fmin(exp(v) - 1.0f, 0.0f));\n        *(reinterpret_cast<device float4*>(&y[i * 4])) = v;\n    }\n    for (uint i = n4 * 4 + tid; i < N; i += grid_size) {\n        float v = x[i];\n        y[i] = selu_scale * (fmax(v, 0.0f) + selu_alpha * fmin(exp(v) - 1.0f, 0.0f));\n    }\n}\n",
-      "updated_at": "2026-04-30T01:59:26+00:00"
+      "updated_at": "2026-04-30T02:41:01+00:00"
     },
     "logsigmoid": {
       "best_time_ms": 0.020708,
@@ -177,20 +177,20 @@
       "updated_at": "2026-04-30T01:59:28+00:00"
     },
     "hardsigmoid": {
-      "best_time_ms": 0.01975,
-      "speedup_vs_mlx": 12.122380511858795,
-      "gflops": 66.36556962025317,
-      "gbps": 106.18491139240507,
-      "arith_intensity": 0.625,
-      "stability": 0.997970573313039,
+      "best_time_ms": 0.019708,
+      "speedup_vs_mlx": 14.835345306096707,
+      "gflops": 39.90420133955754,
+      "gbps": 106.41120357215344,
+      "arith_intensity": 0.375,
+      "stability": 0.999898528665652,
       "tg_static_mem_bytes": 0,
       "pso_max_threads_per_tg": 1024,
-      "iters": 100,
+      "iters": 50,
       "target": "speed",
       "max_err": 5.960464477539063e-08,
       "metal_source_path": "src/kernels/common/hardsigmoid.metal",
       "metal_source": "// hardsigmoid: clamp(x/6 + 0.5, 0, 1).\n#include <metal_stdlib>\nusing namespace metal;\n\nkernel void hardsigmoid_f32(\n    device const float*  x         [[buffer(0)]],\n    device       float*  y         [[buffer(1)]],\n    constant     uint&   N         [[buffer(2)]],\n    constant     uint&   grid_size [[buffer(3)]],\n    uint  tid                     [[thread_position_in_grid]])\n{\n    const uint n4 = N / 4;\n    for (uint i = tid; i < n4; i += grid_size) {\n        float4 v = *(reinterpret_cast<const device float4*>(&x[i * 4]));\n        v = clamp(v / 6.0f + 0.5f, 0.0f, 1.0f);\n        *(reinterpret_cast<device float4*>(&y[i * 4])) = v;\n    }\n    for (uint i = n4 * 4 + tid; i < N; i += grid_size) {\n        y[i] = clamp(x[i] / 6.0f + 0.5f, 0.0f, 1.0f);\n    }\n}\n",
-      "updated_at": "2026-04-30T01:59:29+00:00"
+      "updated_at": "2026-04-30T02:45:24+00:00"
     }
   }
 }

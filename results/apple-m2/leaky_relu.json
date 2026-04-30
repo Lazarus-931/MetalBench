@@ -13,13 +13,13 @@
   "pso_max_threads_per_tg": 1024,
   "correct": true,
   "metrics": {
-    "speedup": 13.625051162944219,
+    "speedup": 13.905063774263548,
     "gflops": 39.73484236054972,
     "gbps": 105.95957962813259,
     "arith_intensity": 0.375,
-    "stability": 0.9976812178647041
+    "stability": 0.9994944899403498
   },
-  "speedup": 13.625051162944219,
+  "speedup": 13.905063774263548,
   "kernel_timing": {
     "chip": {
       "type": "m2",
@@ -34,14 +34,14 @@
     "pso_max_threads_per_tg": 1024,
     "min_ms": 0.019375,
     "median_ms": 0.019792,
-    "mean_ms": 0.019838,
-    "iters": 100
+    "mean_ms": 0.019782,
+    "iters": 30
   },
   "reference_timing": {
-    "min_ms": 0.23962499108165503,
-    "median_ms": 0.269667012616992,
-    "mean_ms": 0.27523490716703236,
-    "iters": 100,
+    "min_ms": 0.25337497936561704,
+    "median_ms": 0.27520902222022414,
+    "mean_ms": 0.2770708641037345,
+    "iters": 30,
     "peak_memory_bytes": 7340072
   },
   "outputs": [
@@ -51,5 +51,5 @@
     }
   ],
   "target": "speed",
-  "score": 13.625051162944219
+  "score": 13.905063774263548
 }
