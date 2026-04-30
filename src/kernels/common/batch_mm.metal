@@ -31,14 +31,8 @@ kernel void batch_matmul_f32(
     const uint rows_per_batch = M / BM;
     const uint batch = tgid.y / rows_per_batch;
     const uint c_row0 = (tgid.y % rows_per_batch) * BM;
-
-    const uint stride_a = M * K;
-    const uint stride_b = K * N;
-    const uint stride_c = M * N;
-
-    A += batch * stride_a;
-    B += batch * stride_b;
-    C += batch * stride_c;
+    const uint stride_a = M * K, stride_b = K * N, stride_c = M * N;
+    A += batch * stride_a; B += batch * stride_b; C += batch * stride_c;
 
     threadgroup float As[2][BM * LDA];
     threadgroup float Bs[2][BK * LDB];

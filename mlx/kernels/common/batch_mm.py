@@ -13,7 +13,7 @@ class Model(nn.Module):
 
 
 batch, M, K, N = 128, 128, 256, 512
-globals().update(batched_matmul_spec("batch_matmul_f32", batch, M, N, K))
+globals().update(batched_matmul_spec("batch_matmul_f32", batch, M, N, K, BK=16))
 
 
 def get_inputs():
