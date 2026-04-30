@@ -125,3 +125,22 @@ SPECS["layer_norm"] = dict(
     flops_fn=lambda mod, inputs: 1024 * 1024 * 7,
     bytes_fn=lambda mod, inputs: 2 * 1024 * 1024 * 4,
 )
+
+_element_wise = dict(
+    threadgroup=(1024, 1, 1),
+    input_bindings=(0,),
+    outputs_fn=lambda mod: [dict(binding=1, dtype="f32", shape=(16, 16384))],
+    rtol=1e-3, atol=1e-3,
+    grid_fn=lambda mod, inputs: (64 * 1024, 1, 1),
+    scalars_fn=lambda mod, inputs: [
+        dict(binding=2, dtype="u32", value=16 * 16384),
+        dict(binding=3, dtype="u32", value=64 * 1024),
+    ],
+    flops_fn=lambda mod, inputs: 16 * 16384 * 5,
+    bytes_fn=lambda mod, inputs: 2 * 16 * 16384 * 4,
+)
+
+SPECS["gelu"] = dict(_element_wise, metal_function="gelu_f32")
+SPECS["selu"] = dict(_element_wise, metal_function="selu_f32")
+SPECS["logsigmoid"] = dict(_element_wise, metal_function="logsigmoid_f32")
+SPECS["hardsigmoid"] = dict(_element_wise, metal_function="hardsigmoid_f32")
