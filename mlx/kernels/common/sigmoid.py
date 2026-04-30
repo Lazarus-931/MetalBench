@@ -1,15 +1,19 @@
 import mlx.core as mx
-from mlx import nn
+
+from mlx_helpers import Output, Scalar, element_wise_spec
 
 
 class Model(nn.Module):
-    """Sigmoid activation: out = 1 / (1 + exp(-x))."""
+    """Element-wise sigmoid activation."""
     def __init__(self):
         super(Model, self).__init__()
 
     def forward(self, x: mx.array) -> mx.array:
-        """Applies sigmoid activation element-wise."""
         return mx.sigmoid(x)
+
+
+N_el = 16 * 16384
+globals().update(element_wise_spec("sigmoid_f32", N_el, flops_mul=4))
 
 
 def get_inputs():
@@ -19,3 +23,13 @@ def get_inputs():
 
 def get_init_inputs():
     return []
+
+
+def make_inputs(seed: int):
+    mx.random.seed(seed)
+    return get_inputs()
+
+
+_model = Model()
+def reference(x):
+    return _model.forward(x)

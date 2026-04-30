@@ -19,6 +19,11 @@ Optional:
     rtol, atol     : float
 """
 from __future__ import annotations
+"""Shared helpers for MLX baselines and the harness.
+
+Use make_element_wise / make_matmul / make_reduction in each baseline file
+to avoid boilerplate. They inject grid/scalars/flops/bytes on the module.
+"""
 import contextlib
 import importlib.util
 import platform
@@ -111,9 +116,8 @@ class BaselineSpec(BaseModel):
 
 
 class Baseline:
-    def __init__(self, name, module, metallib, spec, raw_spec):
+    def __init__(self, name, module, metallib, spec):
         self.name, self.module, self.metallib, self._spec = name, module, metallib, spec
-        self._raw = raw_spec  # dict from specs.py
 
     @property
     def metal_function(self): return self._spec.metal_function
@@ -133,22 +137,22 @@ class Baseline:
     def make_inputs(self, seed): return list(self.module.make_inputs(seed))
     def reference(self, *inputs): return self.module.reference(*inputs)
 
-    def _call_spec(self, key, inputs):
-        fn = self._raw.get(key)
-        return fn(self.module, inputs) if fn else None
+    def flops(self, inputs):
+        fn = getattr(self.module, "flops", None)
+        return int(fn(inputs)) if fn else None
 
-    def flops(self, inputs): return self._call_spec("flops_fn", inputs)
-    def bytes(self, inputs): return self._call_spec("bytes_fn", inputs)
+    def bytes(self, inputs):
+        fn = getattr(self.module, "bytes", None)
+        return int(fn(inputs)) if fn else None
+
     def scalars(self, inputs):
-        fn = self._raw.get("scalars_fn")
-        if not fn:
-            return []
-        raw = fn(self.module, inputs)
-        return [Scalar(**s) if isinstance(s, dict) else s for s in raw]
+        fn = getattr(self.module, "scalars", None)
+        return list(fn(inputs)) if fn else []
+
     def grid(self, inputs):
-        fn = self._raw.get("grid_fn")
+        fn = getattr(self.module, "grid", None)
         if fn:
-            return tuple(fn(self.module, inputs))
+            return tuple(fn(inputs))
         shp = list(self.outputs[0].shape) + [1, 1, 1]
         return (int(shp[0]), int(shp[1]), int(shp[2]))
 
@@ -179,62 +183,29 @@ def load_baseline(name):
     mod = importlib.util.module_from_spec(mod_spec)
     mod_spec.loader.exec_module(mod)
 
-    # Load kernel spec from shared specs.py
-    specs_path = BASELINE_ROOT / _set / "specs.py"
-    if str(Path(__file__).resolve().parent) not in sys.path:
-        sys.path.insert(0, str(Path(__file__).resolve().parent))
-    specs_mod_spec = importlib.util.spec_from_file_location("_mb_specs", specs_path)
-    if specs_mod_spec is None or specs_mod_spec.loader is None:
-        raise ImportError(f"cannot load {specs_path}")
-    specs_mod = importlib.util.module_from_spec(specs_mod_spec)
-    specs_mod_spec.loader.exec_module(specs_mod)
-    raw_spec = specs_mod.SPECS.get(name)
-    if raw_spec is None:
-        raise KeyError(f"no spec found for '{name}' in mlx/kernels/common/specs.py")
-
-    # Validate required module-level functions (KernelBench style)
-    for attr in ("get_inputs", "get_init_inputs"):
-        if not callable(getattr(mod, attr, None)):
-            raise AttributeError(f"{name}.py: required callable `{attr}` missing")
-
-    _model_cls = getattr(mod, "Model", None)
-    if _model_cls is None:
-        raise AttributeError(f"{name}.py: missing Model class")
-    _model_inst = _model_cls()
-
-    # Inject shapes from spec into module
-    for k, v in raw_spec.get("shapes", {}).items():
-        setattr(mod, k, v)
-
-    def _make_inputs(seed):
-        mx.random.seed(seed)
-        return list(mod.get_inputs())
-
-    def _reference(*inputs):
-        return _model_inst.forward(*inputs)
-
-    mod.make_inputs = _make_inputs
-    mod.reference = _reference
+    for attr in ("make_inputs", "reference", "metal_function", "threadgroup",
+                 "input_bindings", "outputs", "get_inputs", "get_init_inputs",
+                 "scalars", "grid", "flops", "bytes", "rtol", "atol"):
+        if getattr(mod, attr, None) is None:
+            raise AttributeError(f"{name}.py: required attribute `{attr}` missing")
 
     try:
-        raw_outputs = raw_spec["outputs_fn"](mod)
-        outputs = [Output(**o) if isinstance(o, dict) else o for o in raw_outputs]
         spec = BaselineSpec(
             name=name,
-            metal_function=raw_spec["metal_function"],
-            threadgroup=tuple(raw_spec["threadgroup"]),
-            input_bindings=tuple(raw_spec["input_bindings"]),
-            outputs=outputs,
-            rtol=raw_spec.get("rtol", 1e-4),
-            atol=raw_spec.get("atol", 1e-5),
-            best_for=tuple(raw_spec.get("BEST_FOR", ())),
+            metal_function=getattr(mod, "metal_function"),
+            threadgroup=tuple(getattr(mod, "threadgroup")),
+            input_bindings=tuple(getattr(mod, "input_bindings")),
+            outputs=list(getattr(mod, "outputs")),
+            rtol=getattr(mod, "rtol", 1e-4),
+            atol=getattr(mod, "atol", 1e-5),
+            best_for=tuple(getattr(mod, "BEST_FOR", ())),
         )
-    except KeyError as e:
-        raise KeyError(f"spec for '{name}' missing field: {e}") from e
+    except AttributeError as e:
+        raise AttributeError(f"{name}.py is missing a BaselineSpec field: {e}") from e
     except ValidationError as e:
-        raise ValueError(f"spec for '{name}' invalid:\n{e}") from e
+        raise ValueError(f"{name}.py BaselineSpec invalid:\n{e}") from e
 
-    return Baseline(name=name, module=mod, metallib=metallib, spec=spec, raw_spec=raw_spec)
+    return Baseline(name=name, module=mod, metallib=metallib, spec=spec)
 
 
 def build_manifest(b, inputs, *, input_paths, output_paths, warmup, iters):
@@ -380,3 +351,66 @@ def mx_to_np_bytes(arr):
         raise ValueError(f"unsupported dtype {arr.dtype}; extend MX_DTYPE_TAG")
     mx.eval(arr)
     return np.asarray(arr, dtype=DTYPE_NP[tag]), tag
+
+
+# ---------------------------------------------------------------------------
+# Shared boilerplate factories — call at module level in each baseline.
+# ---------------------------------------------------------------------------
+
+def element_wise_spec(metal_func, N_el, grid_size=64 * 1024, rtol=1e-3, atol=1e-3,
+                      output_shape=(16, 16384), flops_mul=5):
+    """Return a dict of metadata for element-wise kernels."""
+    return dict(
+        metal_function=metal_func,
+        threadgroup=(1024, 1, 1),
+        input_bindings=(0,),
+        outputs=[Output(binding=1, dtype="f32", shape=output_shape)],
+        rtol=rtol, atol=atol,
+        scalars=lambda inputs: [
+            Scalar(binding=2, dtype="u32", value=N_el),
+            Scalar(binding=3, dtype="u32", value=grid_size),
+        ],
+        grid=lambda inputs: (grid_size, 1, 1),
+        flops=lambda inputs: N_el * flops_mul,
+        bytes=lambda inputs: 2 * N_el * 4,
+    )
+
+
+def matmul_spec(metal_func, M, N, K, BM=64, BN=64, BK=16, TG_THREADS=256,
+                rtol=1e-3, atol=1e-3):
+    """Return a dict of metadata for matmul kernels."""
+    return dict(
+        metal_function=metal_func,
+        threadgroup=(TG_THREADS, 1, 1),
+        input_bindings=(0, 1),
+        outputs=[Output(binding=2, dtype="f32", shape=(M, N))],
+        rtol=rtol, atol=atol,
+        scalars=lambda inputs: [
+            Scalar(binding=3, dtype="u32", value=M),
+            Scalar(binding=4, dtype="u32", value=N),
+            Scalar(binding=5, dtype="u32", value=K),
+        ],
+        grid=lambda inputs: ((N // BN) * TG_THREADS, M // BM, 1),
+        flops=lambda inputs: 2 * M * N * K,
+        bytes=lambda inputs: 4 * (M * K + K * N + M * N),
+    )
+
+
+def batched_matmul_spec(metal_func, B, M, N, K, BM=64, BN=64, BK=16,
+                        TG_THREADS=256, rtol=1e-3, atol=1e-3):
+    """Return a dict of metadata for batched matmul kernels."""
+    return dict(
+        metal_function=metal_func,
+        threadgroup=(TG_THREADS, 1, 1),
+        input_bindings=(0, 1),
+        outputs=[Output(binding=2, dtype="f32", shape=(B, M, N))],
+        rtol=rtol, atol=atol,
+        scalars=lambda inputs: [
+            Scalar(binding=3, dtype="u32", value=M),
+            Scalar(binding=4, dtype="u32", value=N),
+            Scalar(binding=5, dtype="u32", value=K),
+        ],
+        grid=lambda inputs: ((N // BN) * TG_THREADS, (M // BM) * B, 1),
+        flops=lambda inputs: B * 2 * M * N * K,
+        bytes=lambda inputs: B * 4 * (M * K + K * N + M * N),
+    )

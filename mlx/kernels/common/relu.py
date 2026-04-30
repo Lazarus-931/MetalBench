@@ -1,15 +1,19 @@
 import mlx.core as mx
-from mlx import nn
+
+from mlx_helpers import Output, Scalar, element_wise_spec
 
 
 class Model(nn.Module):
-    """ReLU activation: out = max(x, 0)."""
+    """Element-wise relu activation."""
     def __init__(self):
         super(Model, self).__init__()
 
     def forward(self, x: mx.array) -> mx.array:
-        """Applies ReLU activation element-wise to input array of any shape."""
         return mx.maximum(x, 0.0)
+
+
+N_el = 16 * 16384
+globals().update(element_wise_spec("relu_f32", N_el, flops_mul=1))
 
 
 def get_inputs():
@@ -19,3 +23,13 @@ def get_inputs():
 
 def get_init_inputs():
     return []
+
+
+def make_inputs(seed: int):
+    mx.random.seed(seed)
+    return get_inputs()
+
+
+_model = Model()
+def reference(x):
+    return _model.forward(x)

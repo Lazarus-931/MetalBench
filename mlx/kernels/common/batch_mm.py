@@ -1,25 +1,36 @@
 import mlx.core as mx
 from mlx import nn
+from mlx_helpers import Output, Scalar, batched_matmul_spec
 
 
 class Model(nn.Module):
-    """Batched matrix multiplication: C[b] = A[b] @ B[b].
-
-    A: (batch_size, M, K)  B: (batch_size, K, N)  ->  C: (batch_size, M, N)
-    """
+    """Batched matrix multiplication: C[b] = A[b] @ B[b]."""
     def __init__(self):
         super(Model, self).__init__()
 
     def forward(self, A: mx.array, B: mx.array) -> mx.array:
-        """Performs batched matrix multiplication."""
         return mx.matmul(A, B)
 
 
+B, M, K, N = 128, 128, 256, 512
+globals().update(batched_matmul_spec("batch_matmul_f32", B, M, N, K))
+
+
 def get_inputs():
-    A = mx.random.normal((128, 128, 256), dtype=mx.float32)
-    B = mx.random.normal((128, 256, 512), dtype=mx.float32)
+    A = mx.random.normal((B, M, K), dtype=mx.float32)
+    B = mx.random.normal((B, K, N), dtype=mx.float32)
     return [A, B]
 
 
 def get_init_inputs():
     return []
+
+
+def make_inputs(seed: int):
+    mx.random.seed(seed)
+    return get_inputs()
+
+
+_model = Model()
+def reference(a, b):
+    return _model.forward(a, b)
