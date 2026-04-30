@@ -241,36 +241,36 @@
       "updated_at": "2026-04-30T03:01:10+00:00"
     },
     "cumsum": {
-      "best_time_ms": 0.381625,
-      "speedup_vs_mlx": 0.987443224918323,
-      "gflops": 2.747660661644285,
-      "gbps": 21.98128529315428,
+      "best_time_ms": 0.13,
+      "speedup_vs_mlx": 3.04807684957408,
+      "gflops": 8.06596923076923,
+      "gbps": 64.52775384615384,
       "arith_intensity": 0.125,
-      "stability": 0.9189627189497156,
-      "tg_static_mem_bytes": 4096,
+      "stability": 0.8215992112647572,
+      "tg_static_mem_bytes": 128,
       "pso_max_threads_per_tg": 1024,
-      "iters": 30,
+      "iters": 50,
       "target": "speed",
       "max_err": 2.288818359375e-05,
       "metal_source_path": "src/kernels/common/cumsum.metal",
-      "metal_source": "// cumsum: Hillis-Steele parallel prefix scan per row.\n#include <metal_stdlib>\nusing namespace metal;\n\nkernel void cumsum_f32(\n    device const float*  x  [[buffer(0)]],\n    device       float*  y  [[buffer(1)]],\n    constant     uint&   N  [[buffer(2)]],\n    uint3 tid              [[thread_position_in_threadgroup]],\n    uint3 tgid             [[threadgroup_position_in_grid]])\n{\n    threadgroup float tmp[1024];\n    const uint t = tid.x;\n    const uint row = tgid.y;\n    tmp[t] = x[row * N + t];\n    threadgroup_barrier(mem_flags::mem_threadgroup);\n\n    for (uint stride = 1; stride < N; stride <<= 1) {\n        float val = tmp[t];\n        if (t >= stride) val += tmp[t - stride];\n        threadgroup_barrier(mem_flags::mem_threadgroup);\n        tmp[t] = val;\n        threadgroup_barrier(mem_flags::mem_threadgroup);\n    }\n\n    y[row * N + t] = tmp[t];\n}\n",
-      "updated_at": "2026-04-30T03:01:11+00:00"
+      "metal_source": "// cumsum: 2-level prefix scan using hardware simd_prefix_inclusive_sum.\n// 2 threadgroup barriers vs 20 for Hillis-Steele.\n#include <metal_stdlib>\nusing namespace metal;\n\nkernel void cumsum_f32(\n    device const float*  x  [[buffer(0)]],\n    device       float*  y  [[buffer(1)]],\n    constant     uint&   N  [[buffer(2)]],\n    uint3 tid              [[thread_position_in_threadgroup]],\n    uint3 tgid             [[threadgroup_position_in_grid]])\n{\n    const uint t = tid.x;\n    const uint row = tgid.y;\n    const uint sg = t >> 5;        // simdgroup index (0..31)\n    const uint sl = t & 31;         // lane within simdgroup (0..31)\n\n    float val = x[row * N + t];\n\n    // Level 1: simdgroup scan (hardware-accelerated, no barrier)\n    float local_scan = simd_prefix_inclusive_sum(val);\n\n    // Last lane in each simdgroup holds the group's total sum\n    threadgroup float tg_totals[32];\n    if (sl == 31) tg_totals[sg] = local_scan;\n    threadgroup_barrier(mem_flags::mem_threadgroup);\n\n    // Level 2: first simdgroup computes exclusive scan over the 32 totals.\n    // After this, thread sl (if sg==0) holds the offset for simdgroup sl.\n    float my_offset = 0.0f;\n    if (sg == 0) {\n        my_offset = simd_prefix_exclusive_sum(tg_totals[sl]);\n    }\n    // Broadcast: thread sl writes the offset for simdgroup sl.\n    if (t < 32) tg_totals[t] = my_offset;\n    threadgroup_barrier(mem_flags::mem_threadgroup);\n\n    // Each thread adds its simdgroup's offset.\n    y[row * N + t] = local_scan + tg_totals[sg];\n}\n",
+      "updated_at": "2026-04-30T14:00:34+00:00"
     },
     "cumprod": {
-      "best_time_ms": 0.519417,
-      "speedup_vs_mlx": 0.5855930481264738,
-      "gflops": 2.01875564334629,
-      "gbps": 16.15004514677032,
+      "best_time_ms": 0.130917,
+      "speedup_vs_mlx": 3.4398359135796617,
+      "gflops": 8.009471649976703,
+      "gbps": 64.07577319981363,
       "arith_intensity": 0.125,
-      "stability": 0.9964700713851325,
-      "tg_static_mem_bytes": 4096,
+      "stability": 0.8810916310529328,
+      "tg_static_mem_bytes": 128,
       "pso_max_threads_per_tg": 1024,
-      "iters": 30,
+      "iters": 50,
       "target": "speed",
-      "max_err": 0.002685546875,
+      "max_err": 0.0029296875,
       "metal_source_path": "src/kernels/common/cumprod.metal",
-      "metal_source": "// cumprod: Hillis-Steele parallel prefix product per row.\n#include <metal_stdlib>\nusing namespace metal;\n\nkernel void cumprod_f32(\n    device const float*  x  [[buffer(0)]],\n    device       float*  y  [[buffer(1)]],\n    constant     uint&   N  [[buffer(2)]],\n    uint3 tid              [[thread_position_in_threadgroup]],\n    uint3 tgid             [[threadgroup_position_in_grid]])\n{\n    threadgroup float tmp[1024];\n    const uint t = tid.x;\n    const uint row = tgid.y;\n    tmp[t] = x[row * N + t];\n    threadgroup_barrier(mem_flags::mem_threadgroup);\n\n    for (uint stride = 1; stride < N; stride <<= 1) {\n        float val = tmp[t];\n        if (t >= stride) val *= tmp[t - stride];\n        threadgroup_barrier(mem_flags::mem_threadgroup);\n        tmp[t] = val;\n        threadgroup_barrier(mem_flags::mem_threadgroup);\n    }\n\n    y[row * N + t] = tmp[t];\n}\n",
-      "updated_at": "2026-04-30T03:01:12+00:00"
+      "metal_source": "// cumprod: 2-level prefix product using hardware simd_prefix_inclusive_product.\n// 2 threadgroup barriers.\n#include <metal_stdlib>\nusing namespace metal;\n\nkernel void cumprod_f32(\n    device const float*  x  [[buffer(0)]],\n    device       float*  y  [[buffer(1)]],\n    constant     uint&   N  [[buffer(2)]],\n    uint3 tid              [[thread_position_in_threadgroup]],\n    uint3 tgid             [[threadgroup_position_in_grid]])\n{\n    const uint t = tid.x;\n    const uint row = tgid.y;\n    const uint sg = t >> 5;\n    const uint sl = t & 31;\n\n    float val = x[row * N + t];\n\n    // Level 1: simdgroup prefix product\n    float local_scan = simd_prefix_inclusive_product(val);\n\n    // Last lane holds group total\n    threadgroup float tg_totals[32];\n    if (sl == 31) tg_totals[sg] = local_scan;\n    threadgroup_barrier(mem_flags::mem_threadgroup);\n\n    // Level 2: exclusive scan over group totals\n    float my_offset = 0.0f;\n    if (sg == 0) {\n        // For product scan, we need 1.0 (identity) as the starting point\n        my_offset = simd_prefix_exclusive_product(tg_totals[sl]);\n    }\n    if (t < 32) tg_totals[t] = my_offset;\n    threadgroup_barrier(mem_flags::mem_threadgroup);\n\n    // Add offset -> multiply offset\n    y[row * N + t] = local_scan * tg_totals[sg];\n}\n",
+      "updated_at": "2026-04-30T14:00:38+00:00"
     }
   }
 }
