@@ -177,33 +177,79 @@ def load_baseline(name):
             f"expected source at {KERNEL_ROOT / _set / f'{name}.metal'}; run `make`."
         )
 
+    # Load Model class from .py file
     mod_spec = importlib.util.spec_from_file_location(f"_mb_{name}", path)
     if mod_spec is None or mod_spec.loader is None:
         raise ImportError(f"cannot load {path}")
     mod = importlib.util.module_from_spec(mod_spec)
     mod_spec.loader.exec_module(mod)
 
-    for attr in ("make_inputs", "reference", "metal_function", "threadgroup",
-                 "input_bindings", "outputs", "get_inputs", "get_init_inputs",
-                 "scalars", "grid", "flops", "bytes", "rtol", "atol"):
-        if getattr(mod, attr, None) is None:
-            raise AttributeError(f"{name}.py: required attribute `{attr}` missing")
+    ModelCls = getattr(mod, "Model", None)
+    if ModelCls is None:
+        raise AttributeError(f"{name}.py: missing Model class")
+
+    # Load metadata from registry
+    reg_spec = importlib.util.spec_from_file_location(
+        "_mb_registry", BASELINE_ROOT / _set / "registry.py")
+    if reg_spec is None or reg_spec.loader is None:
+        raise ImportError("cannot load registry.py")
+    reg_mod = importlib.util.module_from_spec(reg_spec)
+    reg_spec.loader.exec_module(reg_mod)
+    meta = reg_mod.REGISTRY.get(name)
+    if meta is None:
+        raise KeyError(f"no registry entry for '{name}'")
+
+    # Auto-generate get_inputs from registry-provided input shapes
+    input_shapes = meta.get("input_shapes")
+    if input_shapes is None:
+        # Fallback: single input of output_shape
+        input_shapes = [meta["output_shape"]]
+
+    def _get_inputs():
+        return [mx.random.normal(s, dtype=mx.float32) for s in input_shapes]
+
+    mod.get_inputs = _get_inputs
+    mod.get_init_inputs = lambda: []
+
+    def _make_inputs(seed):
+        mx.random.seed(seed)
+        return list(mod.get_inputs())
+
+    mod.make_inputs = _make_inputs
+
+    model_inst = ModelCls()
+    def _reference(*inputs):
+        return model_inst.forward(*inputs)
+
+    mod.reference = _reference
+
+    # Convert registry dicts to Output/Scalar objects
+    n_in = len(meta["input_shapes"])
+    out_shape = meta["output_shape"]
+    raw_outputs = [dict(binding=2 if n_in == 2 else 1, dtype="f32", shape=out_shape)]
+    outputs = [Output(**o) if isinstance(o, dict) else o for o in raw_outputs]
+    raw_scalars = meta["scalars"]
+    scalars = [Scalar(**s) if isinstance(s, dict) else s for s in raw_scalars]
 
     try:
         spec = BaselineSpec(
             name=name,
-            metal_function=getattr(mod, "metal_function"),
-            threadgroup=tuple(getattr(mod, "threadgroup")),
-            input_bindings=tuple(getattr(mod, "input_bindings")),
-            outputs=list(getattr(mod, "outputs")),
-            rtol=getattr(mod, "rtol", 1e-4),
-            atol=getattr(mod, "atol", 1e-5),
-            best_for=tuple(getattr(mod, "BEST_FOR", ())),
+            metal_function=meta["metal_function"],
+            threadgroup=tuple(meta["threadgroup"]),
+            input_bindings=tuple(meta["input_bindings"]),
+            outputs=outputs,
+            rtol=meta.get("rtol", 1e-4),
+            atol=meta.get("atol", 1e-5),
+            best_for=tuple(meta.get("BEST_FOR", ())),
         )
-    except AttributeError as e:
-        raise AttributeError(f"{name}.py is missing a BaselineSpec field: {e}") from e
     except ValidationError as e:
-        raise ValueError(f"{name}.py BaselineSpec invalid:\n{e}") from e
+        raise ValueError(f"registry entry for '{name}' invalid:\n{e}") from e
+
+    # Override scalars/grid/flops/bytes from registry
+    mod.scalars = lambda inputs: scalars
+    mod.grid = lambda inputs: meta["grid"]
+    mod.flops = lambda inputs: meta["flops"]
+    mod.bytes = lambda inputs: meta["bytes"]
 
     return Baseline(name=name, module=mod, metallib=metallib, spec=spec)
 
