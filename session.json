@@ -463,6 +463,38 @@
       "metal_source_path": "src/kernels/common/hardswish.metal",
       "metal_source": "// hardswish: x * clamp(x+3, 0, 6) / 6. Float4 grid-stride.\n#include <metal_stdlib>\nusing namespace metal;\n\nkernel void hardswish_f32(\n    device const float*  x         [[buffer(0)]],\n    device       float*  y         [[buffer(1)]],\n    constant     uint&   N         [[buffer(2)]],\n    uint  tid                     [[thread_position_in_grid]])\n{\n    const uint grid_size = 64 * 1024;\n    const uint n4 = N / 4;\n    for (uint i = tid; i < n4; i += grid_size) {\n        float4 v = *(reinterpret_cast<const device float4*>(&x[i * 4]));\n        *(reinterpret_cast<device float4*>(&y[i * 4])) = v * clamp(v + 3.0f, 0.0f, 6.0f) / 6.0f;\n    }\n    for (uint i = n4 * 4 + tid; i < N; i += grid_size)\n        y[i] = x[i] * clamp(x[i] + 3.0f, 0.0f, 6.0f) / 6.0f;\n}\n",
       "updated_at": "2026-05-01T17:52:39+00:00"
+    },
+    "cosine_similarity": {
+      "best_time_ms": 0.183708,
+      "speedup_vs_mlx": 4.494905281469411,
+      "gflops": 28.539203518627385,
+      "gbps": 45.68502188255274,
+      "arith_intensity": 0.6246949731576379,
+      "stability": 0.7471722976682895,
+      "tg_static_mem_bytes": 384,
+      "pso_max_threads_per_tg": 1024,
+      "iters": 50,
+      "target": "speed",
+      "max_err": 2.9802322387695312e-08,
+      "metal_source_path": "src/kernels/common/cosine_similarity.metal",
+      "metal_source": "// cosine_similarity: x\u00b7y / (|x| * |y|) per row. Three simd_sum reductions.\n#include <metal_stdlib>\nusing namespace metal;\n\nkernel void cosine_similarity_f32(\n    device const float*  x   [[buffer(0)]],\n    device const float*  y   [[buffer(1)]],\n    device       float*  out [[buffer(2)]],\n    constant     uint&   D   [[buffer(3)]],\n    uint3 tid               [[thread_position_in_threadgroup]],\n    uint3 tgid              [[threadgroup_position_in_grid]])\n{\n    const uint t = tid.x;\n    const uint row = tgid.y;\n    const uint off = row * D;\n    const uint sg = t >> 5;\n\n    float xi = x[off + t];\n    float yi = y[off + t];\n    float dot_v = xi * yi;\n    float sq_x  = xi * xi;\n    float sq_y  = yi * yi;\n\n    float dot_sum  = simd_sum(dot_v);\n    float sq_x_sum = simd_sum(sq_x);\n    float sq_y_sum = simd_sum(sq_y);\n\n    threadgroup float tg_dot[32], tg_sqx[32], tg_sqy[32];\n    if ((t & 31) == 0) {\n        tg_dot[sg] = dot_sum;\n        tg_sqx[sg] = sq_x_sum;\n        tg_sqy[sg] = sq_y_sum;\n    }\n    threadgroup_barrier(mem_flags::mem_threadgroup);\n\n    if (t < 32) {\n        float d = tg_dot[t], sx = tg_sqx[t], sy = tg_sqy[t];\n        for (uint s = 16; s > 0; s >>= 1) {\n            d  += simd_shuffle_down(d,  s);\n            sx += simd_shuffle_down(sx, s);\n            sy += simd_shuffle_down(sy, s);\n        }\n        if (t == 0) {\n            float eps = 1e-8f;\n            out[row] = d / (sqrt(sx) * sqrt(sy) + eps);\n        }\n    }\n}\n",
+      "updated_at": "2026-05-01T19:13:46+00:00"
+    },
+    "manhattan_similarity": {
+      "best_time_ms": 0.133833,
+      "speedup_vs_mlx": 3.6871175758669397,
+      "gflops": 15.669916986094611,
+      "gbps": 62.710273250991904,
+      "arith_intensity": 0.24987798926305516,
+      "stability": 0.9839721203120291,
+      "tg_static_mem_bytes": 128,
+      "pso_max_threads_per_tg": 1024,
+      "iters": 50,
+      "target": "speed",
+      "max_err": 0.000244140625,
+      "metal_source_path": "src/kernels/common/manhattan_similarity.metal",
+      "metal_source": "// manhattan_similarity: L1 distance per row. simd_sum(|x - y|).\n#include <metal_stdlib>\nusing namespace metal;\n\nkernel void manhattan_similarity_f32(\n    device const float*  x   [[buffer(0)]],\n    device const float*  y   [[buffer(1)]],\n    device       float*  out [[buffer(2)]],\n    constant     uint&   D   [[buffer(3)]],\n    uint3 tid               [[thread_position_in_threadgroup]],\n    uint3 tgid              [[threadgroup_position_in_grid]])\n{\n    const uint t = tid.x;\n    const uint row = tgid.y;\n    const uint off = row * D;\n    const uint sg = t >> 5;\n\n    float sum = simd_sum(fabs(x[off + t] - y[off + t]));\n\n    threadgroup float tg[32];\n    if ((t & 31) == 0) tg[sg] = sum;\n    threadgroup_barrier(mem_flags::mem_threadgroup);\n\n    if (t < 32) {\n        sum = tg[t];\n        for (uint s = 16; s > 0; s >>= 1)\n            sum += simd_shuffle_down(sum, s);\n    }\n    if (t == 0) out[row] = sum;\n}\n",
+      "updated_at": "2026-05-01T19:13:47+00:00"
     }
   }
 }

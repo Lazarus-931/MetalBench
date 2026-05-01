@@ -268,6 +268,34 @@ REGISTRY["softmax"] = dict(
 ew("tanh", "tanh_f32", flops_mul=4)
 ew("hardswish", "hardswish_f32", flops_mul=4)
 
+# Cosine similarity: dot / (|x||y|) per row. Three reductions.
+REGISTRY["cosine_similarity"] = dict(
+    metal_function="cosine_similarity_f32",
+    threadgroup=(1024, 1, 1),
+    input_bindings=(0, 1),
+    input_shapes=[(1024, 1024), (1024, 1024)],
+    output_shape=(1024,),
+    rtol=1e-3, atol=1e-3,
+    grid=(1024, 1024, 1),
+    scalars=[dict(binding=3, dtype="u32", value=1024)],
+    flops=1024 * 1024 * 5,
+    bytes=2 * 1024 * 1024 * 4 + 1024 * 4,
+)
+
+# Manhattan (L1) distance: sum(|x-y|) per row.
+REGISTRY["manhattan_similarity"] = dict(
+    metal_function="manhattan_similarity_f32",
+    threadgroup=(1024, 1, 1),
+    input_bindings=(0, 1),
+    input_shapes=[(1024, 1024), (1024, 1024)],
+    output_shape=(1024,),
+    rtol=1e-3, atol=1e-3,
+    grid=(1024, 1024, 1),
+    scalars=[dict(binding=3, dtype="u32", value=1024)],
+    flops=1024 * 1024 * 2,
+    bytes=2 * 1024 * 1024 * 4 + 1024 * 4,
+)
+
 REGISTRY["mse_loss"] = dict(
     metal_function="mse_loss_f32",
     threadgroup=(1024, 1, 1),
