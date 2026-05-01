@@ -144,6 +144,82 @@ scan("cumsum_reverse",  "cumsum_reverse_f32",  1024, 1024, flops_mul=2)
 scan("cumprod",         "cumprod_f32",         1024, 1024)
 
 # MSE loss: element-wise + reduction
+# Matrix-vector: one tg per row, simd reduction
+REGISTRY["matvec"] = dict(
+    metal_function="matvec_f32",
+    threadgroup=(1024, 1, 1),
+    input_bindings=(0, 1),
+    input_shapes=[(1024, 1024), (1024,)],
+    output_shape=(1024,),
+    rtol=1e-3, atol=1e-3,
+    grid=(1024, 1024, 1),
+    scalars=[dict(binding=3, dtype="u32", value=1024)],
+    flops=2 * 1024 * 1024,
+    bytes=4 * (1024 * 1024 + 1024 + 1024),
+)
+
+# Transpose: tiled 32x32
+REGISTRY["transpose_2d"] = dict(
+    metal_function="transpose_2d_f32",
+    threadgroup=(1024, 1, 1),
+    input_bindings=(0,),
+    input_shapes=[(1024, 2048)],
+    output_shape=(2048, 1024),
+    rtol=0, atol=0,
+    grid=(64 * 1024, 1, 1),
+    scalars=[
+        dict(binding=2, dtype="u32", value=1024),
+        dict(binding=3, dtype="u32", value=2048),
+    ],
+    flops=0,
+    bytes=1024 * 2048 * 4 * 2,
+)
+
+# Dot product: single-tg reduction
+REGISTRY["dot_product"] = dict(
+    metal_function="dot_product_f32",
+    threadgroup=(1024, 1, 1),
+    input_bindings=(0, 1),
+    input_shapes=[(16384,), (16384,)],
+    output_shape=(1,),
+    rtol=1e-3, atol=1e-3,
+    grid=(1024, 1, 1),
+    scalars=[dict(binding=3, dtype="u32", value=16384)],
+    flops=16384 * 2,
+    bytes=16384 * 4 * 2 + 4,
+)
+
+# Outer product: element-wise with broadcast, float4 grid-stride
+REGISTRY["outer_product"] = dict(
+    metal_function="outer_product_f32",
+    threadgroup=(1024, 1, 1),
+    input_bindings=(0, 1),
+    input_shapes=[(1024,), (2048,)],
+    output_shape=(1024, 2048),
+    rtol=1e-3, atol=1e-3,
+    grid=(64 * 1024, 1, 1),
+    scalars=[
+        dict(binding=3, dtype="u32", value=1024),
+        dict(binding=4, dtype="u32", value=2048),
+    ],
+    flops=1024 * 2048,
+    bytes=1024 * 4 + 2048 * 4 + 1024 * 2048 * 4,
+)
+
+# Matrix add: float4 grid-stride, memory-bound
+REGISTRY["matrix_add"] = dict(
+    metal_function="matrix_add_f32",
+    threadgroup=(1024, 1, 1),
+    input_bindings=(0, 1),
+    input_shapes=[(1024, 1024), (1024, 1024)],
+    output_shape=(1024, 1024),
+    rtol=0, atol=0,
+    grid=(64 * 1024, 1, 1),
+    scalars=[dict(binding=3, dtype="u32", value=1024 * 1024)],
+    flops=1024 * 1024,
+    bytes=1024 * 1024 * 4 * 3,
+)
+
 REGISTRY["mse_loss"] = dict(
     metal_function="mse_loss_f32",
     threadgroup=(1024, 1, 1),
