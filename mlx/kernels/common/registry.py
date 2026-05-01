@@ -220,6 +220,54 @@ REGISTRY["matrix_add"] = dict(
     bytes=1024 * 1024 * 4 * 3,
 )
 
+# Matrix scale: float4 grid-stride, memory-bound
+REGISTRY["matrix_scale"] = dict(
+    metal_function="matrix_scale_f32",
+    threadgroup=(1024, 1, 1),
+    input_bindings=(0,),
+    input_shapes=[(1024, 1024)],
+    output_shape=(1024, 1024),
+    rtol=0, atol=0,
+    grid=(64 * 1024, 1, 1),
+    scalars=[
+        dict(binding=2, dtype="u32", value=1024 * 1024),
+        dict(binding=3, dtype="f32", value=2.0),
+    ],
+    flops=1024 * 1024,
+    bytes=1024 * 1024 * 4 * 2,
+)
+
+# Trace: single-tg diagonal reduction
+REGISTRY["trace"] = dict(
+    metal_function="trace_f32",
+    threadgroup=(1024, 1, 1),
+    input_bindings=(0,),
+    input_shapes=[(1024, 1024)],
+    output_shape=(1,),
+    rtol=1e-3, atol=1e-3,
+    grid=(1024, 1, 1),
+    scalars=[dict(binding=2, dtype="u32", value=1024)],
+    flops=1024 * 2,
+    bytes=1024 * 4 * 2 + 4,
+)
+
+# Softmax: per-row simd reduction (max + sum + normalize)
+REGISTRY["softmax"] = dict(
+    metal_function="softmax_f32",
+    threadgroup=(1024, 1, 1),
+    input_bindings=(0,),
+    input_shapes=[(1024, 1024)],
+    output_shape=(1024, 1024),
+    rtol=1e-3, atol=1e-3,
+    grid=(1024, 1024, 1),
+    scalars=[dict(binding=2, dtype="u32", value=1024)],
+    flops=1024 * 1024 * 5,
+    bytes=2 * 1024 * 1024 * 4,
+)
+
+ew("tanh", "tanh_f32", flops_mul=4)
+ew("hardswish", "hardswish_f32", flops_mul=4)
+
 REGISTRY["mse_loss"] = dict(
     metal_function="mse_loss_f32",
     threadgroup=(1024, 1, 1),
