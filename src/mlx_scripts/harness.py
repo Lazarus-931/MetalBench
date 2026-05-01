@@ -250,6 +250,12 @@ def _print_report(result, target, score):
     if "arith_intensity" in m:
         print(f"  arith int.  : {m['arith_intensity']:.1f} FLOPs/byte")
     print(f"  stability   : {m['stability']:.2f}  (1.0 = perfectly consistent)")
+    print()
+    print(f"  {'target':>10s}   {'score':>10s}")
+    print(f"  {'-'*10}   {'-'*10}")
+    for t in ("speed", "compute", "memory", "stable", "balanced"):
+        s = grade(m, t)
+        print(f"  {t:>10s}   {s:10.3f}")
     print(line)
 
 
