@@ -69,6 +69,14 @@ A human-readable report on the terminal:
   bandwidth   :    9.9 GB/s
   arith int.  :  170.7 FLOPs/byte
   stability   : 0.98
+
+      target        score
+  ----------   ----------
+       speed        1.428
+     compute     1695.83
+      memory        9.94
+      stable        0.98
+    balanced        1.23
 ```
 
 Plus three artifacts:
@@ -79,15 +87,35 @@ Plus three artifacts:
 
 ## Grading targets
 
-`--target` picks the primary axis to grade against. All metrics are computed regardless; the target only changes which one becomes the headline `score`:
+Every run computes all five scores and prints them in a table. The `--target` flag only changes which one becomes the headline `score`.
 
-| target | optimizes for |
-|---|---|
-| `speed` (default) | `speedup` vs the MLX reference |
-| `compute` | achieved GFLOPS |
-| `memory` | achieved GB/s (bandwidth-bound kernels) |
-| `stable` | run-to-run consistency |
-| `balanced` | `0.5·speedup + 0.3·gflops/1000 + 0.2·stability` |
+| target | metric | good | bad | what it means |
+|---|---|---|---|---|
+| **speed** | `speedup` vs MLX | > 1.0× = faster than MLX | < 1.0× = slower than MLX | How your kernel compares to Apple's reference |
+| **compute** | GFLOPS | higher = better throughput | low = GPU underutilized | Raw compute. Ignore for memory-bound kernels (element-wise ops, copies) |
+| **memory** | GB/s | near M2 peak ~89 GB/s | well below peak | Memory bandwidth utilization. The primary metric for element-wise kernels |
+| **stable** | 0–1 | > 0.95 = solid | < 0.90 = noisy | Run-to-run consistency. Low stability means thermal throttling or OS interference |
+| **balanced** | composite | higher = better overall | — | `0.5·speedup + 0.3·gflops/1000 + 0.2·stability` |
+
+**Which target matters for your kernel:**
+
+- **Element-wise ops** (relu, sigmoid, add, etc.): look at `memory` — they're bandwidth-bound, GFLOPS will be low by nature
+- **Matmuls**: look at `compute` — they're compute-bound, GB/s will be low by nature  
+- **Reductions** (layernorm, softmax, dot product): look at `speed` — they're latency-sensitive, mixed compute/bandwidth
+- **Scans** (cumsum): look at `speed` or `balanced`
+
+### Example: good vs bad scores
+
+```
+GOOD (sqr_mm):                      BAD (naive kernel):
+      target        score                  target        score
+  ----------   ----------              ----------   ----------
+       speed        1.428                   speed        0.120
+     compute     1695.83                  compute      142.50
+      memory        9.94                   memory        0.83
+      stable        0.98                   stable        0.52
+    balanced        1.23                 balanced        0.17
+```
 
 ## Authoring a kernel
 
@@ -95,5 +123,5 @@ See [AGENTS.md](AGENTS.md) for the full contract. Short version:
 
 - `mlx/kernels/<set>/<name>.py` — the MLX baseline (don't edit; it defines the problem).
 - `src/kernels/<set>/<name>.metal` — your kernel.
-- Function signature must match the baseline's `metal_function`, binding indices, and tile geometry.
-- Run `./bench <name>` until `correct=true` and `speedup>1`.
+- Run `./bench <name>` until `correct=true`.
+- Edit only the `.metal` file. Update `best_times.md` with your result. Open a PR.
