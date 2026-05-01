@@ -306,6 +306,7 @@ def build_manifest(b, inputs, *, input_paths, output_paths, warmup, iters,
 # --- chip detection (mirrors src/metal_scripts/setup.cpp) -------------------
 
 _CHIP_TYPES = [
+    ("M5 Ultra", "m5_ultra"), ("M5 Max", "m5_max"), ("M5 Pro", "m5_pro"), ("M5", "m5"),
     ("M4 Ultra", "m4_ultra"), ("M4 Max", "m4_max"), ("M4 Pro", "m4_pro"), ("M4", "m4"),
     ("M3 Ultra", "m3_ultra"), ("M3 Max", "m3_max"), ("M3 Pro", "m3_pro"), ("M3", "m3"),
     ("M2 Ultra", "m2_ultra"), ("M2 Max", "m2_max"), ("M2 Pro", "m2_pro"), ("M2", "m2"),
@@ -362,7 +363,7 @@ def bucket_key():
 
 def chip_generation(chip_type: str) -> str:
     """Return the bare generation tag: 'm4_max' -> 'm4', 'm3_ultra' -> 'm3'."""
-    for gen in ("m1", "m2", "m3", "m4"):
+    for gen in ("m1", "m2", "m3", "m4", "m5"):
         if chip_type.startswith(gen):
             return gen
     return chip_type

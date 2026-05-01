@@ -41,6 +41,10 @@ const char* type_name(MChipType t) {
         case MChipType::M4_PRO:    return "m4_pro";
         case MChipType::M4_MAX:    return "m4_max";
         case MChipType::M4_ULTRA:  return "m4_ultra";
+        case MChipType::M5:        return "m5";
+        case MChipType::M5_PRO:    return "m5_pro";
+        case MChipType::M5_MAX:    return "m5_max";
+        case MChipType::M5_ULTRA:  return "m5_ultra";
         default:                   return "unknown";
     }
 }
@@ -48,6 +52,10 @@ const char* type_name(MChipType t) {
 // Order matters: more-specific suffixes ("Max", "Pro", "Ultra") before bare model.
 static MChipType parse_type(const std::string& name) {
     auto has = [&](const char* sub) { return name.find(sub) != std::string::npos; };
+    if (has("M5 Ultra")) return MChipType::M5_ULTRA;
+    if (has("M5 Max"))   return MChipType::M5_MAX;
+    if (has("M5 Pro"))   return MChipType::M5_PRO;
+    if (has("M5"))       return MChipType::M5;
     if (has("M4 Ultra")) return MChipType::M4_ULTRA;
     if (has("M4 Max"))   return MChipType::M4_MAX;
     if (has("M4 Pro"))   return MChipType::M4_PRO;
