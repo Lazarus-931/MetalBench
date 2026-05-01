@@ -1,6 +1,6 @@
 # AGENTS.md
 
-Read this once before doing anything in this repo. Both human and LLM agents (Claude Code, Codex, etc.) should follow it.
+This is for the clankers
 
 ## Your job
 
