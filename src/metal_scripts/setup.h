@@ -19,7 +19,7 @@ enum class MChipType {
     M1, M1_PRO, M1_MAX, M1_ULTRA,
     M2, M2_PRO, M2_MAX, M2_ULTRA,
     M3, M3_PRO, M3_MAX, M3_ULTRA,
-    M4, M4_PRO, M4_MAX,
+    M4, M4_PRO, M4_MAX, M4_ULTRA,
 };
 
 struct MChip {

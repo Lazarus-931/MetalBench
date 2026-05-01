@@ -11,7 +11,11 @@
 
 using metalbench::Binding;
 using metalbench::TimingResult;
+using metalbench::ProfilingConfig;
+using metalbench::CounterSetInfo;
 using metalbench::runTimedDispatches;
+using metalbench::enumerateCounterSets;
+using metalbench::captureDispatch;
 using metalbench::MChip;
 using metalbench::detect_chip;
 
@@ -31,6 +35,39 @@ static MTLSize sz3(NSArray* a) {
     return MTLSizeMake([a[0] unsignedLongValue],
                        [a[1] unsignedLongValue],
                        [a[2] unsignedLongValue]);
+}
+
+// Emit a JSON array of counter set names: ["MTLCommonCounterSetStatistic",...]
+static std::string counterSetsJson(const std::vector<CounterSetInfo>& sets) {
+    std::string s = "[";
+    for (size_t i = 0; i < sets.size(); i++) {
+        if (i) s += ",";
+        s += "\"";
+        s += sets[i].name;
+        s += "\"";
+    }
+    s += "]";
+    return s;
+}
+
+// Emit profiling block JSON, or empty string if no counters were sampled.
+static std::string profilingJson(const TimingResult& t) {
+    if (!t.counters_available) {
+        return "{\"counters_available\":false}";
+    }
+    std::string s = "{\"counters_available\":true,\"counter_set\":\"";
+    s += t.sampled_counter_set;
+    s += "\",\"samples\":[";
+    for (size_t i = 0; i < t.counter_samples.size(); i++) {
+        if (i) s += ",";
+        char buf[128];
+        snprintf(buf, sizeof(buf), "{\"name\":\"%s\",\"value\":%llu}",
+                 t.counter_samples[i].first.c_str(),
+                 (unsigned long long)t.counter_samples[i].second);
+        s += buf;
+    }
+    s += "]}";
+    return s;
 }
 
 int main(int argc, const char** argv) { @autoreleasepool {
@@ -57,8 +94,16 @@ int main(int argc, const char** argv) { @autoreleasepool {
     int warmup = [manifest[@"warmup"] intValue];
     int iters  = [manifest[@"iters"]  intValue];
 
+    ProfilingConfig prof;
+    prof.enabled = [manifest[@"profile"] boolValue];
+
+    NSString* capturePath = manifest[@"capture_path"];
+
     id<MTLDevice> device = MTLCreateSystemDefaultDevice();
     if (!device) return die("no Metal device");
+
+    // Enumerate available counter sets (zero dispatch overhead).
+    std::vector<CounterSetInfo> counterSets = enumerateCounterSets(device);
 
     id<MTLLibrary> library = [device newLibraryWithURL:[NSURL fileURLWithPath:libPath] error:&err];
     if (err) return die("load metallib", err);
@@ -113,10 +158,11 @@ int main(int argc, const char** argv) { @autoreleasepool {
         }
     }
 
-    TimingResult t = runTimedDispatches(queue, pso, bindings,
-                                        sz3(manifest[@"grid"]),
-                                        sz3(manifest[@"threadgroup"]),
-                                        warmup, iters);
+    MTLSize grid        = sz3(manifest[@"grid"]);
+    MTLSize threadgroup = sz3(manifest[@"threadgroup"]);
+
+    TimingResult t = runTimedDispatches(queue, pso, bindings, grid, threadgroup,
+                                        warmup, iters, prof, device);
 
     for (auto& o : outputs) {
         NSData* d = [NSData dataWithBytesNoCopy:o.buf.contents length:o.size freeWhenDone:NO];
@@ -124,17 +170,28 @@ int main(int argc, const char** argv) { @autoreleasepool {
             return die([NSString stringWithFormat:@"cannot write output %@", o.path].UTF8String);
     }
 
+    // Optional GPU trace capture (separate from timing; does not affect results).
+    if (capturePath && capturePath.length > 0) {
+        captureDispatch(device, queue, pso, bindings, grid, threadgroup,
+                        std::string(capturePath.UTF8String));
+    }
+
     if (device && chip.name == "unknown") chip.name = std::string(device.name.UTF8String);
 
     // JSON to stdout — internal protocol consumed by harness.py, not the user.
+    // available_counter_sets is always emitted (zero overhead).
+    // profiling block is always emitted so harness can check counters_available.
     printf(
       "{\"chip\":%s,\"metal_device\":\"%s\","
       "\"tg_static_mem_bytes\":%lu,\"pso_max_threads_per_tg\":%lu,"
-      "\"min_ms\":%.6f,\"median_ms\":%.6f,\"mean_ms\":%.6f,\"iters\":%d}\n",
+      "\"min_ms\":%.6f,\"median_ms\":%.6f,\"mean_ms\":%.6f,\"iters\":%d,"
+      "\"available_counter_sets\":%s,\"profiling\":%s}\n",
       metalbench::to_json(chip).c_str(),
       device.name.UTF8String ?: "unknown",
       (unsigned long)pso.staticThreadgroupMemoryLength,
       (unsigned long)pso.maxTotalThreadsPerThreadgroup,
-      t.min_ms, t.median_ms, t.mean_ms, t.iters);
+      t.min_ms, t.median_ms, t.mean_ms, t.iters,
+      counterSetsJson(counterSets).c_str(),
+      profilingJson(t).c_str());
     return 0;
 }}

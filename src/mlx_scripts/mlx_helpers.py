@@ -25,6 +25,7 @@ Use make_element_wise / make_matmul / make_reduction in each baseline file
 to avoid boilerplate. They inject grid/scalars/flops/bytes on the module.
 """
 import contextlib
+import functools
 import importlib.util
 import platform
 import subprocess
@@ -254,7 +255,10 @@ def load_baseline(name):
     return Baseline(name=name, module=mod, metallib=metallib, spec=spec)
 
 
-def build_manifest(b, inputs, *, input_paths, output_paths, warmup, iters):
+def build_manifest(b, inputs, *, input_paths, output_paths, warmup, iters,
+                   chip_type: str | None = None,
+                   profile: bool = False,
+                   capture_host: str | None = None):
     if len(input_paths) != len(b.input_bindings):
         raise ValueError("input_paths must match input_bindings")
     if len(output_paths) != len(b.outputs):
@@ -275,21 +279,34 @@ def build_manifest(b, inputs, *, input_paths, output_paths, warmup, iters):
             "dtype": s.dtype, "value": s.value,
         })
 
-    return {
+    threadgroup = list(b.threadgroup)
+    grid        = list(b.grid(inputs))
+
+    if chip_type:
+        override = _get_chip_override(b.name, chip_type)
+        if override:
+            threadgroup = list(override.get("threadgroup", threadgroup))
+            grid        = list(override.get("grid",        grid))
+
+    manifest = {
         "function":    b.metal_function,
         "metallib":    str(b.metallib),
         "buffers":     buffers,
-        "grid":        list(b.grid(inputs)),
-        "threadgroup": list(b.threadgroup),
+        "grid":        grid,
+        "threadgroup": threadgroup,
         "warmup":      int(warmup),
         "iters":       int(iters),
+        "profile":     bool(profile),
     }
+    if capture_host:
+        manifest["capture_path"] = str(capture_host)
+    return manifest
 
 
 # --- chip detection (mirrors src/metal_scripts/setup.cpp) -------------------
 
 _CHIP_TYPES = [
-    ("M4 Max", "m4_max"), ("M4 Pro", "m4_pro"), ("M4", "m4"),
+    ("M4 Ultra", "m4_ultra"), ("M4 Max", "m4_max"), ("M4 Pro", "m4_pro"), ("M4", "m4"),
     ("M3 Ultra", "m3_ultra"), ("M3 Max", "m3_max"), ("M3 Pro", "m3_pro"), ("M3", "m3"),
     ("M2 Ultra", "m2_ultra"), ("M2 Max", "m2_max"), ("M2 Pro", "m2_pro"), ("M2", "m2"),
     ("M1 Ultra", "m1_ultra"), ("M1 Max", "m1_max"), ("M1 Pro", "m1_pro"), ("M1", "m1"),
@@ -341,6 +358,34 @@ def bucket_key_from_name(name):
 
 def bucket_key():
     return chip_info()["bucket"]
+
+
+def chip_generation(chip_type: str) -> str:
+    """Return the bare generation tag: 'm4_max' -> 'm4', 'm3_ultra' -> 'm3'."""
+    for gen in ("m1", "m2", "m3", "m4"):
+        if chip_type.startswith(gen):
+            return gen
+    return chip_type
+
+
+@functools.lru_cache(maxsize=1)
+def _load_tuning() -> dict:
+    spec = importlib.util.spec_from_file_location(
+        "_mb_tuning", BASELINE_ROOT / "common" / "tuning.py")
+    if spec is None or spec.loader is None:
+        return {}
+    mod = importlib.util.module_from_spec(spec)
+    try:
+        spec.loader.exec_module(mod)
+        return getattr(mod, "CHIP_TUNING", {})
+    except Exception:
+        return {}
+
+
+def _get_chip_override(name: str, chip_type: str) -> dict | None:
+    """Return dispatch-time override dict for (name, chip_type), or None."""
+    tuning = _load_tuning()
+    return tuning.get((name, chip_type)) or tuning.get((name, chip_generation(chip_type)))
 
 
 # --- MLX device + capture helpers -------------------------------------------

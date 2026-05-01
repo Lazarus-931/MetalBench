@@ -50,10 +50,13 @@ def _run_host(manifest, manifest_path):
 
 
 def evaluate(name, *, seed, warmup, iters, dry_run=False,
-             capture_path=None, cold_start=False):
+             capture_path=None, cold_start=False,
+             profile=False, capture_host=None):
     b = H.load_baseline(name)
     inputs = b.make_inputs(seed)
     for x in inputs: mx.eval(x)
+
+    chip = H.chip_info()
 
     with tempfile.TemporaryDirectory(prefix="mb_") as tmp:
         tmp = Path(tmp)
@@ -67,6 +70,9 @@ def evaluate(name, *, seed, warmup, iters, dry_run=False,
         manifest = H.build_manifest(
             b, inputs, input_paths=in_paths, output_paths=out_paths,
             warmup=warmup, iters=iters,
+            chip_type=chip["type"],
+            profile=profile,
+            capture_host=capture_host,
         )
         if dry_run:
             return {"task": name, "dry_run": True, "manifest": manifest}
@@ -119,9 +125,9 @@ def evaluate(name, *, seed, warmup, iters, dry_run=False,
     cv = abs(k_t["median_ms"] - mean_ms) / mean_ms if mean_ms > 0 else 0.0
     metrics["stability"] = max(0.0, 1.0 - cv)
 
-    return {
+    result = {
         "task":             name,
-        "chip":             H.chip_info(),
+        "chip":             chip,
         "metal_device":     k_t.get("metal_device", "unknown"),
         "tg_static_mem_bytes":     k_t.get("tg_static_mem_bytes"),
         "pso_max_threads_per_tg":  k_t.get("pso_max_threads_per_tg"),
@@ -132,6 +138,11 @@ def evaluate(name, *, seed, warmup, iters, dry_run=False,
         "reference_timing": r_t,
         "outputs":          per_output,
     }
+    if "available_counter_sets" in k_t:
+        result["available_counter_sets"] = k_t["available_counter_sets"]
+    if "profiling" in k_t:
+        result["profiling"] = k_t["profiling"]
+    return result
 
 
 # Each target picks ONE primary metric to optimize. Higher = better.
@@ -234,6 +245,9 @@ def _print_report(result, target, score):
     if result.get("tg_static_mem_bytes") is not None:
         print(f"  occupancy   : tg_mem={_bytes_human(result['tg_static_mem_bytes'])}  "
               f"max_thr/tg={result['pso_max_threads_per_tg']}")
+    if result.get("available_counter_sets"):
+        csets = ", ".join(result["available_counter_sets"])
+        print(f"  counters    : {csets}")
     print()
     status = "✓ correct " if result["correct"] else "✗ INCORRECT"
     max_err = max((o["max_err"] for o in outs), default=0.0)
@@ -250,6 +264,11 @@ def _print_report(result, target, score):
     if "arith_intensity" in m:
         print(f"  arith int.  : {m['arith_intensity']:.1f} FLOPs/byte")
     print(f"  stability   : {m['stability']:.2f}  (1.0 = perfectly consistent)")
+    prof = result.get("profiling", {})
+    if prof.get("counters_available"):
+        print(f"  profiling   : {prof['counter_set']}")
+        for s in prof.get("samples", []):
+            print(f"    {s['name']:40s} {s['value']}")
     print()
     print(f"  {'target':>10s}   {'score':>10s}")
     print(f"  {'-'*10}   {'-'*10}")
@@ -268,6 +287,10 @@ def main(argv=None):
     ap.add_argument("--dry-run",    action="store_true")
     ap.add_argument("--capture",    default=None,
                     help="record an MLX .gputrace at this path")
+    ap.add_argument("--capture-host", default=None,
+                    help="record a .gputrace of the host Metal dispatch at this path")
+    ap.add_argument("--profile",    action="store_true",
+                    help="enable GPU counter sampling via MTLCounterSet (adds one extra dispatch)")
     ap.add_argument("--cold-start", action="store_true",
                     help="clear MLX kernel cache before timing")
     ap.add_argument("--save",       action="store_true",
@@ -300,7 +323,8 @@ def main(argv=None):
 
     result = evaluate(args.name, seed=args.seed, warmup=args.warmup,
                       iters=args.iters, dry_run=args.dry_run,
-                      capture_path=args.capture, cold_start=args.cold_start)
+                      capture_path=args.capture, cold_start=args.cold_start,
+                      profile=args.profile, capture_host=args.capture_host)
 
     if args.dry_run:
         # For dry run, print the manifest as text dump (it's the only artifact).
