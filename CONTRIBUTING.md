@@ -1,9 +1,9 @@
 # Contributing to MetalBench
 
 MetalBench is an open benchmark for Apple Metal GPU kernels. Submit a kernel
-that beats the current best time and it becomes the new reference.
+that beats the current best time and it becomes the new reference! simple as that!
 
-## Quick start
+## Do this
 
 ```bash
 git clone https://github.com/Lazarus-931/MetalBench.git
@@ -16,14 +16,13 @@ python3 setup.py                      # one-time: installs toolchain + deps
 
 1. **Fork** the repo.
 2. **Pick a kernel** from [best_times.md](best_times.md) you want to improve, or add a new one.
-3. **Edit** `src/kernels/common/<name>.metal` — change the implementation, not the function signature.
+3. **Edit** `src/kernels/common/<name>.metal` — change the implementation, not the function signature, that will break code!
 4. **Run** `./bench <name>` until `correct=true` and you have a new best time.
 5. **Update** `best_times.md` with your new time and speedup.
 6. **PR** with only:
    - The `.metal` file you changed
-   - Updated `best_times.md`
+   - Updated `best_times.md` with the actual time
 
-That's it. No harness changes. No baseline changes. No new dependencies.
 
 ## Adding a new kernel
 
@@ -45,7 +44,7 @@ Every benchmark prints all 5 targets:
 | `stable` | consistency (0–1) | > 0.95 |
 | `balanced` | weighted composite | higher = better overall |
 
-## Project structure
+## NetalBench structure
 
 ```
 MetalBench/
