@@ -1,66 +1,58 @@
 # AGENTS.md
 
-This is for the clankers
+This is for automated agents (Claude Code, etc.) contributing Metal kernels.
 
 ## Your job
 
-Make `./bench <name>` come back with `correct=true` and the highest possible `speedup` against the MLX reference. That's it.
+Make `./bench <name>` come back with `correct=true` and the highest possible
+`speedup` against the MLX reference. Then update `best_times.md`.
 
 ## How a benchmark is structured
 
-Each kernel slot has exactly two files, paired by name:
+Each kernel has three files, paired by name:
 
 | file | who edits it | role |
 |---|---|---|
-| `mlx/kernels/<set>/<name>.py`   | the project owner | MLX baseline + correctness reference + the metal-side contract (function name, threadgroup, bindings, outputs) |
-| `src/kernels/<set>/<name>.metal` | **you, the agent**  | the Metal kernel you're optimizing |
+| `mlx/kernels/common/<name>.py` | project owner | **Model class only** — the MLX reference implementation |
+| `mlx/kernels/common/registry.py` | project owner | dispatch metadata (metal_function, threadgroup, grid, scalars, flops, bytes) |
+| `src/kernels/common/<name>.metal` | **you** | the Metal kernel you're optimizing |
 
-`<set>` is one of `common`, `standard`, `full`. Names are abbreviations like `sqr_mm`, `rect_mm`, `batch_mm`, `softmax_1d` — short, snake_case, no leading slot numbers. The same `<name>` is used in both file paths and as the metallib stem (`build/<name>.metallib`).
-
-Shared Metal helpers live in `src/kernels/utils/utils.metal`. Add to it only when 2+ kernels need the same thing.
+The harness auto-generates `get_inputs`, `make_inputs`, `reference` from the
+Model class + registry entry. You never touch the harness.
 
 ## Workflow
 
-1. **First time only:** `python3 setup.py` — installs the Metal toolchain and Python deps, builds the host. Takes a few minutes the first time, instant after.
-2. **Find your slot** in [KERNELS.md](KERNELS.md). Read the row.
-3. **Read the baseline** at `mlx/kernels/<set>/<name>.py`. It tells you:
-   - the kernel function name to expose (`metal_function`)
-   - which buffers are inputs/outputs/scalars (`input_bindings`, `outputs`, `scalars`)
-   - the threadgroup size and grid (`threadgroup`, `grid`)
-   - the correctness tolerance (`rtol`, `atol`)
-4. **Read at least one existing kernel** (e.g. `src/kernels/common/sqr_mm.metal`) to see the manifest contract in action.
-5. **Write/edit `src/kernels/<set>/<name>.metal`.** Function signature must match the baseline's `metal_function` and binding indices.
-6. **Run `./bench <name>`.** Output prints `[chip] ... ` first (the result bucket), then the JSON. Exit 0 = correct.
-7. **Iterate.** If wrong: read the per-output `max_err` and use `python3 src/mlx_scripts/diff_arrays.py` for index-level diffs. If slow: add tiling, threadgroup memory, simdgroup_matrix.
+1. **First time:** `python3 setup.py` — installs Metal toolchain + Python deps + builds host.
+2. **Read the baseline** at `mlx/kernels/common/<name>.py`. Just the `Model.forward()` tells you the operation.
+3. **Read the registry entry** at `mlx/kernels/common/registry.py` for the kernel's `metal_function`, binding indices, grid, and scalars.
+4. **Write/edit** `src/kernels/common/<name>.metal`. The kernel function name must match `metal_function`. Buffer bindings must match `input_bindings` and registry scalars.
+5. **Run** `./bench <name>`. Checks correctness, prints all 5 target scores.
+6. **Update** `best_times.md` with your new time + speedup.
+7. **Open a PR** with only the `.metal` file changed + updated `best_times.md`.
 
-## Rules — don't break these
+## Rules
 
-- **Don't edit baselines.** `mlx/kernels/**/*.py` is the spec. Changing it is changing the benchmark.
-- **Don't edit the harness.** `src/mlx_scripts/`, `src/metal_scripts/`, `Makefile`, `bench` are infrastructure. Bug? Open an issue.
-- **Don't add Python or system deps.** If you think you need one, you probably don't.
-- **Don't rename files or change conventions.** Same name across `.py` and `.metal`.
-- **Don't claim a result you can't reproduce.** Numbers come from `./bench`, never made up.
+- **Don't edit baselines.** `mlx/kernels/common/<name>.py` is the spec.
+- **Don't edit the harness.** `src/mlx_scripts/`, `src/metal_scripts/`, `Makefile`, `bench` are infrastructure.
+- **Don't edit registry.py** unless adding a NEW kernel (not optimizing an existing one).
+- **One kernel per PR.** Keeps review simple.
+- **Don't claim unreproducible numbers.** Numbers come from `./bench`, never made up.
 
-## What "fast" means here
+## What "fast" means
 
-- `speedup` in the result JSON = `mlx_median_ms / kernel_median_ms`. Above 1.0 means you beat MLX's reference. Below means MLX is still winning.
-- Results are partitioned per-chip in `results/<chip-bucket>/<name>.json` — what's fast on M2 may not be on M4. Don't tune to a number from a different chip.
-- MLX's matmul / attention / norm kernels are *highly* optimized (often hardware MMA). Beating them takes care; matching them is already a win.
+- `speedup` = MLX median / kernel median. >1.0 = beating MLX.
+- All 5 targets printed on every run. Pick the right one for your kernel:
+  - Element-wise → look at `memory` (GB/s)
+  - Matmul → look at `compute` (GFLOPS)
+  - Reductions → look at `speed`
+- Results per-chip in `results/<bucket>/<name>.json`. M2 tuning may not transfer to M4.
 
-## Known optimization recipes (start here)
+## Optimization recipes
 
 | op family | first try | next try |
 |---|---|---|
-| element-wise (abs, exp, …) | one thread per element, 256-wide threadgroups | vectorized loads (`float4`) |
-| reductions (sum, mean, …)  | threadgroup reduction via `tg_sum` from `utils.metal` | warp/simdgroup reduce + threadgroup combine |
-| matmul                     | 16×16 threadgroup tiling                  | `metal::simdgroup_matrix<float, 8, 8>` MMA, 32×32 output tiles |
-| layer norm / rms norm      | one block per row, threadgroup reduction  | fused stats + normalize, vectorized stores |
-
-## Verifying without a full bench
-
-- `python3 src/mlx_scripts/harness.py <name> --dry-run` — builds the manifest and prints it without dispatching. Use this to check binding indices, dtype, grid.
-- `make kernels` — compile your `.metal` files only. Catches syntax errors fast.
-
-## Where to put a result
-
-Always run with `--save` (the default in `./bench`). It writes `results/<chip-bucket>/<name>.json`. That's the artifact. If your run doesn't save, it didn't happen.
+| element-wise | float4 grid-stride loop, 1024 thr/tg | 64K threads for memory saturation |
+| reductions | simd_sum + cross-simdgroup shuffle | fused multiple reductions in one pass |
+| matmul | 64×64 tile, BK=16, 256 thr, double-buffered, padded tg mem | (ceiling ~50% peak on M2 in pure MSL) |
+| norms (layer/rms) | simd_sum reduction per row, 1024 thr/tg | float2 accumulators |
+| scans (cumsum) | `simd_prefix_inclusive_sum` + 2-level | hardware prefix ops beat manual |
