@@ -77,7 +77,9 @@ kernel void silu_linear_f32(
                 simdgroup_multiply_accumulate(C_acc[i][j], A_blk[i], B_blk[j], C_acc[i][j]);
     }
 
-    // Store matmul result normally (identical to rect_mm)
+    // Store to device memory then in-place activate via per-thread loop.
+    // Each thread writes its portion, then immediately re-reads + activates.
+    // The data is in L2 cache, so re-read is nearly free.
     #pragma unroll
     for (uint i = 0; i < MMA_M; ++i)
         #pragma unroll
@@ -85,14 +87,16 @@ kernel void silu_linear_f32(
             simdgroup_store(C_acc[i][j],
                 &C[(c_row0 + sm*SM + i*8) * N + (c_col0 + sn*SN + j*8)], N);
 
-    // Fused SiLU: re-read from L2 cache and activate (data was just written above)
     threadgroup_barrier(mem_flags::mem_threadgroup);
-    for (uint idx = lid; idx < BM * BN / 4; idx += 256) {
-        uint r = (idx * 4) / BN, c = (idx * 4) % BN;
-        uint out_idx = (c_row0 + r) * N + (c_col0 + c);
+
+    // Each thread activates a subset of the output tile using float4
+    const uint total_float4 = BM * BN / 4;
+    for (uint idx = lid; idx < total_float4; idx += 256) {
+        uint r = (idx * 4) / BN;
+        uint c = (idx * 4) % BN;
         if (c_row0 + r >= M || c_col0 + c >= N) continue;
-        float4 v = *reinterpret_cast<device float4*>(&C[out_idx]);
-        v = v / (1.0f + exp(-v)); // SiLU
-        *reinterpret_cast<device float4*>(&C[out_idx]) = v;
+        device float4* ptr = reinterpret_cast<device float4*>(&C[(c_row0 + r) * N + (c_col0 + c)]);
+        float4 v = *ptr;
+        *ptr = v / (1.0f + exp(-v));
     }
 }

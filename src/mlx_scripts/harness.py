@@ -278,9 +278,61 @@ def _print_report(result, target, score):
     print(line)
 
 
+def _update_best_times_md():
+    """Regenerate best_times.md from all session.json entries."""
+    import json as _json
+    sp = H.SESSION_PATH
+    if not sp.exists():
+        return
+    session = _json.loads(sp.read_text())
+    lines = ["# MetalBench Best Times", "",
+             "| kernel | type | Metal (ms) | MLX (ms) | speedup | GFLOPS | GB/s |",
+             "|---|---|---|---|---|---|---|"]
+
+    def _type(name):
+        mm = {"sqr_mm","rect_mm","batch_mm","matvec","outer_product"}
+        ew = {"relu","leaky_relu","sigmoid","swish","gelu","selu","logsigmoid","hardsigmoid","tanh","hardswish","matrix_add","matrix_scale"}
+        red = {"layer_norm","rms_norm","l1_norm","l2_norm","dot_product","trace","softmax","mse_loss","cosine_similarity","manhattan_similarity"}
+        scan = {"cumsum","cumprod","cumsum_reverse"}
+        if name in mm: return "matmul"
+        if name in ew: return "elem"
+        if name in red: return "reduce"
+        if name in scan: return "scan"
+        return "?"
+
+    chip_order = sorted(session.keys())
+    # Header
+    chip_header = " | ".join(f"{c} Metal | {c} speedup" for c in chip_order)
+    lines[2] = f"| kernel | type | {chip_header} |"
+    sep = "|---|" + "|---|" * (len(chip_order) * 2 + 1)
+    lines[3] = sep
+
+    all_names = set()
+    for cdata in session.values():
+        all_names.update(cdata.keys())
+
+    for name in sorted(all_names):
+        cols = [name, _type(name)]
+        for chip in chip_order:
+            d = session[chip].get(name, {})
+            ms = d.get("best_time_ms")
+            sp = d.get("speedup_vs_mlx")
+            cols.append(f"{ms:.3f}ms" if ms else "--")
+            cols.append(f"{sp:.1f}×" if sp else "--")
+        lines.append("| " + " | ".join(cols) + " |")
+
+    lines.append("")
+    lines.append("---")
+    lines.append(f"**Chips:** {', '.join(chip_order)}")
+    lines.append("")
+    lines.append("To submit: fork, edit `.metal`, `./bench <name>`, update PR.")
+    (H.REPO_ROOT / "best_times.md").write_text("\n".join(lines) + "\n")
+
+
 def main(argv=None):
     ap = argparse.ArgumentParser(prog="metalbench-harness")
-    ap.add_argument("name")
+    ap.add_argument("name", nargs="?")
+    ap.add_argument("--_update_md", action="store_true", help=argparse.SUPPRESS)
     ap.add_argument("--seed",       type=int, default=0)
     ap.add_argument("--warmup",     type=int, default=10)
     ap.add_argument("--iters",      type=int, default=200)
@@ -299,6 +351,13 @@ def main(argv=None):
                     help="don't update session.json")
     ap.add_argument("--target",     default="speed", choices=list(TARGETS.keys()))
     args = ap.parse_args(argv)
+
+    if args._update_md:
+        _update_best_times_md()
+        return 0
+
+    if not args.name:
+        ap.error("kernel name required (or use --all from bench script)")
 
     chip = H.chip_info()
     print(f"[chip] {chip['type']:>8s}  '{chip['name']}'  "
