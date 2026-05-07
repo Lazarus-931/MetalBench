@@ -1,45 +1,103 @@
 # Kernels
 
-Concrete benchmark list. See [README](README.md) for the Common / Standard / Full split and overall philosophy.
+Concrete benchmark list. See [README](README.md) for the Common / Standard / Full split.
 
-Every entry below maps 1:1 to two files:
+Every entry maps 1:1 to two files:
 
 | file | role |
 |---|---|
-| `python/metalbench/<name>.py` | MLX baseline + correctness reference |
-| `src/kernels/<name>/kernel.metal` | candidate Metal kernel |
+| `mlx/kernels/<set>/<name>.py` | MLX baseline (Model class only) |
+| `src/kernels/<set>/<name>.metal` | Metal kernel |
 
-Run any one with `./bench <name>`. Results land in `results/<chip-bucket>/<name>.json` so different M-chips don't get mashed into the same numbers.
+Metadata lives in `<set>/registry.py`. Run any kernel with `./bench <name>`.
 
 ---
 
-## Common Set — first 50
+## Common Set — 30+ kernels
 
-The Common Set targets 100 simple operations + the building blocks of larger kernels. These first 50 are the foundation — get every one of these green before reaching for fused/full kernels.
+### Matmul ops
+| name | op |
+|---|---|
+| `sqr_mm` | `A @ B` (square N×N) |
+| `rect_mm` | `A @ B` (M×K @ K×N) |
+| `batch_mm` | `A_b @ B_b` (batched) |
+| `matvec` | `A @ x` |
+| `outer_product` | `x y^T` |
 
-### Matrix ops (start here — what the README leads with)
-| # | name | op |
+### Element-wise activations
+| name | op |
+|---|---|
+| `relu` | `max(x, 0)` |
+| `leaky_relu` | `max(x, 0) + slope * min(x, 0)` |
+| `sigmoid` | `1 / (1 + exp(-x))` |
+| `swish` | `x * sigmoid(x)` |
+| `gelu` | GELU activation |
+| `selu` | SELU activation |
+| `logsigmoid` | `log(sigmoid(x))` |
+| `hardsigmoid` | `clamp(x/6 + 0.5, 0, 1)` |
+| `tanh` | `tanh(x)` |
+| `hardswish` | `x * clamp(x+3, 0, 6) / 6` |
+
+### Element-wise arithmetic
+| name | op |
+|---|---|
+| `matrix_add` | `A + B` |
+| `matrix_scale` | `alpha * A` |
+
+### Reductions
+| name | op |
+|---|---|
+| `dot_product` | `x^T y` |
+| `l1_norm` | `sum(abs(x))` along last dim |
+| `l2_norm` | `sqrt(sum(x^2))` along last dim |
+| `trace` | `sum(A_ii)` |
+| `mse_loss` | `mean((pred - target)^2)` |
+| `softmax` | `exp(x) / sum(exp(x))` per row |
+| `cosine_similarity` | `x·y / (|x|·|y|)` per row pair |
+| `manhattan_similarity` | `sum(|x - y|)` per row pair |
+
+### Normalization
+| name | op |
+|---|---|
+| `layer_norm` | `(x - mean) / sqrt(var + eps)` |
+| `rms_norm` | `x * rsqrt(mean(x^2) + eps)` |
+
+### Scans
+| name | op |
+|---|---|
+| `cumsum` | cumulative sum along last dim |
+| `cumsum_reverse` | reverse cumulative sum |
+| `cumprod` | cumulative product along last dim |
+
+### Misc
+| name | op |
+|---|---|
+| `transpose_2d` | `A^T` |
+| `argmax` (planned) | index of max per row |
+
+### Convolutions (Metal kernels WIP)
+| name | op |
+|---|---|
+| `conv1d` | 1D convolution |
+| `conv2d` | 2D convolution |
+| `conv3d` | 3D convolution |
+| `depthwise_conv2d` | depthwise 2D convolution |
+| `conv_transpose2d` | transposed 2D convolution |
+
+---
+
+## Standard Set — fused kernels (5, expanding)
+
+| name | op | status |
 |---|---|---|
-| 1 | `sqr_matmul`     | `A @ B` (square N×N) |
-| 2 | `rect_matmul`    | `A @ B` (M×K @ K×N) |
-| 3 | `batched_matmul` | `A_b @ B_b` |
-| 4 | `matvec`         | `A @ x` |
-| 5 | `transpose_2d`   | `Aᵀ` |
-| 6 | `dot_product`    | `xᵀ y` |
-| 7 | `outer_product`  | `x yᵀ` |
-| 8 | `matrix_add`     | `A + B` |
-| 9 | `matrix_scale`   | `α · A` |
-| 10 | `trace`          | `Σ A_ii` |
-
-
-
-
-
+| `add_norm` | `layer_norm(x + residual)` | ✓ |
+| `silu_linear` | `silu(x @ W)` | ✓ |
+| `gelu_linear` | `gelu(x @ W)` | debugging |
+| `rms_norm_linear` | `rms_norm(x) @ W` | debugging |
+| `scaled_dot_product` | `softmax(Q@K^T / sqrt(d)) @ V` | WIP |
 
 ---
 
-## Coming next
+## Full Set
 
-- **Common Set 51-100** — the remaining 50 unary/binary/reduction/matrix variants (different dtypes, axes, broadcasting).
-- **Standard Set (50)** — fused kernels: `gelu_linear`, `softmax_attention`, `rms_norm_linear`, etc.
-- **Full Set (25)** — multi-op kernels at architecture scale: full attention block, MLP block, conv layers.
+Coming — multi-op kernels at architecture scale (full attention blocks, MLP blocks, conv layers).
