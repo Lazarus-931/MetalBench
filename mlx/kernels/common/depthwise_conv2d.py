@@ -3,19 +3,20 @@ from mlx import nn
 
 
 class Model(nn.Module):
-    """Depthwise 2D convolution: groups = in_channels."""
+    """depthwise_conv2d."""
     def __init__(self, channels=64, kernel_size=3, stride=1):
         super(Model, self).__init__()
-        self.conv = nn.Conv2d(channels, channels, kernel_size, stride=stride, groups=channels)
+        self.c, self.ks, self.st = channels, kernel_size, stride
 
-    def forward(self, x: mx.array) -> mx.array:
-        return self.conv(x)
+    def forward(self, x: mx.array, w: mx.array) -> mx.array:
+        st = self.st
+        return mx.conv2d(x, w, stride=st, padding=0, dilation=1, groups=64)
 
+
+_model = Model()
 
 def get_inputs():
+    mx.random.seed(42)
     x = mx.random.normal((8, 64, 64, 64), dtype=mx.float32)
-    return [x]
-
-
-def get_init_inputs():
-    return []
+    w = mx.random.normal((64, 1, 3, 3, 64), dtype=mx.float32)
+    return [x, w]

@@ -296,6 +296,56 @@ REGISTRY["manhattan_similarity"] = dict(
     bytes=2 * 1024 * 1024 * 4 + 1024 * 4,
 )
 
+# Direct convolution kernels (baseline quality, correct but unoptimized)
+REGISTRY["conv1d"] = dict(
+    metal_function="conv1d_f32", threadgroup=(1024,1,1), input_bindings=(0,1),
+    input_shapes=[(8,64,256),(128,3,64)], output_shape=(8,128,254),
+    rtol=1e-3, atol=1e-3, grid=(64*1024,1,1),
+    scalars=[dict(binding=3,dtype="u32",value=8),dict(binding=4,dtype="u32",value=64),
+             dict(binding=5,dtype="u32",value=256),dict(binding=6,dtype="u32",value=128),
+             dict(binding=7,dtype="u32",value=3),dict(binding=8,dtype="u32",value=1)],
+    flops=8*128*254*64*3*2, bytes=4*(8*64*256+128*3*64+8*128*254))
+
+REGISTRY["conv2d"] = dict(
+    metal_function="conv2d_f32", threadgroup=(1024,1,1), input_bindings=(0,1),
+    input_shapes=[(8,64,64,64),(128,3,3,64)], output_shape=(8,62,62,128),
+    rtol=1e-3, atol=1e-3, grid=(64*1024,1,1),
+    scalars=[dict(binding=3,dtype="u32",value=8),dict(binding=4,dtype="u32",value=64),
+             dict(binding=5,dtype="u32",value=64),dict(binding=6,dtype="u32",value=64),
+             dict(binding=7,dtype="u32",value=128),dict(binding=8,dtype="u32",value=3),
+             dict(binding=9,dtype="u32",value=3),dict(binding=10,dtype="u32",value=1)],
+    flops=8*128*62*62*64*9*2, bytes=4*(8*64*64*64+128*3*3*64+8*128*62*62))
+
+REGISTRY["conv3d"] = dict(
+    metal_function="conv3d_f32", threadgroup=(1024,1,1), input_bindings=(0,1),
+    input_shapes=[(4,32,32,32,32),(64,3,3,3,32)], output_shape=(4,64,30,30,30),
+    rtol=1e-3, atol=1e-3, grid=(64*1024,1,1),
+    scalars=[dict(binding=3,dtype="u32",value=4),dict(binding=4,dtype="u32",value=32),
+             dict(binding=5,dtype="u32",value=32),dict(binding=6,dtype="u32",value=32),
+             dict(binding=7,dtype="u32",value=32),dict(binding=8,dtype="u32",value=64),
+             dict(binding=9,dtype="u32",value=3),dict(binding=10,dtype="u32",value=1)],
+    flops=4*64*30*30*30*32*27*2, bytes=4*(4*32*32*32*32+64*3*3*3*32+4*64*30*30*30))
+
+REGISTRY["depthwise_conv2d"] = dict(
+    metal_function="depthwise_conv2d_f32", threadgroup=(1024,1,1), input_bindings=(0,1),
+    input_shapes=[(8,64,64,64),(64,1,3,3,64)], output_shape=(8,64,62,62),
+    rtol=1e-3, atol=1e-3, grid=(64*1024,1,1),
+    scalars=[dict(binding=3,dtype="u32",value=8),dict(binding=4,dtype="u32",value=64),
+             dict(binding=5,dtype="u32",value=64),dict(binding=6,dtype="u32",value=64),
+             dict(binding=7,dtype="u32",value=3),dict(binding=8,dtype="u32",value=3),
+             dict(binding=9,dtype="u32",value=1)],
+    flops=8*64*62*62*9*2, bytes=4*(8*64*64*64+64*9+8*64*62*62))
+
+REGISTRY["conv_transpose2d"] = dict(
+    metal_function="conv_transpose2d_f32", threadgroup=(1024,1,1), input_bindings=(0,1),
+    input_shapes=[(8,64,32,32),(64,128,3,3)], output_shape=(8,128,65,65),
+    rtol=1e-3, atol=1e-3, grid=(64*1024,1,1),
+    scalars=[dict(binding=3,dtype="u32",value=8),dict(binding=4,dtype="u32",value=64),
+             dict(binding=5,dtype="u32",value=32),dict(binding=6,dtype="u32",value=32),
+             dict(binding=7,dtype="u32",value=128),dict(binding=8,dtype="u32",value=3),
+             dict(binding=9,dtype="u32",value=2)],
+    flops=8*128*65*65*64*9*2, bytes=4*(8*64*32*32+64*128*9+8*128*65*65))
+
 REGISTRY["mse_loss"] = dict(
     metal_function="mse_loss_f32",
     threadgroup=(1024, 1, 1),

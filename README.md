@@ -19,7 +19,7 @@ I've decided to split it into 4 types:
 
 ## Evaluation
 
-So the actual benchmark measures 2 things, accuracy + performance. Accuracy is the error difference from mlx implementation to 
+The benchmark measures accuracy against the MLX reference and performance across five targets: speedup vs MLX, compute throughput (GFLOPS), memory bandwidth (GB/s), run-to-run stability (0-1), and a balanced composite score. Every kernel that passes correctness gets a row in `best_times.md`. 
 
 ## Setup
 
