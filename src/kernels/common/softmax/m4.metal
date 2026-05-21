@@ -1,28 +1,27 @@
-// masked_softmax: y = softmax(x + mask). Per-row. Assumes C == TG = 1024.
+// softmax per row: simd_max + simd_sum reductions.
 #include <metal_stdlib>
 using namespace metal;
 
-kernel void masked_softmax_f32(
-    device const float*  X       [[buffer(0)]],
-    device const float*  M       [[buffer(1)]],
-    device       float*  Y       [[buffer(2)]],
-    constant     uint&   C       [[buffer(3)]],
-    uint3 tid3                  [[thread_position_in_threadgroup]],
-    uint3 tgid                  [[threadgroup_position_in_grid]])
+kernel void softmax_f32(
+    device const float*  x  [[buffer(0)]],
+    device       float*  y  [[buffer(1)]],
+    constant     uint&   N  [[buffer(2)]],
+    uint3 tid              [[thread_position_in_threadgroup]],
+    uint3 tgid             [[threadgroup_position_in_grid]])
 {
-    const uint t = tid3.x;
+    const uint t = tid.x;
     const uint row = tgid.y;
-    const uint off = row * C;
-    const uint lane = t & 31u;
+    const uint off = row * N;
     const uint sg = t >> 5;
+    const uint lane = t & 31;
 
     threadgroup float tg_buf[32];
     threadgroup float row_max;
     threadgroup float row_sum;
 
-    float val = X[off + t] + M[off + t];
+    float val = x[off + t];
 
-    // max
+    // ---- max reduction ----
     float m = simd_max(val);
     if (lane == 0) tg_buf[sg] = m;
     threadgroup_barrier(mem_flags::mem_threadgroup);
@@ -34,8 +33,8 @@ kernel void masked_softmax_f32(
     threadgroup_barrier(mem_flags::mem_threadgroup);
     float rmax = row_max;
 
-    // exp + sum
-    float ev = exp(val - rmax);
+    // ---- exp + sum reduction ----
+    float ev = fast::exp(val - rmax);
     float s = simd_sum(ev);
     if (lane == 0) tg_buf[sg] = s;
     threadgroup_barrier(mem_flags::mem_threadgroup);
@@ -46,5 +45,5 @@ kernel void masked_softmax_f32(
     }
     threadgroup_barrier(mem_flags::mem_threadgroup);
 
-    Y[off + t] = ev / row_sum;
+    y[off + t] = ev / row_sum;
 }

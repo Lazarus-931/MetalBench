@@ -1,0 +1,128 @@
+#!/usr/bin/env bash
+# certify — author-side preflight before opening a PR.
+#
+# For every .metal file you've changed relative to origin/main:
+#   1. Run ./bench <name>
+#   2. Require `correctness : ✓ correct`
+#   3. Capture the median time + speedup
+# Then write/update the matching rows in results/<chip>/results.md and emit
+# a copy-pasteable PR body block.
+#
+# Usage:
+#   ./certify              # certifies all changed kernels
+#   ./certify <name> ...   # certifies named kernels only
+set -uo pipefail
+cd "$(dirname "$0")"
+
+BASE_REF="${BASE_REF:-origin/main}"
+
+# 1. Discover changed kernels --------------------------------------------------
+if [ $# -gt 0 ]; then
+  KERNELS=("$@")
+else
+  # Tracked changes vs base
+  TRACKED=$(git diff --name-only "$BASE_REF" -- src/kernels/ 2>/dev/null | grep '\.metal$' || true)
+  # Untracked new .metal files
+  UNTRACKED=$(git ls-files --others --exclude-standard src/kernels/ | grep '\.metal$' || true)
+  CHANGED=$(printf '%s\n%s\n' "$TRACKED" "$UNTRACKED" | grep -v '^$' || true)
+  KERNELS=()
+  for f in $CHANGED; do
+    # name = basename without .metal. For variants (foo/m4.metal), use parent dir.
+    base=$(basename "$f" .metal)
+    parent=$(basename "$(dirname "$f")")
+    if [ "$parent" = "common" ] || [ "$parent" = "standard" ] || [ "$parent" = "full" ]; then
+      KERNELS+=("$base")
+    else
+      KERNELS+=("$parent")   # variant file: kernel name = enclosing directory
+    fi
+  done
+  # Dedup
+  KERNELS=($(printf '%s\n' "${KERNELS[@]}" | awk '!seen[$0]++'))
+fi
+
+if [ ${#KERNELS[@]} -eq 0 ]; then
+  echo "[certify] no changed kernels found (BASE_REF=$BASE_REF)" >&2
+  echo "[certify] usage: ./certify [name ...]" >&2
+  exit 1
+fi
+
+echo "[certify] kernels: ${KERNELS[*]}" >&2
+
+# 2. Determine chip bucket -----------------------------------------------------
+CHIP=$(python3 -c "import sys; sys.path.insert(0,'src/mlx_scripts'); import mlx_helpers as H; print(H.bucket_key())")
+RESULTS_MD="results/${CHIP}/results.md"
+mkdir -p "results/${CHIP}"
+
+# 3. Bench each kernel ---------------------------------------------------------
+declare -a ROWS=()
+FAILED=()
+for name in "${KERNELS[@]}"; do
+  echo "" >&2
+  echo "[certify] benching $name ..." >&2
+  out=$(./bench "$name" --no-save 2>&1)
+  status=$?
+
+  correct=$(echo "$out" | grep -c "correctness : ✓ correct")
+  if [ "$status" -ne 0 ] || [ "$correct" -eq 0 ]; then
+    echo "[certify] FAIL: $name correctness check failed" >&2
+    FAILED+=("$name")
+    continue
+  fi
+
+  ms=$(echo "$out"      | awk '/^  kernel  /     { gsub(/ms/,"",$3); print $3; exit }')
+  sp=$(echo "$out"      | awk '/^  speedup/      { gsub(/×/,"",$3); print $3; exit }')
+  gflops=$(echo "$out"  | awk '/^  compute/      { print $3; exit }')
+  gbps=$(echo "$out"    | awk '/^  bandwidth/    { print $3; exit }')
+  [ -z "${gflops:-}" ] && gflops=0
+  [ -z "${gbps:-}"   ] && gbps=0
+  ROWS+=("| $name | $ms | ${sp}× | $(printf '%.0f' "$gflops") | $(printf '%.0f' "$gbps") |")
+  echo "[certify] OK   $name: ${ms}ms  ${sp}×" >&2
+done
+
+if [ ${#FAILED[@]} -gt 0 ]; then
+  echo "" >&2
+  echo "[certify] ${#FAILED[@]} kernel(s) failed correctness: ${FAILED[*]}" >&2
+  echo "[certify] fix these before opening a PR." >&2
+  exit 1
+fi
+
+# 4. Patch results.md ----------------------------------------------------------
+if [ ! -s "$RESULTS_MD" ]; then
+  {
+    echo "# ${CHIP} Results"
+    echo ""
+    echo "| kernel | time (ms) | speedup | GFLOPS | GB/s |"
+    echo "|---|---|---|---|---|"
+  } > "$RESULTS_MD"
+fi
+for row in "${ROWS[@]}"; do
+  name=$(echo "$row" | awk -F' \\| ' '{print $2}')
+  # Strip any existing row for this kernel, then append new row
+  grep -v "^| $name " "$RESULTS_MD" > "$RESULTS_MD.tmp"
+  echo "$row" >> "$RESULTS_MD.tmp"
+  mv "$RESULTS_MD.tmp" "$RESULTS_MD"
+done
+# Re-sort body rows alphabetically (keep header)
+python3 - "$RESULTS_MD" <<'PY'
+import sys
+p = sys.argv[1]
+lines = open(p).read().splitlines()
+hdr = [l for l in lines if l.startswith('#') or l.startswith('|---') or l.startswith('| kernel ') or l == '']
+body = sorted([l for l in lines if l.startswith('|') and not l.startswith('| kernel ') and not l.startswith('|---')])
+open(p, 'w').write('\n'.join(hdr[:4]) + '\n' + '\n'.join(body) + '\n')
+PY
+
+# 5. Print PR body block -------------------------------------------------------
+echo ""
+echo "──────────────────────────────────────────────────────────────"
+echo "  CERTIFIED  (paste into your PR body)"
+echo "──────────────────────────────────────────────────────────────"
+echo ""
+echo "**Chip:** \`${CHIP}\`"
+echo ""
+echo "| kernel | time (ms) | speedup | GFLOPS | GB/s |"
+echo "|---|---|---|---|---|"
+printf '%s\n' "${ROWS[@]}"
+echo ""
+echo "Verify locally with: \`./verify <pr-number>\`"
+echo "──────────────────────────────────────────────────────────────"

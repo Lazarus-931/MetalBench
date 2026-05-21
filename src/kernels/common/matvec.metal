@@ -1,4 +1,4 @@
-// matvec: y = A @ x. One threadgroup per row, simd_sum reduction.
+// matvec: y = A @ x. One threadgroup per row, float4 dot + simd reduce.
 #include <metal_stdlib>
 using namespace metal;
 
@@ -12,18 +12,20 @@ kernel void matvec_f32(
 {
     const uint t = tid.x;
     const uint row = tgid.y;
+    // N=1024, 1024 thr per TG. Each thread handles 1 element -> can do float4 with 256 threads...
+    // But registry gives 1024 thr/tg. Single element per thread.
     float sum = A[row * N + t] * x[t];
     float sg_sum = simd_sum(sum);
 
     threadgroup float tg[32];
-    uint sg = t >> 5;
-    if ((t & 31) == 0) tg[sg] = sg_sum;
+    const uint sg = t >> 5;
+    const uint lane = t & 31;
+    if (lane == 0) tg[sg] = sg_sum;
     threadgroup_barrier(mem_flags::mem_threadgroup);
 
-    if (t < 32) {
-        sg_sum = tg[t];
-        for (uint s = 16; s > 0; s >>= 1)
-            sg_sum += simd_shuffle_down(sg_sum, s);
+    if (sg == 0) {
+        float v = tg[lane];
+        v = simd_sum(v);
+        if (lane == 0) y[row] = v;
     }
-    if (t == 0) y[row] = sg_sum;
 }

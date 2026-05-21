@@ -9,36 +9,28 @@ kernel void variance_f32(
     uint3 tid3                  [[thread_position_in_threadgroup]],
     uint3 tgid                  [[threadgroup_position_in_grid]])
 {
-    const uint TG = 1024;
     const uint tid = tid3.x;
     const uint row = tgid.y;
     device const float* row_ptr = x + row * C;
+    const uint sg = tid >> 5;
+    const uint lane = tid & 31;
 
-    float sum = 0.0f, sumsq = 0.0f;
-    for (uint i = tid; i < C; i += TG) {
-        float v = row_ptr[i];
-        sum   += v;
-        sumsq += v * v;
-    }
-
-    sum   = simd_sum(sum);
-    sumsq = simd_sum(sumsq);
+    float v = row_ptr[tid];
+    float sum   = simd_sum(v);
+    float sumsq = simd_sum(v * v);
 
     threadgroup float tg_s[32], tg_q[32];
-    uint sg = tid >> 5;
-    if ((tid & 31) == 0) { tg_s[sg] = sum; tg_q[sg] = sumsq; }
+    if (lane == 0) { tg_s[sg] = sum; tg_q[sg] = sumsq; }
     threadgroup_barrier(mem_flags::mem_threadgroup);
 
-    if (tid < 32) {
-        sum   = tg_s[tid];
-        sumsq = tg_q[tid];
-        for (uint s = 16; s > 0; s >>= 1) {
-            sum   += simd_shuffle_down(sum,   s);
-            sumsq += simd_shuffle_down(sumsq, s);
-        }
-        if (tid == 0) {
-            float mean = sum / float(C);
-            out[row] = sumsq / float(C) - mean * mean;
+    if (sg == 0) {
+        float s  = tg_s[lane];
+        float sq = tg_q[lane];
+        s  = simd_sum(s);
+        sq = simd_sum(sq);
+        if (lane == 0) {
+            float mean = s / float(C);
+            out[row] = sq / float(C) - mean * mean;
         }
     }
 }

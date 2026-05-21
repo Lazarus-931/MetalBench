@@ -57,6 +57,9 @@ Format: `| name | set | metal | mlx | status |`
 | `prelu` | [prelu.metal](src/kernels/common/prelu.metal) | [prelu.py](mlx/kernels/common/prelu.py) | ✓ |
 | `argmax` | [argmax.metal](src/kernels/common/argmax.metal) | [argmax.py](mlx/kernels/common/argmax.py) | ✓ |
 | `variance` | [variance.metal](src/kernels/common/variance.metal) | [variance.py](mlx/kernels/common/variance.py) | ✓ |
+| `transformer_block` | (agent-written) | [transformer_block.py](mlx/kernels/common/transformer_block.py) | scaffold |
+| `llama_attention` | (agent-written) | [llama_attention.py](mlx/kernels/common/llama_attention.py) | scaffold |
+| `llama_decoder_layer` | (agent-written) | [llama_decoder_layer.py](mlx/kernels/common/llama_decoder_layer.py) | scaffold |
 
 ## Standard Set
 

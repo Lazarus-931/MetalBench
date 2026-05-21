@@ -9,6 +9,6 @@ kernel void rsqrt_f32(
     uint  tid                     [[thread_position_in_grid]])
 {
     for (uint i = tid; i < N; i += grid_size) {
-        y[i] = rsqrt(x[i]);
+        y[i] = rsqrt(fabs(x[i]));
     }
 }

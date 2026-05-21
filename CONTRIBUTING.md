@@ -1,68 +1,94 @@
 # Contributing to MetalBench
 
-MetalBench is an open benchmark for Apple Metal GPU kernels. Submit a kernel
-that beats the current best time and it becomes the new reference! simple as that!
+Submit a kernel that beats the current best time and it becomes the new reference.
+A PR can change one kernel or many — both are fine.
 
-## Do this
+## Quick start
 
 ```bash
 git clone https://github.com/Lazarus-931/MetalBench.git
 cd MetalBench
-python3 setup.py                      # one-time: installs toolchain + deps
-./bench sqr_mm                        # build + run the square matmul kernel
+python3 setup.py        # one-time: installs Metal toolchain + Python deps
+./bench sqr_mm          # smoke test
 ```
 
-## Submitting a kernel
+## Submitting a PR
 
-1. **Fork** the repo.
-2. **Pick a kernel** from [best_times.md](best_times.md) you want to improve, or add a new one.
-3. **Edit** `src/kernels/common/<name>.metal` — change the implementation, not the function signature, that will break code!
-4. **Run** `./bench <name>` until `correct=true` and you have a new best time.
-5. **Update** `best_times.md` with your new time and speedup.
-6. **PR** with only:
-   - The `.metal` file you changed
-   - Updated `best_times.md` with the actual time
+1. **Fork** and create a branch.
+2. **Edit** `src/kernels/<set>/<name>.metal` (or add a per-chip variant — see below).
+   Do not touch `mlx/kernels/...` (the baselines define the spec), `registry.py`, the harness, or the Makefile.
+3. **Certify your changes:**
+   ```bash
+   ./certify              # benches every kernel you changed
+   ```
+   This runs `./bench <name>` for each modified kernel, confirms `correctness : ✓ correct`, captures the median time, and writes the row(s) into `results/<chip>/results.md` for you. It also prints a copy-pasteable block for your PR description.
+4. **Commit** the changed `.metal` file(s) **and** the updated `results/<chip>/results.md`.
+5. **Open the PR.** Title format suggestion: `<kernel>: <old>× → <new>× on <chip>` (or list multiple if the PR is broader).
 
+## What a reviewer does
 
-## Adding a new kernel
+Any reviewer with an Apple Silicon Mac can verify your claims:
 
-1. Create `mlx/kernels/common/<name>.py` with just a `Model(nn.Module)` class and its `forward()`.
-2. Create `src/kernels/common/<name>.metal` with your Metal kernel.
-3. Add a registry entry in `mlx/kernels/common/registry.py` with `metal_function`, bindings, grid, shapes.
-4. Run `./bench <name>` to verify correctness.
-5. Add your entry to `best_times.md`.
+```bash
+./verify 47             # PR number on the origin repo
+./verify user/MetalBench:branch
+```
 
-## Scoring
+`verify` checks out the PR, finds every `.metal` you changed, benches each in the PR's worktree 3× (median), compares against the times you claimed in `results/<chip>/results.md`, and prints a PASS/FAIL table. Tolerance is **±15%** on median time.
 
-Every benchmark prints all 5 targets:
+A PR is mergeable when at least one reviewer on the same chip family runs `./verify` and gets all green.
 
-| target | what it measures | good means |
-|---|---|---|
-| `speed` | speedup vs MLX | > 1.0 = faster than MLX |
-| `compute` | GFLOPS | higher = better GPU utilization |
-| `memory` | GB/s | near M2 peak (~89 GB/s) |
-| `stable` | consistency (0–1) | > 0.95 |
-| `balanced` | weighted composite | higher = better overall |
+## Per-chip variants
 
-## NetalBench structure
+Most kernels stay as a single flat `src/kernels/<set>/<name>.metal` used on every M-series chip. If a kernel genuinely needs different code per generation, promote it to a directory:
+
+```
+src/kernels/common/sqr_mm/
+    default.metal    # used by any chip without its own file
+    m4.metal         # used on M4 (any variant: base, Pro, Max, Ultra)
+    m5.metal         # used on M5
+```
+
+Don't promote unless you can measure a speedup that justifies the fork.
+
+## Adding a brand-new kernel
+
+If your PR adds a kernel that doesn't exist yet:
+
+1. Add `mlx/kernels/<set>/<name>.py` — a single `class Model(nn.Module)` with `forward()`.
+2. Add a registry entry in `mlx/kernels/<set>/registry.py` (`metal_function`, `input_shapes`, `output_shape`, `threadgroup`, `grid`, `scalars`).
+3. Write `src/kernels/<set>/<name>.metal`.
+4. Add a row to `KERNELS.md`.
+5. Then follow steps 3–5 above.
+
+## Layout
 
 ```
 MetalBench/
-├── bench                          # CLI entry point
-├── best_times.md                  # current leaderboard
-├── setup.py                       # one-time environment check
-├── Makefile                       # builds .metal → .metallib + host binary
-├── src/
-│   ├── kernels/common/            # your Metal kernels go here
-│   │   └── utils/utils.metal      # shared Metal helpers
-│   ├── metal_scripts/             # host binary (C++/ObjC)
-│   └── mlx_scripts/               # Python harness
-├── mlx/kernels/common/            # MLX baselines (Model class only)
-│   └── registry.py                # kernel dispatch metadata
-├── results/<chip>/                # per-chip benchmark results
-└── session.json                   # best times per kernel per chip
+├── bench                            # CLI: build + run + grade
+├── certify                          # author preflight (before PR)
+├── verify                           # reviewer check (against a PR)
+├── src/kernels/<set>/<name>.metal   # your kernel goes here
+├── mlx/kernels/<set>/<name>.py      # the MLX baseline (don't edit)
+├── mlx/kernels/<set>/registry.py    # dispatch metadata
+├── results/<chip>/results.md        # leaderboard source of truth
+└── session.json                     # per-chip best times + winning sources
 ```
+
+## Scoring
+
+Every `./bench` run prints five targets:
+
+| target | what | good |
+|---|---|---|
+| `speed` | speedup vs MLX | > 1.0× |
+| `compute` | GFLOPS | high on matmul-bound kernels |
+| `memory` | GB/s | near chip peak on memory-bound kernels |
+| `stable` | run-to-run consistency (0–1) | > 0.95 |
+| `balanced` | composite | higher is better |
+
+The leaderboard ranks on `speed` by default.
 
 ## Need help?
 
-Open an issue. Tag it `kernel-idea` for new kernel proposals or `help-wanted` for optimization advice.
+Open an issue. Tag `kernel-idea` for new kernel proposals, `help-wanted` for optimization advice.

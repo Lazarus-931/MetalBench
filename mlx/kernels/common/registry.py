@@ -358,13 +358,14 @@ REGISTRY["manhattan_similarity"] = dict(
 
 # Direct convolution kernels (baseline quality, correct but unoptimized)
 REGISTRY["conv1d"] = dict(
+    # NLC: x (N=8, L=256, C=64), w (C_out=128, R=3, C_in=64) → y (N, L2=254, C_out)
     metal_function="conv1d_f32", threadgroup=(1024,1,1), input_bindings=(0,1),
-    input_shapes=[(8,64,256),(128,3,64)], output_shape=(8,128,254),
+    input_shapes=[(8,256,64),(128,3,64)], output_shape=(8,254,128),
     rtol=1e-3, atol=1e-3, grid=(64*1024,1,1),
     scalars=[dict(binding=3,dtype="u32",value=8),dict(binding=4,dtype="u32",value=64),
              dict(binding=5,dtype="u32",value=256),dict(binding=6,dtype="u32",value=128),
              dict(binding=7,dtype="u32",value=3),dict(binding=8,dtype="u32",value=1)],
-    flops=8*128*254*64*3*2, bytes=4*(8*64*256+128*3*64+8*128*254))
+    flops=8*254*128*64*3*2, bytes=4*(8*256*64+128*3*64+8*254*128))
 
 REGISTRY["conv2d"] = dict(
     metal_function="conv2d_f32", threadgroup=(1024,1,1), input_bindings=(0,1),
@@ -377,34 +378,93 @@ REGISTRY["conv2d"] = dict(
     flops=8*128*62*62*64*9*2, bytes=4*(8*64*64*64+128*3*3*64+8*128*62*62))
 
 REGISTRY["conv3d"] = dict(
+    # NDHWC: x (N=4, D=32, H=32, W=32, C=32), w (C_out=64, kD=3, kH=3, kW=3, C_in=32) → (N, 30, 30, 30, C_out)
     metal_function="conv3d_f32", threadgroup=(1024,1,1), input_bindings=(0,1),
-    input_shapes=[(4,32,32,32,32),(64,3,3,3,32)], output_shape=(4,64,30,30,30),
+    input_shapes=[(4,32,32,32,32),(64,3,3,3,32)], output_shape=(4,30,30,30,64),
     rtol=1e-3, atol=1e-3, grid=(64*1024,1,1),
     scalars=[dict(binding=3,dtype="u32",value=4),dict(binding=4,dtype="u32",value=32),
              dict(binding=5,dtype="u32",value=32),dict(binding=6,dtype="u32",value=32),
              dict(binding=7,dtype="u32",value=32),dict(binding=8,dtype="u32",value=64),
              dict(binding=9,dtype="u32",value=3),dict(binding=10,dtype="u32",value=1)],
-    flops=4*64*30*30*30*32*27*2, bytes=4*(4*32*32*32*32+64*3*3*3*32+4*64*30*30*30))
+    flops=4*30*30*30*64*32*27*2, bytes=4*(4*32*32*32*32+64*3*3*3*32+4*30*30*30*64))
 
 REGISTRY["depthwise_conv2d"] = dict(
+    # NHWC, groups=C: x (N=8, H=64, W=64, C=64), w (C=64, R=3, S=3, 1) → (N, 62, 62, C)
     metal_function="depthwise_conv2d_f32", threadgroup=(1024,1,1), input_bindings=(0,1),
-    input_shapes=[(8,64,64,64),(64,1,3,3,64)], output_shape=(8,64,62,62),
+    input_shapes=[(8,64,64,64),(64,3,3,1)], output_shape=(8,62,62,64),
     rtol=1e-3, atol=1e-3, grid=(64*1024,1,1),
     scalars=[dict(binding=3,dtype="u32",value=8),dict(binding=4,dtype="u32",value=64),
              dict(binding=5,dtype="u32",value=64),dict(binding=6,dtype="u32",value=64),
              dict(binding=7,dtype="u32",value=3),dict(binding=8,dtype="u32",value=3),
              dict(binding=9,dtype="u32",value=1)],
-    flops=8*64*62*62*9*2, bytes=4*(8*64*64*64+64*9+8*64*62*62))
+    flops=8*62*62*64*9*2, bytes=4*(8*64*64*64+64*9+8*62*62*64))
 
 REGISTRY["conv_transpose2d"] = dict(
+    # NHWC: x (N=8, H=32, W=32, C_in=64), w (C_out=128, R=3, S=3, C_in=64) → (N, 65, 65, C_out)
     metal_function="conv_transpose2d_f32", threadgroup=(1024,1,1), input_bindings=(0,1),
-    input_shapes=[(8,64,32,32),(64,128,3,3)], output_shape=(8,128,65,65),
+    input_shapes=[(8,32,32,64),(128,3,3,64)], output_shape=(8,65,65,128),
     rtol=1e-3, atol=1e-3, grid=(64*1024,1,1),
     scalars=[dict(binding=3,dtype="u32",value=8),dict(binding=4,dtype="u32",value=64),
              dict(binding=5,dtype="u32",value=32),dict(binding=6,dtype="u32",value=32),
              dict(binding=7,dtype="u32",value=128),dict(binding=8,dtype="u32",value=3),
              dict(binding=9,dtype="u32",value=2)],
-    flops=8*128*65*65*64*9*2, bytes=4*(8*64*32*32+64*128*9+8*128*65*65))
+    flops=8*65*65*128*64*9*2, bytes=4*(8*32*32*64+128*9*64+8*65*65*128))
+
+# ---- Large block kernels (full forward of an attention/transformer block) ----
+# Shapes: S=64 tokens, D=128 hidden, H=4 heads × Dh=32, FF=256, H_kv=2 for GQA.
+
+REGISTRY["transformer_block"] = dict(
+    metal_function="transformer_block_f32",
+    threadgroup=(1024, 1, 1),
+    input_bindings=(0, 1, 2, 3, 4),
+    input_shapes=[(64, 128), (128, 3*128), (128, 128), (128, 256), (256, 128)],
+    output_shape=(64, 128),
+    rtol=1e-2, atol=1e-2,
+    grid=(1024, 1, 1),
+    scalars=[dict(binding=6, dtype="u32", value=64),
+             dict(binding=7, dtype="u32", value=128),
+             dict(binding=8, dtype="u32", value=4),
+             dict(binding=9, dtype="u32", value=256),
+             dict(binding=10, dtype="f32", value=1e-5)],
+    flops=64 * (128 * 384 * 2 + 64 * 128 * 2 + 128 * 128 * 2 + 128 * 256 * 2 + 256 * 128 * 2),
+    bytes=4 * (64*128*3 + 128*384 + 128*128 + 128*256 + 256*128),
+)
+
+REGISTRY["llama_attention"] = dict(
+    metal_function="llama_attention_f32",
+    threadgroup=(1024, 1, 1),
+    input_bindings=(0, 1, 2),
+    input_shapes=[(64, 128), (128, 128 + 2*2*32), (128, 128)],
+    output_shape=(64, 128),
+    rtol=1e-2, atol=1e-2,
+    grid=(1024, 1, 1),
+    scalars=[dict(binding=4, dtype="u32", value=64),
+             dict(binding=5, dtype="u32", value=128),
+             dict(binding=6, dtype="u32", value=4),
+             dict(binding=7, dtype="u32", value=2),
+             dict(binding=8, dtype="f32", value=10000.0)],
+    flops=64 * (128 * (128+128) * 2 + 64 * 128 * 2 + 128 * 128 * 2),
+    bytes=4 * (64*128*2 + 128*256 + 128*128),
+)
+
+REGISTRY["llama_decoder_layer"] = dict(
+    metal_function="llama_decoder_layer_f32",
+    threadgroup=(1024, 1, 1),
+    input_bindings=(0, 1, 2, 3, 4),
+    input_shapes=[(64, 128), (128, 128 + 2*2*32), (128, 128), (128, 2*256), (256, 128)],
+    output_shape=(64, 128),
+    rtol=1e-2, atol=1e-2,
+    grid=(1024, 1, 1),
+    scalars=[dict(binding=6, dtype="u32", value=64),
+             dict(binding=7, dtype="u32", value=128),
+             dict(binding=8, dtype="u32", value=4),
+             dict(binding=9, dtype="u32", value=2),
+             dict(binding=10, dtype="u32", value=256),
+             dict(binding=11, dtype="f32", value=10000.0),
+             dict(binding=12, dtype="f32", value=1e-5)],
+    flops=64 * (128 * 256 * 2 + 64 * 128 * 2 + 128 * 128 * 2 + 128 * 512 * 2 + 256 * 128 * 2),
+    bytes=4 * (64*128*3 + 128*256 + 128*128 + 128*512 + 256*128),
+)
 
 REGISTRY["mse_loss"] = dict(
     metal_function="mse_loss_f32",

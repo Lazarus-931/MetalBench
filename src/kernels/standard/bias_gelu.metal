@@ -1,18 +1,13 @@
 // bias_gelu: y = gelu(x + b). float4 with cached bias in threadgroup memory.
+// Uses tanh-approximation of GELU for speed.
 #include <metal_stdlib>
 using namespace metal;
 
+constant constexpr float gelu_k = 0.79788456f; // sqrt(2/pi)
 
-// erf-based GELU using polynomial approx (A&S 7.1.26).
-static inline float gelu_erf_approx(float x) {
-    const float k = 0.70710678f; // 1/sqrt(2)
-    float z = x * k;
-    float t = 1.0f / (1.0f + 0.3275911f * fabs(z));
-    float y = 1.0f - (((((1.061405429f * t - 1.453152027f) * t)
-              + 1.421413741f) * t - 0.284496736f) * t + 0.254829592f)
-              * t * exp(-z * z);
-    float erfz = copysign(y, z);
-    return 0.5f * x * (1.0f + erfz);
+static inline float4 gelu_tanh4(float4 v) {
+    float4 t = gelu_k * (v + 0.044715f * v * v * v);
+    return 0.5f * v * (1.0f + tanh(t));
 }
 
 kernel void bias_gelu_f32(
@@ -37,11 +32,6 @@ kernel void bias_gelu_f32(
         float4 x = *reinterpret_cast<const device float4*>(&X[base]);
         float4 b = *reinterpret_cast<const threadgroup float4*>(&bias_tg[base & Cmask]);
         float4 z = x + b;
-        float4 r;
-        r.x = gelu_erf_approx(z.x);
-        r.y = gelu_erf_approx(z.y);
-        r.z = gelu_erf_approx(z.z);
-        r.w = gelu_erf_approx(z.w);
-        *reinterpret_cast<device float4*>(&Y[base]) = r;
+        *reinterpret_cast<device float4*>(&Y[base]) = gelu_tanh4(z);
     }
 }

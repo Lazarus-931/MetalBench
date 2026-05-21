@@ -1,7 +1,13 @@
-// fused_qkv_projection: y = x @ W. (S, D_in) @ (D_in, 3*D_head).
-// M=128, N=192, K=512. Grid 1D, 256 thr/TG.
+// fused_qkv_projection: y = x @ W. (M, K) @ (K, N).
+// M=128, N=192, K=512. Tiled: each TG (256 threads) computes a BM x BN output block.
 #include <metal_stdlib>
 using namespace metal;
+
+constant constexpr uint BM = 16;
+constant constexpr uint BN = 16;
+constant constexpr uint BK = 16;
+constant constexpr uint TG_SIZE = 256;
+constant constexpr uint TILES_N = 192 / BN;   // 12
 
 kernel void fused_qkv_projection_f32(
     device const float*  X        [[buffer(0)]],
@@ -10,23 +16,41 @@ kernel void fused_qkv_projection_f32(
     constant     uint&   M        [[buffer(3)]],   // 128
     constant     uint&   N        [[buffer(4)]],   // 192
     constant     uint&   K        [[buffer(5)]],   // 512
-    uint tid                     [[thread_position_in_grid]])
+    uint  tgid_lin               [[threadgroup_position_in_grid]],
+    uint  lid                    [[thread_index_in_threadgroup]])
 {
-    if (tid >= M * N) return;
-    const uint m = tid / N;
-    const uint n = tid % N;
-    // Vectorize K loop with float4. K=512, multiple of 4.
+    // Map linear tg to (tile_m, tile_n). 8 x 12 = 96 tiles.
+    const uint tm = tgid_lin / TILES_N;
+    const uint tn = tgid_lin % TILES_N;
+    if (tm * BM >= M) return;
+
+    const uint row_block = tm * BM;
+    const uint col_block = tn * BN;
+
+    // Each thread owns one output (lm, ln) in the BM x BN tile.
+    const uint lm = lid / BN;   // 0..15
+    const uint ln = lid % BN;   // 0..15
+
+    threadgroup float Xs[BM * BK];   // 256 floats
+    threadgroup float Ws[BK * BN];   // 256 floats
+
     float acc = 0.0f;
-    device const float* xr = X + m * K;
-    // W is (K, N) row-major; column n is strided by N=192. Not float4-friendly.
-    // Process K in chunks of 4, but loading W per-k is just 4 separate loads.
-    for (uint k = 0; k < K; k += 4) {
-        float4 x = *reinterpret_cast<const device float4*>(&xr[k]);
-        float w0 = W[(k + 0) * N + n];
-        float w1 = W[(k + 1) * N + n];
-        float w2 = W[(k + 2) * N + n];
-        float w3 = W[(k + 3) * N + n];
-        acc += x.x * w0 + x.y * w1 + x.z * w2 + x.w * w3;
+    const uint num_k = K / BK;  // 32
+    for (uint kt = 0; kt < num_k; ++kt) {
+        const uint k0 = kt * BK;
+        // Cooperative load: 256 threads, 256 floats each tile. 1 element/thread.
+        // Xs[lm, kc]  <- X[row_block+lm, k0+kc]  with idx = lm*BK + kc, lid = lm*BN + ln, BN=BK=16.
+        Xs[lid] = X[(row_block + lm) * K + k0 + ln];   // ln serves as kc
+        // Ws[kc, ln] <- W[k0+kc, col_block+ln]; idx = lm*BN+ln corresponds to kc=lm, ln=ln
+        Ws[lid] = W[(k0 + lm) * N + col_block + ln];
+        threadgroup_barrier(mem_flags::mem_threadgroup);
+
+        #pragma unroll
+        for (uint kc = 0; kc < BK; ++kc) {
+            acc += Xs[lm * BK + kc] * Ws[kc * BN + ln];
+        }
+        threadgroup_barrier(mem_flags::mem_threadgroup);
     }
-    Y[m * N + n] = acc;
+
+    Y[(row_block + lm) * N + (col_block + ln)] = acc;
 }
