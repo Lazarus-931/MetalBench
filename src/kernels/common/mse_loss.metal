@@ -11,9 +11,12 @@ kernel void mse_loss_f32(
 {
     const uint tg_size = 1024;
     float sum = 0.0f;
-    for (uint i = tid; i < N; i += tg_size) {
-        float d = pred[i] - target[i];
-        sum += d * d;
+    const uint N4 = N / 4;
+    device const float4* pred4 = reinterpret_cast<device const float4*>(pred);
+    device const float4* targ4 = reinterpret_cast<device const float4*>(target);
+    for (uint i = tid; i < N4; i += tg_size) {
+        float4 d = pred4[i] - targ4[i];
+        sum += d.x*d.x + d.y*d.y + d.z*d.z + d.w*d.w;
     }
 
     float sg_sum = simd_sum(sum);

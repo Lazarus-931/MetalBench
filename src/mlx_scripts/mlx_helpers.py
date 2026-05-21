@@ -171,11 +171,19 @@ def _find_baseline(name):
 def load_baseline(name):
     path, _set = _find_baseline(name)
 
-    metallib = BUILD_DIR / f"{name}.metallib"
-    if not metallib.exists():
+    # Selection: <name>__<chip>.metallib  →  <name>__default.metallib  →  <name>.metallib
+    chip_tag = chip_generation(chip_info()["type"])
+    candidates = [
+        BUILD_DIR / f"{name}__{chip_tag}.metallib",
+        BUILD_DIR / f"{name}__default.metallib",
+        BUILD_DIR / f"{name}.metallib",
+    ]
+    metallib = next((p for p in candidates if p.exists()), None)
+    if metallib is None:
         raise FileNotFoundError(
-            f"metallib not built: {metallib}\n"
-            f"expected source at {KERNEL_ROOT / _set / f'{name}.metal'}; run `make`."
+            f"no metallib for '{name}' (chip={chip_tag}); tried {[str(p) for p in candidates]}\n"
+            f"expected source at {KERNEL_ROOT / _set / f'{name}.metal'} "
+            f"or {KERNEL_ROOT / _set / name / f'{chip_tag}.metal'}; run `make`."
         )
 
     # Load Model class from .py file
@@ -227,7 +235,7 @@ def load_baseline(name):
     # Convert registry dicts to Output/Scalar objects
     n_in = len(meta["input_shapes"])
     out_shape = meta["output_shape"]
-    raw_outputs = [dict(binding=2 if n_in == 2 else 1, dtype="f32", shape=out_shape)]
+    raw_outputs = [dict(binding=n_in, dtype="f32", shape=out_shape)]
     outputs = [Output(**o) if isinstance(o, dict) else o for o in raw_outputs]
     raw_scalars = meta["scalars"]
     scalars = [Scalar(**s) if isinstance(s, dict) else s for s in raw_scalars]

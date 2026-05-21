@@ -26,24 +26,27 @@ kernel void rms_norm_linear_f32(
     const uint c_row0 = tgid.y * BM, c_col0 = tgid.x * BN;
     const uint a_row = lid / 4, a_c4 = lid % 4, b_row = lid / 16, b_c4 = lid % 16;
 
-    // Pass 1: compute per-row sumsq for RMS norm
-    float sq_sum = 0.0f;
-    for (uint kt = 0; kt < K; kt += BK)
-        for (uint k = kt + a_c4 * 4; k < kt + BK && k < K; k++)
-            sq_sum += A[(c_row0 + a_row) * K + k] * A[(c_row0 + a_row) * K + k];
-
-    float sumsq = simd_sum(sq_sum);
-    threadgroup float tg_buf[32];
-    uint sg = lid >> 5;
-    if ((lid & 31) == 0) tg_buf[sg] = sumsq;
-    threadgroup_barrier(mem_flags::mem_threadgroup);
-    if (lid < 32) {
-        sumsq = tg_buf[lid];
-        for (uint s = 16; s > 0; s >>= 1) sumsq += simd_shuffle_down(sumsq, s);
+    // Pass 1: per-row sumsq. RMS norm is per-row of A; we need inv_rms for each
+    // row in this BM-tile (a_row in [0, BM)). Each row processed by 4 threads
+    // sharing a_row → use float4 accumulators across K, then simd-reduce within
+    // the row's 4 threads via lane mask.
+    threadgroup float inv_rms_row[BM];
+    {
+        float acc = 0.0f;
+        // 4 threads per row (a_c4 = 0..3) each handle K/4 elements stride 4 floats.
+        for (uint k = a_c4 * 4; k < K; k += 16) {
+            float4 v = *reinterpret_cast<const device float4*>(&A[(c_row0 + a_row) * K + k]);
+            acc += v.x * v.x + v.y * v.y + v.z * v.z + v.w * v.w;
+        }
+        // Reduce across 4 threads with same a_row. They occupy 4 consecutive lanes
+        // within their simd? lid = a_row*4 + a_c4. With simd size 32, lanes 0..31
+        // hold a_row=0..7. So 4 threads with same a_row are adjacent.
+        acc += simd_shuffle_xor(acc, 1);
+        acc += simd_shuffle_xor(acc, 2);
+        if (a_c4 == 0) inv_rms_row[a_row] = rsqrt(acc / float(K) + eps);
     }
-    if (lid == 0) tg_buf[0] = sumsq;
     threadgroup_barrier(mem_flags::mem_threadgroup);
-    float inv_rms = rsqrt(tg_buf[0] / float(K) + eps);
+    float inv_rms = inv_rms_row[a_row];
 
     // Pass 2: matmul with normalized A
     simdgroup_matrix<float, 8, 8> C_acc[MMA_M][MMA_N];
@@ -56,8 +59,18 @@ kernel void rms_norm_linear_f32(
     {
         float4 v = *reinterpret_cast<const device float4*>(&A[(c_row0 + a_row) * K + a_c4 * 4]);
         *reinterpret_cast<threadgroup float4*>(&As[0][a_row*LDA + a_c4*4]) = inv_rms * v;
-        *reinterpret_cast<threadgroup float4*>(&Bs[0][b_row*LDB + b_c4*4]) =
-            *reinterpret_cast<const device float4*>(&B[b_row*N + c_col0 + b_c4*4]);
+        // B is (N, K) effectively (we compute A @ B.T). Load Bs[k, n] = B[n, k].
+        // b_row in [0, BK), b_c4 in [0, BN/4) → 4 cols of N.
+        {
+            uint k0 = b_row;
+            uint n0 = c_col0 + b_c4 * 4;
+            float4 v;
+            v.x = B[(n0 + 0) * K + k0];
+            v.y = B[(n0 + 1) * K + k0];
+            v.z = B[(n0 + 2) * K + k0];
+            v.w = B[(n0 + 3) * K + k0];
+            *reinterpret_cast<threadgroup float4*>(&Bs[0][b_row*LDB + b_c4*4]) = v;
+        }
     }
     threadgroup_barrier(mem_flags::mem_threadgroup);
     const uint nkt = K / BK; uint buf = 0;
@@ -66,8 +79,16 @@ kernel void rms_norm_linear_f32(
         const uint next = 1 - buf, k0 = (kt + 1) * BK;
         float4 v = *reinterpret_cast<const device float4*>(&A[(c_row0 + a_row)*K + k0 + a_c4*4]);
         *reinterpret_cast<threadgroup float4*>(&As[next][a_row*LDA + a_c4*4]) = inv_rms * v;
-        *reinterpret_cast<threadgroup float4*>(&Bs[next][b_row*LDB + b_c4*4]) =
-            *reinterpret_cast<const device float4*>(&B[(k0 + b_row)*N + c_col0 + b_c4*4]);
+        {
+            uint kk = k0 + b_row;
+            uint nn = c_col0 + b_c4 * 4;
+            float4 v;
+            v.x = B[(nn + 0) * K + kk];
+            v.y = B[(nn + 1) * K + kk];
+            v.z = B[(nn + 2) * K + kk];
+            v.w = B[(nn + 3) * K + kk];
+            *reinterpret_cast<threadgroup float4*>(&Bs[next][b_row*LDB + b_c4*4]) = v;
+        }
         #pragma unroll
         for (uint kc = 0; kc < BK; kc += 8) {
             simdgroup_matrix<float, 8, 8> Ab[MMA_M], Bb[MMA_N];

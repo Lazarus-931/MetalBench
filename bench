@@ -24,7 +24,7 @@ if [ "$1" = "--all" ]; then
       *)  extra+=("$1"); shift ;;
     esac
   done
-  make --silent all 1>&2
+  [ -z "${SKIP_BUILD:-}" ] && make --silent all 1>&2
   # Discover all kernels from registry
   for set in common standard; do
     reg="mlx/kernels/${set}/registry.py"
@@ -56,12 +56,14 @@ extra=()
 while [ $# -gt 0 ]; do
   case "$1" in
     --no-save) save=""; shift ;;
-    --) shift; extra=("$@"); break ;;
+    --mlx|--mlx-only)     extra+=("--mlx-only");   save=""; shift ;;
+    --metal|--metal-only) extra+=("--metal-only"); save=""; shift ;;
+    --) shift; extra=("${extra[@]+"${extra[@]}"}" "$@"); break ;;
     *)  extra+=("$1"); shift ;;
   esac
 done
 
-make --silent all 1>&2
+[ -z "${SKIP_BUILD:-}" ] && make --silent all 1>&2
 if [ -n "$save" ]; then
   echo "[bench] running '$name' (save=on)" >&2
 else

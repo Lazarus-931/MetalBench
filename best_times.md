@@ -33,7 +33,6 @@
 | sqr_mm | matmul | 1.131ms | 1.2× |
 | swish | elem | 0.020ms | 12.6× |
 | tanh | elem | 0.020ms | 13.4× |
-| trace | reduce | 0.010ms | 17.6× |
 | transpose_2d | ? | 0.225ms | 0.1× |
 
 ---

@@ -1,7 +1,5 @@
 // scaled_dot_product: softmax(Q @ K^T / sqrt(d)) @ V. Fused attention core.
 // Q,K,V are (M,d_head). Computes scores=Q@K^T, softmax per row, then @V.
-// Uses our proven matmul kernel for Q@K^T and scores@V, softmax in between.
-// For simplicity: two-pass matmul (QK then SV) with softmax fused between.
 #include <metal_stdlib>
 #include <metal_simdgroup>
 #include <metal_simdgroup_matrix>

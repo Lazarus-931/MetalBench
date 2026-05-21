@@ -10,12 +10,3 @@ class Model(nn.Module):
 
     def forward(self, x: mx.array, w: mx.array) -> mx.array:
         return mx.conv2d(x, w, stride=self.st, padding=0, dilation=1, groups=1)
-
-
-_model = Model()
-
-def get_inputs():
-    mx.random.seed(42)
-    x = mx.random.normal((8, 64, 64, 64), dtype=mx.float32)
-    w = mx.random.normal((128, 3, 3, 64), dtype=mx.float32)
-    return [x, w]

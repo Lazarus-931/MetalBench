@@ -51,12 +51,25 @@ def _run_host(manifest, manifest_path):
 
 def evaluate(name, *, seed, warmup, iters, dry_run=False,
              capture_path=None, cold_start=False,
-             profile=False, capture_host=None):
+             profile=False, capture_host=None, solo=None):
     b = H.load_baseline(name)
     inputs = b.make_inputs(seed)
     for x in inputs: mx.eval(x)
 
     chip = H.chip_info()
+
+    # --- solo=mlx: time MLX reference only, no host call -----------------
+    if solo == "mlx":
+        warm_jit(b.reference, *inputs)
+        ref_out = b.reference(*inputs); mx.eval(ref_out); mx.synchronize()
+        r_t = time_mlx(b.reference, *inputs, warmup=warmup, iters=iters,
+                       cold_start=cold_start)
+        return {"task": name, "chip": chip, "solo": "mlx",
+                "reference_timing": r_t, "correct": True,
+                "metrics": {"stability": max(0.0,
+                    1.0 - abs(r_t["median_ms"] - r_t["mean_ms"]) / r_t["mean_ms"]
+                    if r_t["mean_ms"] > 0 else 0.0)},
+                "outputs": []}
 
     with tempfile.TemporaryDirectory(prefix="mb_") as tmp:
         tmp = Path(tmp)
@@ -83,6 +96,20 @@ def evaluate(name, *, seed, warmup, iters, dry_run=False,
             mx.array(np.fromfile(p, dtype=H.DTYPE_NP[o.dtype]).reshape(o.shape))
             for o, p in zip(b.outputs, out_paths)
         ]
+
+    # --- solo=metal: skip reference timing AND correctness check ---------
+    if solo == "metal":
+        median_s = k_t["median_ms"] / 1000.0
+        m = {}
+        if median_s > 0:
+            if (f := b.flops(inputs)) is not None: m["gflops"] = f / median_s / 1e9
+            if (nb := b.bytes(inputs)) is not None: m["gbps"]  = nb / median_s / 1e9
+        mean_ms = k_t["mean_ms"]
+        cv = abs(k_t["median_ms"] - mean_ms) / mean_ms if mean_ms > 0 else 0.0
+        m["stability"] = max(0.0, 1.0 - cv)
+        return {"task": name, "chip": chip, "solo": "metal",
+                "correct": True, "metrics": m,
+                "kernel_timing": k_t, "outputs": []}
 
     warm_jit(b.reference, *inputs)
     ref_out = b.reference(*inputs)
@@ -231,9 +258,29 @@ def _print_report(result, target, score):
     """Human-readable report. Replaces JSON dump on stdout."""
     chip   = result["chip"]
     m      = result["metrics"]
-    k_t    = result["kernel_timing"]
-    r_t    = result["reference_timing"]
-    outs   = result["outputs"]
+    k_t    = result.get("kernel_timing")
+    r_t    = result.get("reference_timing")
+    outs   = result.get("outputs", [])
+    solo   = result.get("solo")
+
+    line = "─" * 72
+    if solo:
+        side = "MLX only" if solo == "mlx" else "Metal only"
+        print(line); print(f"  {result['task']}    [{side}]"); print(line)
+        print(f"  device      : {chip['name']} ({chip['type']})  "
+              f"{chip['cpu_cores']} CPU / {chip['gpu_cores']} GPU / "
+              f"{chip['ram_bytes']/1e9:.0f} GB")
+        t = k_t if solo == "metal" else r_t
+        label = "metal kernel" if solo == "metal" else "mlx ref"
+        print(f"  {label:11s} : {t['median_ms']:.3f} ms  "
+              f"(min {t['min_ms']:.3f}, mean {t['mean_ms']:.3f}, n={t['iters']})")
+        if "gflops" in m: print(f"  compute     : {m['gflops']:.1f} GFLOPS")
+        if "gbps"   in m: print(f"  bandwidth   : {m['gbps']:.1f} GB/s")
+        if "stability" in m:
+            print(f"  stability   : {m['stability']:.2f}")
+        print(line)
+        return
+
 
     line = "─" * 72
     print(line)
@@ -350,7 +397,13 @@ def main(argv=None):
     ap.add_argument("--no-session", action="store_true",
                     help="don't update session.json")
     ap.add_argument("--target",     default="speed", choices=list(TARGETS.keys()))
+    solo = ap.add_mutually_exclusive_group()
+    solo.add_argument("--mlx-only",   action="store_true",
+                      help="time only the MLX reference (no host/Metal call)")
+    solo.add_argument("--metal-only", action="store_true",
+                      help="time only the Metal kernel (skip MLX timing + correctness check)")
     args = ap.parse_args(argv)
+    solo_mode = "mlx" if args.mlx_only else ("metal" if args.metal_only else None)
 
     if args._update_md:
         _update_best_times_md()
@@ -359,7 +412,16 @@ def main(argv=None):
     if not args.name:
         ap.error("kernel name required (or use --all from bench script)")
 
+    import platform
+    if platform.system() != "Darwin" or platform.machine() != "arm64":
+        sys.exit(f"[error] MetalBench requires Apple Silicon (arm64 macOS). "
+                 f"Detected: {platform.system()} {platform.machine()}.")
+
     chip = H.chip_info()
+    if chip["type"] == "unknown" or not chip["name"].startswith("Apple "):
+        sys.exit(f"[error] Not running on an Apple Silicon chip. "
+                 f"Detected CPU: {chip['name']!r}.")
+
     print(f"[chip] {chip['type']:>8s}  '{chip['name']}'  "
           f"cpu={chip['cpu_cores']}  gpu={chip['gpu_cores']}  "
           f"ram={chip['ram_bytes']/1e9:.0f}GB", file=sys.stderr)
@@ -383,7 +445,8 @@ def main(argv=None):
     result = evaluate(args.name, seed=args.seed, warmup=args.warmup,
                       iters=args.iters, dry_run=args.dry_run,
                       capture_path=args.capture, cold_start=args.cold_start,
-                      profile=args.profile, capture_host=args.capture_host)
+                      profile=args.profile, capture_host=args.capture_host,
+                      solo=solo_mode)
 
     if args.dry_run:
         # For dry run, print the manifest as text dump (it's the only artifact).
@@ -394,6 +457,10 @@ def main(argv=None):
     result["target"] = args.target
     result["score"]  = score
     _print_report(result, args.target, score)
+
+    # Solo-mode runs don't produce comparable results — never persist.
+    if solo_mode:
+        return 0
 
     if args.save:
         bucket = H.bucket_key()

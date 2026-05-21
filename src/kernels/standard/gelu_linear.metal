@@ -1,8 +1,25 @@
-// silu_linear: y = silu(x @ W). Fused matmul + SiLU in store phase.
+// gelu_linear: y = gelu(x @ W). Fused matmul + erf-GELU in store phase.
 #include <metal_stdlib>
 #include <metal_simdgroup>
 #include <metal_simdgroup_matrix>
 using namespace metal;
+
+static inline float erf_approx(float z) {
+    float t = 1.0f / (1.0f + 0.3275911f * fabs(z));
+    float y = 1.0f - (((((1.061405429f * t - 1.453152027f) * t)
+              + 1.421413741f) * t - 0.284496736f) * t + 0.254829592f)
+              * t * exp(-z * z);
+    return copysign(y, z);
+}
+static inline float4 gelu4(float4 v) {
+    const float k = 0.70710678f; // 1/sqrt(2)
+    float4 r;
+    r.x = 0.5f * v.x * (1.0f + erf_approx(v.x * k));
+    r.y = 0.5f * v.y * (1.0f + erf_approx(v.y * k));
+    r.z = 0.5f * v.z * (1.0f + erf_approx(v.z * k));
+    r.w = 0.5f * v.w * (1.0f + erf_approx(v.w * k));
+    return r;
+}
 
 constant constexpr uint BM  = 64, BN  = 64, BK  = 16;
 constant constexpr uint SM  = 16, SN  = 32;
@@ -21,7 +38,9 @@ kernel void gelu_linear_f32(
     uint  sgid              [[simdgroup_index_in_threadgroup]],
     uint  lid               [[thread_index_in_threadgroup]])
 {
-    threadgroup float As[2][BM * LDA], Bs[2][BK * LDB];
+    threadgroup float shared[2 * BM * LDA + 2 * BK * LDB];
+    threadgroup float (*As)[BM * LDA] = (threadgroup float (*)[BM * LDA]) &shared[0];
+    threadgroup float (*Bs)[BK * LDB] = (threadgroup float (*)[BK * LDB]) &shared[2 * BM * LDA];
     const uint sm = sgid / SIMDS_N, sn = sgid % SIMDS_N;
     const uint c_row0 = tgid.y * BM, c_col0 = tgid.x * BN;
     const uint a_row = lid / 4, a_c4 = lid % 4, b_row = lid / 16, b_c4 = lid % 16;
@@ -77,26 +96,21 @@ kernel void gelu_linear_f32(
                 simdgroup_multiply_accumulate(C_acc[i][j], A_blk[i], B_blk[j], C_acc[i][j]);
     }
 
-    // Store to device memory then in-place activate via per-thread loop.
-    // Each thread writes its portion, then immediately re-reads + activates.
-    // The data is in L2 cache, so re-read is nearly free.
+    threadgroup_barrier(mem_flags::mem_threadgroup);
+    threadgroup float* Cs = &shared[0];
     #pragma unroll
     for (uint i = 0; i < MMA_M; ++i)
         #pragma unroll
         for (uint j = 0; j < MMA_N; ++j)
-            simdgroup_store(C_acc[i][j],
-                &C[(c_row0 + sm*SM + i*8) * N + (c_col0 + sn*SN + j*8)], N);
-
+            simdgroup_store(C_acc[i][j], &Cs[(sm*SM + i*8) * BN + sn*SN + j*8], BN);
     threadgroup_barrier(mem_flags::mem_threadgroup);
 
-    // Each thread activates a subset of the output tile using float4
-    const uint total_float4 = BM * BN / 4;
-    for (uint idx = lid; idx < total_float4; idx += 256) {
+    const uint total_f4 = BM * BN / 4;
+    #pragma unroll
+    for (uint idx = lid; idx < total_f4; idx += 256) {
         uint r = (idx * 4) / BN;
         uint c = (idx * 4) % BN;
-        if (c_row0 + r >= M || c_col0 + c >= N) continue;
-        device float4* ptr = reinterpret_cast<device float4*>(&C[(c_row0 + r) * N + (c_col0 + c)]);
-        float4 v = *ptr;
-        *ptr = v / (1.0f + exp(-v));
+        float4 v = *reinterpret_cast<threadgroup float4*>(&Cs[r * BN + c]);
+        *reinterpret_cast<device float4*>(&C[(c_row0 + r) * N + (c_col0 + c)]) = gelu4(v);
     }
 }

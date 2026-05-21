@@ -237,20 +237,6 @@ REGISTRY["matrix_scale"] = dict(
     bytes=1024 * 1024 * 4 * 2,
 )
 
-# Trace: single-tg diagonal reduction
-REGISTRY["trace"] = dict(
-    metal_function="trace_f32",
-    threadgroup=(1024, 1, 1),
-    input_bindings=(0,),
-    input_shapes=[(1024, 1024)],
-    output_shape=(1,),
-    rtol=1e-3, atol=1e-3,
-    grid=(1024, 1, 1),
-    scalars=[dict(binding=2, dtype="u32", value=1024)],
-    flops=1024 * 2,
-    bytes=1024 * 4 * 2 + 4,
-)
-
 # Softmax: per-row simd reduction (max + sum + normalize)
 REGISTRY["softmax"] = dict(
     metal_function="softmax_f32",
@@ -267,6 +253,80 @@ REGISTRY["softmax"] = dict(
 
 ew("tanh", "tanh_f32", flops_mul=4)
 ew("hardswish", "hardswish_f32", flops_mul=4)
+
+# 5 new element-wise kernels (stubs; replace .metal bodies to optimize)
+ew("exp",   "exp_f32",   flops_mul=1)
+ew("log",   "log_f32",   flops_mul=1)
+ew("abs",   "abs_f32",   flops_mul=1, rtol=0, atol=0)
+ew("rsqrt", "rsqrt_f32", flops_mul=2)
+ew("clip",  "clip_f32",  flops_mul=2, rtol=0, atol=0,
+   extra_scalars=[dict(binding=4, dtype="f32", value=-1.0),
+                  dict(binding=5, dtype="f32", value= 1.0)])
+
+ew("elu",      "elu_f32",      flops_mul=5,
+   extra_scalars=[dict(binding=4, dtype="f32", value=1.0)])
+ew("mish",     "mish_f32",     flops_mul=8)
+ew("softplus", "softplus_f32", flops_mul=4)
+
+# PReLU: (N, C) x + per-channel α. Two inputs.
+REGISTRY["prelu"] = dict(
+    metal_function="prelu_f32",
+    threadgroup=(1024, 1, 1),
+    input_bindings=(0, 1),
+    input_shapes=[(16, 16384), (16384,)],
+    output_shape=(16, 16384),
+    rtol=1e-4, atol=1e-5,
+    grid=(64 * 1024, 1, 1),
+    scalars=[dict(binding=3, dtype="u32", value=16 * 16384),
+             dict(binding=4, dtype="u32", value=16384),
+             dict(binding=5, dtype="u32", value=64 * 1024)],
+    flops=16 * 16384 * 3,
+    bytes=4 * (16 * 16384 * 2 + 16384),
+)
+
+# argmax: per-row argmax over last dim. Output index as f32.
+REGISTRY["argmax"] = dict(
+    metal_function="argmax_f32",
+    threadgroup=(1024, 1, 1),
+    input_bindings=(0,),
+    input_shapes=[(1024, 1024)],
+    output_shape=(1024,),
+    rtol=0, atol=0,
+    grid=(1024, 1024, 1),
+    scalars=[dict(binding=2, dtype="u32", value=1024)],
+    flops=1024 * 1024,
+    bytes=1024 * 1024 * 4 + 1024 * 4,
+)
+
+# variance: per-row variance.
+REGISTRY["variance"] = dict(
+    metal_function="variance_f32",
+    threadgroup=(1024, 1, 1),
+    input_bindings=(0,),
+    input_shapes=[(1024, 1024)],
+    output_shape=(1024,),
+    rtol=1e-3, atol=1e-3,
+    grid=(1024, 1024, 1),
+    scalars=[dict(binding=2, dtype="u32", value=1024)],
+    flops=1024 * 1024 * 3,
+    bytes=1024 * 1024 * 4 + 1024 * 4,
+)
+
+# BatchNorm: normalize each column over rows. (N=1024, C=256).
+REGISTRY["batch_norm"] = dict(
+    metal_function="batch_norm_f32",
+    threadgroup=(1024, 1, 1),
+    input_bindings=(0,),
+    input_shapes=[(1024, 256)],
+    output_shape=(1024, 256),
+    rtol=1e-3, atol=1e-3,
+    grid=(1024, 256, 1),
+    scalars=[dict(binding=2, dtype="u32", value=1024),
+             dict(binding=3, dtype="u32", value=256),
+             dict(binding=4, dtype="f32", value=1e-5)],
+    flops=1024 * 256 * 8,
+    bytes=2 * 1024 * 256 * 4,
+)
 
 # Cosine similarity: dot / (|x||y|) per row. Three reductions.
 REGISTRY["cosine_similarity"] = dict(

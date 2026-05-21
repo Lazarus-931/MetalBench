@@ -6,16 +6,21 @@
 
  benchmarking Apple Metal GPU kernels against [MLX](https://github.com/ml-explore/mlx) reference implementations. Modeled on [KernelBench](https://github.com/ScalingIntelligence/KernelBench), swapping CUDA → Metal and PyTorch → MLX.
 
+Live leaderboard: **[lazarus-931.github.io/leaderboard.html](https://lazarus-931.github.io/leaderboard.html)**.
 
 While working on inference for apple silicon, I found a agent based loop of kernel writing & testing against a written test for perf/acc helped alot along the way. This contains harneseses and code used to benchmark against baseline mlx versions. Kernels don't differ much, just how threadgroups are utilized. One of the main differences was performance across a array of newer m series chips. I soon realized this was a we-have-kernel-bench-at-home version I made, so I polished some stuff and releasing this as a benchmark + as a repo to continue your own metal kernel testing using any model. Much of this repo is orgaized/inspired by KernelBench, so props for them!
 
-
 ## Kernels
-I've decided to split it into 4 types:
 
-* Common Set - 100 of the most used operations & bits of a normal kernel, stuff such as matrix multipication in it's most basic shape, convolutions & layernorm to name a few
-* Standard Set - 50 of most semi-difficult, common fused kernels, which brings more variations & use of memory and compute into play
-* Full Set - 25 of most large scale, multiple operation kernels, similar to full steps, and can span entire model architectures
+Three sets, increasing in size/complexity:
+
+| set | what | target | live now |
+|---|---|---|---|
+| **Common** | basic ops — activations, matmuls, norms, convs, scans | 100 | 44 |
+| **Standard** | fused 2+ op kernels — attention, SwiGLU, RMSNorm + linear | 25 | 23 |
+| **Full** | end-to-end model blocks — transformer block, mbconv, llama_layer | 12 | 0 |
+
+See `KERNELS.md` for the full registry.
 
 ## Evaluation
 
@@ -44,10 +49,13 @@ If any step fails it tells you exactly what to run.
 ## Running a benchmark
 
 ```bash
-./bench <name>                              # default: warmup=10, iters=300, target=speed
+./bench <name>                              # default: both MLX + Metal, paired
+./bench <name> --mlx                        # MLX only
+./bench <name> --metal                      # Metal only
 ./bench <name> --no-save                    # don't write results/<chip>/<name>.json
 ./bench <name> -- --target compute --iters 500
 ./bench <name> -- --cold-start              # measure first-launch latency
+./bench --all                               # run every kernel in the registry
 ```
 
 Defaults are set so a single command gives a stable, publishable number. Bump `--iters` for tighter measurement.
@@ -124,3 +132,17 @@ See [AGENTS.md](AGENTS.md) for the full contract. Short version:
 - `src/kernels/<set>/<name>.metal` — your kernel.
 - Run `./bench <name>` until `correct=true`.
 - Edit only the `.metal` file. Update `best_times.md` with your result. Open a PR.
+
+### Per-chip variants
+
+Most kernels stay as a single flat file. When a kernel genuinely needs different
+code per M-generation, promote it to a directory:
+
+```
+src/kernels/common/sqr_mm/
+    default.metal    # fallback (used by chips without their own variant)
+    m4.metal         # M4-specific impl
+```
+
+The harness auto-picks `<name>__<chip>.metallib` → `__default` → flat `<name>.metallib`
+based on the chip you're running on. Only split when you have a measured perf reason.

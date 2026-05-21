@@ -21,7 +21,10 @@ kernel void silu_linear_f32(
     uint  sgid              [[simdgroup_index_in_threadgroup]],
     uint  lid               [[thread_index_in_threadgroup]])
 {
-    threadgroup float As[2][BM * LDA], Bs[2][BK * LDB];
+    // Combined storage: As (2*BM*LDA=2560) + Bs (2*BK*LDB=2176) = 4736 ≥ BM*BN=4096.
+    threadgroup float shared[2 * BM * LDA + 2 * BK * LDB];
+    threadgroup float (*As)[BM * LDA] = (threadgroup float (*)[BM * LDA]) &shared[0];
+    threadgroup float (*Bs)[BK * LDB] = (threadgroup float (*)[BK * LDB]) &shared[2 * BM * LDA];
     const uint sm = sgid / SIMDS_N, sn = sgid % SIMDS_N;
     const uint c_row0 = tgid.y * BM, c_col0 = tgid.x * BN;
     const uint a_row = lid / 4, a_c4 = lid % 4, b_row = lid / 16, b_c4 = lid % 16;
@@ -77,26 +80,25 @@ kernel void silu_linear_f32(
                 simdgroup_multiply_accumulate(C_acc[i][j], A_blk[i], B_blk[j], C_acc[i][j]);
     }
 
-    // Store to device memory then in-place activate via per-thread loop.
-    // Each thread writes its portion, then immediately re-reads + activates.
-    // The data is in L2 cache, so re-read is nearly free.
+    // Reuse As as Cs (BM*BN = 4096 floats; As holds 2*64*20 = 2560 — not enough).
+    // Reuse both As and Bs: BM*LDA*2 + BK*LDB*2 = 2560+2176 = 4736 floats > 4096. OK.
+    threadgroup_barrier(mem_flags::mem_threadgroup);
+    threadgroup float* Cs = &shared[0];
     #pragma unroll
     for (uint i = 0; i < MMA_M; ++i)
         #pragma unroll
         for (uint j = 0; j < MMA_N; ++j)
-            simdgroup_store(C_acc[i][j],
-                &C[(c_row0 + sm*SM + i*8) * N + (c_col0 + sn*SN + j*8)], N);
-
+            simdgroup_store(C_acc[i][j], &Cs[(sm*SM + i*8) * BN + sn*SN + j*8], BN);
     threadgroup_barrier(mem_flags::mem_threadgroup);
 
-    // Each thread activates a subset of the output tile using float4
-    const uint total_float4 = BM * BN / 4;
-    for (uint idx = lid; idx < total_float4; idx += 256) {
+    // Each thread writes float4s (BM*BN/4 = 1024 elements, 256 threads → 4 each)
+    const uint total_f4 = BM * BN / 4;
+    #pragma unroll
+    for (uint idx = lid; idx < total_f4; idx += 256) {
         uint r = (idx * 4) / BN;
         uint c = (idx * 4) % BN;
-        if (c_row0 + r >= M || c_col0 + c >= N) continue;
-        device float4* ptr = reinterpret_cast<device float4*>(&C[(c_row0 + r) * N + (c_col0 + c)]);
-        float4 v = *ptr;
-        *ptr = v / (1.0f + exp(-v));
+        float4 v = *reinterpret_cast<threadgroup float4*>(&Cs[r * BN + c]);
+        float4 out = v / (1.0f + exp(-v));
+        *reinterpret_cast<device float4*>(&C[(c_row0 + r) * N + (c_col0 + c)]) = out;
     }
 }

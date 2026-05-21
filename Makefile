@@ -7,7 +7,11 @@ BUILD_DIR  := build
 # are globally unique across sets (c1, c2, ..., s1, s2, ..., f1, f2, ...).
 # src/kernels/utils/ holds shared headers (utils.metal) — never built directly.
 SET_DIRS    := common standard full
+# Flat:  src/kernels/<set>/<name>.metal             →  build/<name>.metallib
+# Variant: src/kernels/<set>/<name>/<chip>.metal    →  build/<name>__<chip>.metallib
+# where <chip> is 'default' or a generation tag like 'm4', 'm5'.
 KERNEL_SRCS := $(foreach d,$(SET_DIRS),$(wildcard $(KERNEL_DIR)/$(d)/*.metal))
+VARIANT_SRCS := $(foreach d,$(SET_DIRS),$(wildcard $(KERNEL_DIR)/$(d)/*/*.metal))
 UTILS_DIR   := $(KERNEL_DIR)/utils
 
 HOST_SRCS  := $(METAL_DIR)/main.mm $(METAL_DIR)/timing.mm $(METAL_DIR)/setup.cpp
@@ -37,6 +41,15 @@ $(BUILD_DIR)/$(notdir $(basename $(1))).metallib: $(1) $(wildcard $(UTILS_DIR)/*
 KERNEL_TARGETS += $(BUILD_DIR)/$(notdir $(basename $(1))).metallib
 endef
 $(foreach src,$(KERNEL_SRCS),$(eval $(call KERNEL_RULE,$(src))))
+
+# Variant rule: src/kernels/<set>/<name>/<chip>.metal → build/<name>__<chip>.metallib
+define VARIANT_RULE
+$(BUILD_DIR)/$(notdir $(patsubst %/,%,$(dir $(1))))__$(notdir $(basename $(1))).metallib: $(1) $(wildcard $(UTILS_DIR)/*.metal) | $(BUILD_DIR)
+	$(METAL) $(METAL_INCS) -gline-tables-only -frecord-sources -c $$< -o $$(@:.metallib=.air)
+	$(METALLIB) $$(@:.metallib=.air) -o $$@
+KERNEL_TARGETS += $(BUILD_DIR)/$(notdir $(patsubst %/,%,$(dir $(1))))__$(notdir $(basename $(1))).metallib
+endef
+$(foreach src,$(VARIANT_SRCS),$(eval $(call VARIANT_RULE,$(src))))
 
 kernels: $(KERNEL_TARGETS)
 

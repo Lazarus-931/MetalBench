@@ -3,7 +3,7 @@
 #include <metal_stdlib>
 using namespace metal;
 
-kernel void batchnorm_f32(
+kernel void batch_norm_f32(
     device const float*  x       [[buffer(0)]],
     device       float*  y       [[buffer(1)]],
     constant     uint&   N       [[buffer(2)]],

@@ -16,6 +16,7 @@ Each kernel has three files, paired by name:
 | `mlx/kernels/common/<name>.py` | project owner | **Model class only** — the MLX reference implementation |
 | `mlx/kernels/common/registry.py` | project owner | dispatch metadata (metal_function, threadgroup, grid, scalars, flops, bytes) |
 | `src/kernels/common/<name>.metal` | **you** | the Metal kernel you're optimizing |
+| `src/kernels/common/<name>/<chip>.metal` | **you** | chip-specific variant (optional); `<chip>` ∈ {`default`, `m1`, `m2`, `m3`, `m4`, `m5`} |
 
 The harness auto-generates `get_inputs`, `make_inputs`, `reference` from the
 Model class + registry entry. You never touch the harness.
@@ -29,6 +30,24 @@ Model class + registry entry. You never touch the harness.
 5. **Run** `./bench <name>`. Checks correctness, prints all 5 target scores.
 6. **Update** `best_times.md` with your new time + speedup.
 7. **Open a PR** with only the `.metal` file changed + updated `best_times.md`.
+
+## Per-chip variants (optional)
+
+Most kernels ship as a single `src/kernels/<set>/<name>.metal` used on every
+M-series chip. When a kernel genuinely needs different impls per generation
+(e.g. M4 tensor cores, M5 new SIMD ops), promote it to a directory:
+
+```
+src/kernels/common/sqr_mm/
+    default.metal    # fallback for any chip without its own file
+    m4.metal         # M4-specific impl
+    m5.metal         # M5-specific impl
+```
+
+Selection at bench time: `<name>__<chip>.metallib` → `<name>__default.metallib`
+→ flat `<name>.metallib`. Don't promote until you have a measured perf reason —
+the flat-file pattern is the default for the ~80% of kernels that don't need
+chip-specific code.
 
 ## Rules
 
