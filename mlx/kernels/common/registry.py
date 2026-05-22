@@ -400,9 +400,9 @@ REGISTRY["conv_transpose2d_clamp_scale_div"] = dict(
     bytes=4*(8*32*32*64+128*9*64+128+8*65*65*128))
 
 REGISTRY["conv3d_softmax_pool"] = dict(
-    metal_function="conv3d_softmax_pool_f32", threadgroup=(1024,1,1), input_bindings=(0,1),
+    metal_function="conv3d_softmax_pool_f32", threadgroup=(256,1,1), input_bindings=(0,1),
     input_shapes=[(4,32,32,32,32),(64,3,3,3,32)], output_shape=(4,7,7,7,64),
-    rtol=1e-2, atol=1e-2, grid=(64*1024,1,1),
+    rtol=1e-2, atol=1e-2, grid=(256*256,1,1),
     scalars=[dict(binding=3,dtype="u32",value=4),dict(binding=4,dtype="u32",value=32),
              dict(binding=5,dtype="u32",value=32),dict(binding=6,dtype="u32",value=32),
              dict(binding=7,dtype="u32",value=32),dict(binding=8,dtype="u32",value=64),
@@ -429,6 +429,27 @@ REGISTRY["conv_transpose2d_sub_tanh"] = dict(
              dict(binding=7,dtype="u32",value=128),dict(binding=8,dtype="u32",value=3),
              dict(binding=9,dtype="u32",value=2),dict(binding=10,dtype="f32",value=0.5)],
     flops=8*65*65*128*64*9*2+8*65*65*128*5, bytes=4*(8*32*32*64+128*9*64+8*65*65*128))
+
+REGISTRY["conv_transpose3d_norm_pool_gelu"] = dict(
+    metal_function="conv_transpose3d_norm_pool_gelu_f32", threadgroup=(32,1,1), input_bindings=(0,1,2),
+    input_shapes=[(2,8,8,8,16),(32,3,3,3,16),(32,)], output_shape=(2,5,5,5,32),
+    rtol=1e-2, atol=1e-2, grid=(2*5*5*5*32,1,1),
+    scalars=[dict(binding=4,dtype="u32",value=2),dict(binding=5,dtype="u32",value=16),
+             dict(binding=6,dtype="u32",value=8),dict(binding=7,dtype="u32",value=8),
+             dict(binding=8,dtype="u32",value=8),dict(binding=9,dtype="u32",value=32),
+             dict(binding=10,dtype="u32",value=3),dict(binding=11,dtype="f32",value=1e-5)],
+    flops=2*5*5*5*32*100, bytes=4*(2*8*8*8*16+32*3*3*3*16+32+2*5*5*5*32))
+
+REGISTRY["conv3d_div_pool_sum"] = dict(
+    metal_function="conv3d_div_pool_sum_f32", threadgroup=(1024,1,1), input_bindings=(0,1),
+    input_shapes=[(4,32,32,32,32),(64,3,3,3,32)], output_shape=(1,),
+    rtol=1e-2, atol=1e-2, grid=(1024,1,1),
+    scalars=[dict(binding=3,dtype="u32",value=4),dict(binding=4,dtype="u32",value=32),
+             dict(binding=5,dtype="u32",value=32),dict(binding=6,dtype="u32",value=32),
+             dict(binding=7,dtype="u32",value=32),dict(binding=8,dtype="u32",value=64),
+             dict(binding=9,dtype="u32",value=3),
+             dict(binding=10,dtype="f32",value=2.0),dict(binding=11,dtype="f32",value=0.5)],
+    flops=4*30*30*30*64*32*27*2, bytes=4*(4*32*32*32*32+64*3*3*3*32+1))
 
 REGISTRY["conv2d_relu_bias"] = dict(
     metal_function="conv2d_relu_bias_f32", threadgroup=(1024,1,1), input_bindings=(0,1,2),
