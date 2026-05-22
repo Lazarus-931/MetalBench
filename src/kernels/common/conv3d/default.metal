@@ -1,8 +1,4 @@
 // conv3d implicit im2col GEMM with simdgroup_matrix MMA.
-// NDHWC, k=3, stride=1. x (N=4,D=32,H=32,W=32,C=32), w (K=64,3,3,3,C=32), y (N,D2,H2,W2,K).
-// GEMM: M = N*D2*H2*W2 = 108000, N_g = K_out = 64, K_g = R^3 * C = 864.
-// Tile BM=64, BN=64, BK=16. 1024 threads = 32 simdgroups (SIMDS_M=4, SIMDS_N=8).
-
 #include <metal_stdlib>
 #include <metal_simdgroup>
 #include <metal_simdgroup_matrix>
@@ -71,7 +67,6 @@ kernel void conv3d_f32(
         for (uint kt = 0; kt < num_k_tiles; ++kt) {
             const uint k0 = kt * BK;
 
-            // Load A: 64*16 = 1024 elems, 1/thread.
             {
                 const uint a_row = lid / 16u;
                 const uint a_col = lid % 16u;
@@ -99,7 +94,6 @@ kernel void conv3d_f32(
                 }
                 As[a_row * LDA + a_col] = v;
             }
-            // Load B: 16 rows × 64 cols = 1024 elems.
             {
                 const uint b_col = lid / BK;
                 const uint b_row = lid % BK;

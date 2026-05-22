@@ -26,6 +26,5 @@ kernel void cumsum_exclusive_f32(
     if (t < 32) tg_totals[t] = my_offset;
     threadgroup_barrier(mem_flags::mem_threadgroup);
 
-    // Inclusive total at this thread, then subtract own v to get exclusive.
     y[row * C + t] = local_scan + tg_totals[sg] - v;
 }

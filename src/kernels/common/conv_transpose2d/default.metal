@@ -1,5 +1,4 @@
 // conv_transpose2d: implicit-im2col GEMM. NHWC, R=S=3, stride=2.
-// Tile BM=128, BN=128, BK=16. 1024 threads. Each thread 4x4 reg tile.
 #include <metal_stdlib>
 using namespace metal;
 
@@ -63,7 +62,6 @@ kernel void conv_transpose2d_f32(
                 acc[i][j] = 0.0f;
 
         for (uint k0 = 0; k0 < Kd; k0 += BK) {
-            // A tile: 2048 entries, 2 per thread
             for (uint pass = 0; pass < 2; ++pass) {
                 uint t = tid_in_tg + pass * 1024;
                 uint a_row = t / BK;
@@ -96,7 +94,6 @@ kernel void conv_transpose2d_f32(
                 Atile[a_row * BK + a_col] = v;
             }
 
-            // B tile: 2048 entries, 2 per thread
             {
                 uint t0 = tid_in_tg;
                 uint t1 = tid_in_tg + 1024;

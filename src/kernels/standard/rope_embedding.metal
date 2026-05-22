@@ -1,5 +1,4 @@
 // rope_embedding: rotary position embedding. Input (S, D), D even.
-// Per (s, i) where i in [0, D/2): rotate pair (x[s,2i], x[s,2i+1]).
 #include <metal_stdlib>
 using namespace metal;
 

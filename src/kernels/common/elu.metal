@@ -13,7 +13,6 @@ kernel void elu_f32(
     const uint n4 = N / 4;
     for (uint i = tid; i < n4; i += grid_size) {
         float4 v = *reinterpret_cast<const device float4*>(&x[i * 4]);
-        // Use min(v,0) to feed exp — avoids huge exp for large positive v.
         float4 neg = alpha * (exp(min(v, float4(0.0f))) - 1.0f);
         float4 out = select(neg, v, v > 0.0f);
         *reinterpret_cast<device float4*>(&y[i * 4]) = out;

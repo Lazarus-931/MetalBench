@@ -1,5 +1,4 @@
 // scaled_dot_product: softmax(Q @ K^T / sqrt(d)) @ V. Fused attention core.
-// Q,K,V are (M,d_head). Computes scores=Q@K^T, softmax per row, then @V.
 #include <metal_stdlib>
 #include <metal_simdgroup>
 #include <metal_simdgroup_matrix>
@@ -26,7 +25,6 @@ kernel void scaled_dot_product_f32(
     const uint c_row0 = tgid.y * BM, c_col0 = tgid.x * BN;
     const uint a_row = lid / 4, a_c4 = lid % 4, b_row = lid / 16, b_c4 = lid % 16;
 
-    // --- Pass 1: S = Q @ K^T -------------------------------------------------
     simdgroup_matrix<float, 8, 8> S_acc[MMA_M][MMA_N];
     #pragma unroll
     for (uint i = 0; i < MMA_M; ++i)
@@ -78,9 +76,6 @@ kernel void scaled_dot_product_f32(
                 simdgroup_multiply_accumulate(S_acc[i][j], Ab[i], Bb[j], S_acc[i][j]);
     }
 
-    // Scale by 1/sqrt(d) and store to temp, then softmax, then matmul with V.
-    // For simplicity: store S, then in a follow-up kernel do softmax+matmul.
-    // This is a 2-kernel approach. Full fusion would inline softmax here.
     #pragma unroll
     for (uint i = 0; i < MMA_M; ++i)
         #pragma unroll

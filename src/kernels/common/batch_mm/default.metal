@@ -1,5 +1,4 @@
 // batch_matmul: C[b] = A[b] @ B[b]  (MxK @ KxN -> MxN f32) per batch.
-// 64x64 tile, 256 thr, BK=16, double-buffered, padded. 2D flattened grid.
 #include <metal_stdlib>
 #include <metal_simdgroup>
 #include <metal_simdgroup_matrix>

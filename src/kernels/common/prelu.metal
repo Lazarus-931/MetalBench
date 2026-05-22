@@ -1,5 +1,4 @@
 // prelu: x if x>0 else alpha[c]*x. Per-channel slope.
-// Shape: x is (N, C), alpha is (C,). Layout assumed row-major: x[n*C + c].
 #include <metal_stdlib>
 using namespace metal;
 

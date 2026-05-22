@@ -14,7 +14,6 @@ kernel void bias_add_f32(
     uint tg_size                   [[threads_per_threadgroup]])
 {
     threadgroup float bias_tg[1024];
-    // Cooperatively load bias (C=1024) into shared memory.
     for (uint i = lid; i < C; i += tg_size) bias_tg[i] = B[i];
     threadgroup_barrier(mem_flags::mem_threadgroup);
 

@@ -1,5 +1,4 @@
 // depthwise_conv2d: NHWC, groups == C. x (N,H,W,C), w (C,R,S,1), y (N,H2,W2,C).
-// R=S=3, stride=1 specialization; per-thread one (n,h2,w2,c). Weights cached in registers.
 #include <metal_stdlib>
 using namespace metal;
 

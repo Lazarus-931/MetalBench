@@ -11,11 +11,8 @@ kernel void residual_add_f32(
     constant     float&  alpha   [[buffer(5)]],
     uint tid                    [[thread_position_in_grid]])
 {
-    // N = 1024*1024 = 1<<20. grid_size = 64*1024 = 1<<16.
-    // Each thread does N/grid_size = 16 floats = 4 float4s.
     const uint n4 = N >> 2;           // 1<<18
     const float a = alpha;
-    // Use base = tid*4 then stride grid_size in float4 units.
     for (uint i = tid; i < n4; i += grid_size) {
         uint base = i << 2;
         float4 x = *reinterpret_cast<const device float4*>(&X[base]);

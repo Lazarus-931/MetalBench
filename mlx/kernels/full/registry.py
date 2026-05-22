@@ -59,3 +59,41 @@ REGISTRY["resnet"] = dict(
     flops=1 * (16*3*3*3*32*32 + 16*3*3*16*32*32*2 + 16*10) * 2,
     bytes=4 * (1*32*32*3 + 16*3*3*3 + 16*3*3*16*2 + 16*10 + 10),
 )
+
+REGISTRY["transformer_block"] = dict(
+    metal_function="transformer_block_f32",
+    threadgroup=(1024, 1, 1),
+    input_bindings=(0, 1, 2, 3, 4),
+    input_shapes=[(64, 128), (128, 3*128), (128, 128), (128, 256), (256, 128)],
+    output_shape=(64, 128),
+    rtol=1e-2, atol=1e-2,
+    grid=(1024, 1, 1),
+    scalars=[dict(binding=6, dtype="u32", value=64),
+             dict(binding=7, dtype="u32", value=128),
+             dict(binding=8, dtype="u32", value=4),
+             dict(binding=9, dtype="u32", value=256),
+             dict(binding=10, dtype="f32", value=1e-5)],
+    flops=64 * (128 * 384 * 2 + 64 * 128 * 2 + 128 * 128 * 2 + 128 * 256 * 2 + 256 * 128 * 2),
+    bytes=4 * (64*128*3 + 128*384 + 128*128 + 128*256 + 256*128),
+)
+
+
+REGISTRY["llama_decoder_layer"] = dict(
+    metal_function="llama_decoder_layer_f32",
+    threadgroup=(1024, 1, 1),
+    input_bindings=(0, 1, 2, 3, 4),
+    input_shapes=[(64, 128), (128, 128 + 2*2*32), (128, 128), (128, 2*256), (256, 128)],
+    output_shape=(64, 128),
+    rtol=1e-2, atol=1e-2,
+    grid=(1024, 1, 1),
+    scalars=[dict(binding=6, dtype="u32", value=64),
+             dict(binding=7, dtype="u32", value=128),
+             dict(binding=8, dtype="u32", value=4),
+             dict(binding=9, dtype="u32", value=2),
+             dict(binding=10, dtype="u32", value=256),
+             dict(binding=11, dtype="f32", value=10000.0),
+             dict(binding=12, dtype="f32", value=1e-5)],
+    flops=64 * (128 * 256 * 2 + 64 * 128 * 2 + 128 * 128 * 2 + 128 * 512 * 2 + 256 * 128 * 2),
+    bytes=4 * (64*128*3 + 128*256 + 128*128 + 128*512 + 256*128),
+)
+

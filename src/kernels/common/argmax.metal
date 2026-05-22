@@ -1,5 +1,4 @@
 // argmax: per-row argmax along last dim. One threadgroup per row.
-// Input (R, C). Output index as float.
 #include <metal_stdlib>
 using namespace metal;
 
@@ -24,7 +23,6 @@ kernel void argmax_f32(
     const uint sg = tid >> 5;
     const uint lane = tid & 31;
 
-    // C=1024, TG=1024: one element per thread.
     float best_v = row_ptr[tid];
     uint  best_i = tid;
 

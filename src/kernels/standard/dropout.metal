@@ -18,7 +18,6 @@ kernel void dropout_f32(
     const uint n4 = N >> 2;
     const uint gs = grid_size;
 
-    // N=1M, n4=256K, gs=64K -> 4 iters per thread.
     uint i0 = tid;
     uint i1 = i0 + gs;
     uint i2 = i1 + gs;

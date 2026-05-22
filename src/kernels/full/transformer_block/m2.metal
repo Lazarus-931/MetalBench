@@ -1,17 +1,4 @@
 // transformer_block — pre-LN BERT/ViT block, M2 redesign
-// One TG of 1024 threads. S=64 D=128 H=4 Dh=32 FF=256.
-//
-// FFN redesign vs default:
-//   default: per-row simdgroup walks all 256 f values serially with simd_sum
-//            per f. Only 32 rows active at a time, 256 reductions per row.
-//   new:    tile FF into chunks (FF_BLK=64). For each chunk:
-//             - all 1024 threads in parallel materialize hidden_tile (S × FF_BLK)
-//               via a direct (S, D) × (D, FF_BLK) matmul + GELU, with LN
-//               normalization fused on-the-fly from y[] (cached in L1).
-//             - all 1024 threads in parallel accumulate y += hidden_tile @ W_ff2
-//               slice — direct (S, FF_BLK) × (FF_BLK, D) matmul.
-//           No simd-cross reductions per element; all dot products are register
-//           local. 4 chunks total over FF=256.
 #include <metal_stdlib>
 using namespace metal;
 
@@ -41,7 +28,6 @@ kernel void transformer_block_f32(
     const uint t = tid.x;
     threadgroup float pool[8192];                  // 32 KB
 
-    // ===== ATTENTION (kept from default) =====
     threadgroup float* means = pool;            // [64]
     threadgroup float* rstds = pool + 64;       // [64]
     threadgroup float* Qh = pool + 128;         // [S*DH=2048]
@@ -52,7 +38,6 @@ kernel void transformer_block_f32(
     for (uint i = t; i < S*D; i += TG) y[i] = x[i];
     threadgroup_barrier(mem_flags::mem_threadgroup | mem_flags::mem_device);
 
-    // LN1 stats
     {
         const uint row = t >> 4;
         const uint lane = t & 15;
@@ -159,16 +144,10 @@ kernel void transformer_block_f32(
         threadgroup_barrier(mem_flags::mem_threadgroup | mem_flags::mem_device);
     }
 
-    // ===== FFN (redesigned) =====
-    // Pool layout for FFN:
-    //   pool[0..127]      : ln_means[64], ln_rstds[64]
-    //   pool[128..8319]   : hidden_tile (S × FF_BLK) = 64*64=4096 floats (16KB)
-    // Total used: 128 + 4096 = 4224 floats = 16.5 KB (fits well under 32KB).
     threadgroup float* ln_m = pool;
     threadgroup float* ln_r = pool + 64;
     threadgroup float* hidden = pool + 128;   // size S*FF_BLK = 4096
 
-    // Compute LN2 stats from y
     {
         const uint row = t >> 4;
         const uint lane = t & 15;
@@ -194,20 +173,14 @@ kernel void transformer_block_f32(
     }
     threadgroup_barrier(mem_flags::mem_threadgroup);
 
-    // For each FF chunk: build hidden tile via fused (LN(y) @ W_ff1) + GELU,
-    // then accumulate (hidden @ W_ff2) into per-thread output registers.
-    // Only write to y[] at the very end so LN(y) reads stay consistent.
     const float k0 = 0.7978845608028654f;
     const float k1 = 0.044715f;
 
-    // Per-thread output accumulators (8 cells per thread, S*D=8192 / TG=1024).
     float out_acc[8] = {0,0,0,0,0,0,0,0};
 
     for (uint chunk = 0; chunk < NCHUNKS; ++chunk) {
         const uint f0 = chunk * FF_BLK;
 
-        // ---- FFN1 + GELU ----
-        // hidden_tile has S*FF_BLK = 4096 cells. 1024 threads -> 4 cells each.
         for (uint k = 0; k < 4; ++k) {
             uint i = t * 4 + k;
             uint s = i / FF_BLK;
@@ -225,7 +198,6 @@ kernel void transformer_block_f32(
         }
         threadgroup_barrier(mem_flags::mem_threadgroup);
 
-        // ---- FFN2 partial accumulate (into registers, NOT y) ----
         for (uint k = 0; k < 8; ++k) {
             uint i = t * 8 + k;
             uint s = i / D;
@@ -239,7 +211,6 @@ kernel void transformer_block_f32(
         threadgroup_barrier(mem_flags::mem_threadgroup);
     }
 
-    // Final write to y (residual: y += ffn_out).
     for (uint k = 0; k < 8; ++k) {
         uint i = t * 8 + k;
         y[i] += out_acc[k];

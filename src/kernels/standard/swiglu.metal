@@ -1,7 +1,4 @@
 // swiglu: Y = silu(X @ Wg) * (X @ Wu). M=N=K=256.
-// Registry gives 256 1-D threadgroups, TG size 256. We use the first 32 TGs as
-// a 8x4 grid of 32x64 output tiles, all 8 simdgroups per TG, MMA accumulation
-// of both gate and up matmuls in parallel, then fused silu*u on store.
 #include <metal_stdlib>
 #include <metal_simdgroup>
 #include <metal_simdgroup_matrix>
@@ -44,11 +41,6 @@ kernel void swiglu_f32(
 
     const uint sm = sgid / SIMDS_N;              // 0..3
     const uint sn = sgid % SIMDS_N;              // 0..1
-
-    // A (X) tile: 32x16 = 512 floats = 128 float4. 256 threads => half load.
-    // Use lid<128 to load. row = lid/4, c4 = lid%4.
-    // B (W) tile: 16x64 = 1024 floats = 256 float4 => 1 float4 / thread.
-    // row = lid/16, c4 = lid%16.
 
     threadgroup float As [BM * LDA];        // 32*20=640
     threadgroup float Bgs[BK * LDB];        // 16*68=1088
@@ -109,7 +101,6 @@ kernel void swiglu_f32(
         threadgroup_barrier(mem_flags::mem_threadgroup);
     }
 
-    // Store Cg, Cu into tg memory, then fused silu*u to global Y.
     #pragma unroll
     for (uint i = 0; i < MMA_M; ++i)
         #pragma unroll
@@ -119,8 +110,6 @@ kernel void swiglu_f32(
         }
     threadgroup_barrier(mem_flags::mem_threadgroup);
 
-    // Output: 32x64 = 2048 floats = 512 float4. 256 threads => 2 float4/thread.
-    // Mapping: row = (lid/16) + s*16 covers 0..31; col4 = lid%16.
     const uint o_row_base = lid / 16;   // 0..15
     const uint o_c4       = lid % 16;
     #pragma unroll

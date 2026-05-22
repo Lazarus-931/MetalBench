@@ -1,9 +1,4 @@
 // conv_transpose2d: NHWC. x (N=8, H=32, W=32, C_in=64), w (C_out=128, R=3, S=3, C_in=64),
-// y (N, 65, 65, 128). stride=2.
-//
-// Approach: gather form. Tile output as (n, h_out, w_out_block of 4) × all K=128.
-// 1024 outputs per TG. Each thread → one output. We use vec4 on C_in dimension.
-
 #include <metal_stdlib>
 using namespace metal;
 
@@ -32,7 +27,6 @@ kernel void conv_transpose2d_f32(
     const uint TILES = N * H_out * NW_TILES;          // 8*65*9 = 4680
     const uint NUM_TGS = 64;
 
-    // Thread layout: 1024 = 8 (w in tile) × 128 (k)
     const uint t_w = tid_in_tg / OUT_K;        // 0..7
     const uint t_k = tid_in_tg % OUT_K;        // 0..127
 
@@ -48,7 +42,6 @@ kernel void conv_transpose2d_f32(
 
         float sum = 0.0f;
 
-        // Loop over r ∈ {0..2}: check if h_in = (h_out - r)/stride is valid.
         #pragma clang loop unroll(full)
         for (uint r = 0; r < R_K; ++r) {
             int h_in_s = int(h_out) - int(r);
@@ -65,10 +58,8 @@ kernel void conv_transpose2d_f32(
                 uint w_in = uint(w_in_s) >> 1;
                 if (w_in >= W) continue;
 
-                // x row offset & weight row offset
                 device const float4* xv = (device const float4*)(x + ((n * H + h_in) * W + w_in) * C_IN);
                 device const float4* wv = (device const float4*)(w + ((t_k * R_K + r) * R_K + s) * C_IN);
-                // C_IN=64 → 16 vec4
                 #pragma clang loop unroll(full)
                 for (uint cc = 0; cc < 16u; ++cc) {
                     float4 a = xv[cc];

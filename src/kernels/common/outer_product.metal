@@ -1,5 +1,4 @@
 // outer_product: C[i][j] = x[i] * y[j]. Float4, memory-bound.
-// Iterate row-by-row so x[i] caches well and writes are contiguous.
 #include <metal_stdlib>
 using namespace metal;
 
@@ -14,7 +13,6 @@ kernel void outer_product_f32(
     const uint grid_size = 64 * 1024;
     const uint n4 = N / 4;
     const uint total4 = M * n4;
-    // Strided traversal keeps consecutive threads writing consecutive memory.
     for (uint idx4 = tid; idx4 < total4; idx4 += grid_size) {
         uint i = idx4 / n4;
         uint j4 = idx4 - i * n4;

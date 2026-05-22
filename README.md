@@ -22,9 +22,9 @@ Three sets, increasing in size/complexity:
 
 | set | what | target | live now |
 |---|---|---|---|
-| **Common** | basic ops — activations, matmuls, norms, convs, scans | 100 | 70 |
-| **Standard** | fused 2+ op kernels — attention, SwiGLU, RMSNorm + linear | 25 | 23 |
-| **Full** | end-to-end model blocks — transformer block, mbconv, llama_layer | 12 | 0 |
+| **Common** | basic ops — activations, matmuls, norms, convs, scans | 100 | 67 |
+| **Standard** | fused 2+ op kernels — attention, SwiGLU, RMSNorm + linear | 25 | 24 |
+| **Full** | end-to-end model blocks — transformer block, mbconv, llama_layer | 12 | 5 |
 
 See `KERNELS.md` for the full registry.
 

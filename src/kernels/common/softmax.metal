@@ -21,7 +21,6 @@ kernel void softmax_f32(
 
     float val = x[off + t];
 
-    // ---- max reduction ----
     float m = simd_max(val);
     if (lane == 0) tg_buf[sg] = m;
     threadgroup_barrier(mem_flags::mem_threadgroup);
@@ -33,7 +32,6 @@ kernel void softmax_f32(
     threadgroup_barrier(mem_flags::mem_threadgroup);
     float rmax = row_max;
 
-    // ---- exp + sum reduction ----
     float ev = fast::exp(val - rmax);
     float s = simd_sum(ev);
     if (lane == 0) tg_buf[sg] = s;

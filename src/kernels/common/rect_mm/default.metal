@@ -1,5 +1,4 @@
 // rect_matmul: C = A @ B (MxK @ KxN -> MxN f32). M=1024 N=2048 K=4096.
-// 64x64 tile, 256 thr (8 simdgroups, 2x4 grid), BK=16, DOUBLE-buffered, padded.
 #include <metal_stdlib>
 #include <metal_simdgroup>
 #include <metal_simdgroup_matrix>

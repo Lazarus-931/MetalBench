@@ -19,7 +19,6 @@ kernel void max_pool3d_f32(
     const uint W2 = (W - K) / stride + 1;
     const uint total = N * D2 * H2 * W2 * C;
 
-    // Strides (in elements) into input tensor x of shape (N, D, H, W, C)
     const uint sW_in = C;
     const uint sH_in = W * C;
     const uint sD_in = H * W * C;
@@ -34,7 +33,6 @@ kernel void max_pool3d_f32(
 
         uint base = n * sN_in + (d2 * stride) * sD_in + (h2 * stride) * sH_in + (w2 * stride) * sW_in + c;
 
-        // K=2 unrolled
         float v000 = x[base];
         float v001 = x[base + sW_in];
         float v010 = x[base + sH_in];

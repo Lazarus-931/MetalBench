@@ -1,5 +1,4 @@
 // softmax_attention: softmax(Q @ K^T / sqrt(D)) @ V. S=128, D=64.
-// One TG per query row. TG=1024.
 #include <metal_stdlib>
 using namespace metal;
 
@@ -22,14 +21,11 @@ kernel void softmax_attention_f32(
     threadgroup float scores[128];
     threadgroup float reduce[32];
 
-    // Load Q row
     if (tid < D) qrow[tid] = Q[qr * D + tid];
     threadgroup_barrier(mem_flags::mem_threadgroup);
 
     const float inv = rsqrt(float(D));
 
-    // Q @ K^T: 128 scores. Use 8 threads per score (D=64 / 8 = 8 elems each).
-    // tid = j * 8 + sub, j in [0,128), sub in [0,8). Use tid < 1024 = S*8.
     {
         uint j = tid >> 3;        // 0..127
         uint sub = tid & 7;       // 0..7
@@ -37,8 +33,6 @@ kernel void softmax_attention_f32(
         float acc = 0.0f;
         device const float* kr = K + j * D;
         for (uint dd = 0; dd < 8; ++dd) acc += qrow[d0 + dd] * kr[d0 + dd];
-        // 8 lanes within same simd group hold partial sums for one j.
-        // Their tid's are contiguous: j*8..j*8+7. simd_shuffle_xor with mask 4,2,1 reduces them.
         acc += simd_shuffle_xor(acc, 1);
         acc += simd_shuffle_xor(acc, 2);
         acc += simd_shuffle_xor(acc, 4);
@@ -46,7 +40,6 @@ kernel void softmax_attention_f32(
     }
     threadgroup_barrier(mem_flags::mem_threadgroup);
 
-    // Row max
     float v = (tid < S) ? scores[tid] : -INFINITY;
     float mx = simd_max(v);
     uint sg = tid >> 5;
@@ -61,7 +54,6 @@ kernel void softmax_attention_f32(
     threadgroup_barrier(mem_flags::mem_threadgroup);
     float row_max = reduce[0];
 
-    // Exp + sum
     float e = (tid < S) ? fast::exp(scores[tid] - row_max) : 0.0f;
     if (tid < S) scores[tid] = e;
     float sum = simd_sum(e);
@@ -77,17 +69,12 @@ kernel void softmax_attention_f32(
     if (tid < S) scores[tid] = scores[tid] * inv_sum;
     threadgroup_barrier(mem_flags::mem_threadgroup);
 
-    // Output: O[qr, d] = sum_j scores[j] * V[j, d]. D=64, S=128.
-    // Use all 1024 = 16 lanes per d. Each lane processes S/16 = 8 j's.
     {
         uint d = tid & 63;
         uint j_lane = tid >> 6;   // 0..15
         uint j_start = j_lane * 8;
         float acc = 0.0f;
         for (uint j = j_start; j < j_start + 8; ++j) acc += scores[j] * V[j * D + d];
-        // Reduce across 16 j_lane values for same d.
-        // For each d (0..63), there are 16 threads at tid = j_lane*64+d.
-        // These are at strided lane positions within simdgroups; use TG memory.
         threadgroup float tmp[64 * 16];
         tmp[d * 16 + j_lane] = acc;
         threadgroup_barrier(mem_flags::mem_threadgroup);

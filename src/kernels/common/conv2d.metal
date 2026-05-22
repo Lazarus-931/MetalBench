@@ -1,138 +1,147 @@
-// conv2d: implicit-im2col GEMM, NHWC, k=3, stride=1.
-// Tile BM=64, BN=128, BK=16. 1024 threads = 32x32. Each thread 2x4 reg tile.
+// conv2d implicit im2col GEMM with simdgroup_matrix MMA, M4-tuned.
 #include <metal_stdlib>
+#include <metal_simdgroup>
+#include <metal_simdgroup_matrix>
 using namespace metal;
+
+constant constexpr uint BM = 64, BN = 128, BK = 16;
+constant constexpr uint SM = 16, SN = 16;
+constant constexpr uint SIMDS_M = BM / SM;   // 4
+constant constexpr uint SIMDS_N = BN / SN;   // 8
+constant constexpr uint NUM_SG  = SIMDS_M * SIMDS_N;  // 32
+constant constexpr uint MMA_M = SM / 8;      // 2
+constant constexpr uint MMA_N = SN / 8;      // 2
+constant constexpr uint TG_THREADS = 1024;
+constant constexpr uint PAD = 4;
+constant constexpr uint LDA = BK + PAD;      // 20
+constant constexpr uint LDB = BN + PAD;      // 132
 
 kernel void conv2d_f32(
     device const float*  x       [[buffer(0)]],
     device const float*  w       [[buffer(1)]],
     device       float*  y       [[buffer(2)]],
-    constant     uint&   N       [[buffer(3)]], constant     uint&   C       [[buffer(4)]],
-    constant     uint&   H       [[buffer(5)]], constant     uint&   W       [[buffer(6)]],
-    constant     uint&   K       [[buffer(7)]], constant     uint&   R       [[buffer(8)]],
-    constant     uint&   S       [[buffer(9)]], constant     uint&   stride  [[buffer(10)]],
-    uint  tid_in_tg [[thread_position_in_threadgroup]],
-    uint  tg_id     [[threadgroup_position_in_grid]],
-    uint  n_tg      [[threadgroups_per_grid]])
+    constant     uint&   N_      [[buffer(3)]],
+    constant     uint&   C       [[buffer(4)]],
+    constant     uint&   H       [[buffer(5)]],
+    constant     uint&   W       [[buffer(6)]],
+    constant     uint&   K_out   [[buffer(7)]],
+    constant     uint&   R       [[buffer(8)]],
+    constant     uint&   S       [[buffer(9)]],
+    constant     uint&   stride_ [[buffer(10)]],
+    uint tg_id   [[threadgroup_position_in_grid]],
+    uint sgid    [[simdgroup_index_in_threadgroup]],
+    uint lid     [[thread_index_in_threadgroup]],
+    uint n_tg    [[threadgroups_per_grid]])
 {
-    constexpr uint BM = 128;
-    constexpr uint BN = 128;
-    constexpr uint BK = 16;
-    constexpr uint TM = 4;   // rows per thread
-    constexpr uint TN = 4;   // cols per thread
+    const uint H2 = (H - R) / stride_ + 1;
+    const uint W2 = (W - S) / stride_ + 1;
+    const uint M_g = N_ * H2 * W2;
+    const uint K_g = R * S * C;
+    const uint SC  = S * C;
+    const uint num_m_tiles = (M_g + BM - 1) / BM;
+    const uint total_tiles = num_m_tiles;
 
-    const uint H2 = (H - R) / stride + 1;
-    const uint W2 = (W - S) / stride + 1;
-    const uint M  = N * H2 * W2;
-    const uint Kd = C * R * S;
-    const uint SC = S * C;
+    threadgroup float scratch[BM * BN];
+    threadgroup float* As = scratch;
+    threadgroup float* Bs = scratch + BM * LDA;     // 1280 offset
+    threadgroup float* Cs = scratch;                // alias (used after K-loop)
 
-    const uint num_m_tiles = (M + BM - 1) / BM;
+    const uint sm = sgid / SIMDS_N;          // 0..3
+    const uint sn = sgid % SIMDS_N;          // 0..7
 
-    threadgroup float Atile[BM * BK];   // 1024
-    threadgroup float Btile[BK * BN];   // 2048
+    for (uint tile = tg_id; tile < total_tiles; tile += n_tg) {
+        const uint c_row0 = tile * BM;
 
-    // Thread layout for compute: 32 rows of M (each with TM=2 → BM=64) × 32 cols of N (each TN=4 → BN=128)
-    const uint ty = tid_in_tg / 32;     // 0..31, M tile row group
-    const uint tx = tid_in_tg % 32;     // 0..31, N tile col group
+        simdgroup_matrix<float, 8, 8> C_acc[MMA_M][MMA_N];
+        #pragma unroll
+        for (uint i = 0; i < MMA_M; ++i)
+            #pragma unroll
+            for (uint j = 0; j < MMA_N; ++j)
+                C_acc[i][j] = simdgroup_matrix<float, 8, 8>(0.0f);
 
-    for (uint mtile = tg_id; mtile < num_m_tiles; mtile += n_tg) {
-        const uint m_base = mtile * BM;
+        const uint num_k_tiles = (K_g + BK - 1) / BK;
 
-        // Decode (n,h2,w2) for the 2 rows this thread owns.
-        uint n_idx[TM], h2_idx[TM], w2_idx[TM];
-        bool row_valid[TM];
-        for (uint i = 0; i < TM; ++i) {
-            uint m_g = m_base + ty + i * 32;
-            row_valid[i] = (m_g < M);
-            if (row_valid[i]) {
-                uint q = m_g;
-                n_idx[i]  = q / (H2 * W2); q %= (H2 * W2);
-                h2_idx[i] = q / W2;
-                w2_idx[i] = q % W2;
-            } else {
-                n_idx[i] = h2_idx[i] = w2_idx[i] = 0;
-            }
-        }
+        for (uint kt = 0; kt < num_k_tiles; ++kt) {
+            const uint k0 = kt * BK;
 
-        float acc[TM][TN];
-        for (uint i = 0; i < TM; ++i)
-            for (uint j = 0; j < TN; ++j)
-                acc[i][j] = 0.0f;
-
-        for (uint k0 = 0; k0 < Kd; k0 += BK) {
-            // A tile: BM*BK = 2048 entries, 1024 threads → 2 each.
-            for (uint pass = 0; pass < 2; ++pass) {
-                uint t = tid_in_tg + pass * 1024;
-                uint a_row = t / BK;            // 0..127
-                uint a_col = t % BK;            // 0..15
-                uint k_glob = k0 + a_col;
-                uint rr = k_glob / SC;
-                uint rem = k_glob - rr * SC;
-                uint ss = rem / C;
-                uint c  = rem - ss * C;
-
-                uint mrow_g = m_base + a_row;
-                float v = 0.0f;
-                if (mrow_g < M) {
-                    uint q = mrow_g;
-                    uint nn  = q / (H2 * W2); q %= (H2 * W2);
-                    uint hh2 = q / W2;
-                    uint ww2 = q % W2;
-                    uint hi = hh2 * stride + rr;
-                    uint wi = ww2 * stride + ss;
-                    v = x[((nn * H + hi) * W + wi) * C + c];
-                }
-                Atile[a_row * BK + a_col] = v;
-            }
-
-            // B tile: BK*BN = 2048 → 2 each.
             {
-                uint t0 = tid_in_tg;
-                uint t1 = tid_in_tg + 1024;
-                {
-                    uint k_in = t0 / BN;
-                    uint n_in = t0 % BN;
-                    Btile[k_in * BN + n_in] = w[n_in * Kd + (k0 + k_in)];
+                const uint a_row = lid / BK;
+                const uint a_col = lid % BK;
+                const uint m_g = c_row0 + a_row;
+                const uint k_glob = k0 + a_col;
+                float v = 0.0f;
+                if (m_g < M_g && k_glob < K_g) {
+                    const uint rr = k_glob / SC;
+                    const uint rem = k_glob - rr * SC;
+                    const uint ss = rem / C;
+                    const uint c  = rem - ss * C;
+                    const uint n_idx = m_g / (H2 * W2);
+                    const uint hw = m_g - n_idx * (H2 * W2);
+                    const uint h2 = hw / W2;
+                    const uint w2 = hw - h2 * W2;
+                    const uint hi = h2 * stride_ + rr;
+                    const uint wi = w2 * stride_ + ss;
+                    v = x[((n_idx * H + hi) * W + wi) * C + c];
                 }
-                if (t1 < BK * BN) {
-                    uint k_in = t1 / BN;
-                    uint n_in = t1 % BN;
-                    Btile[k_in * BN + n_in] = w[n_in * Kd + (k0 + k_in)];
+                As[a_row * LDA + a_col] = v;
+            }
+            #pragma unroll
+            for (uint p = 0; p < 2; ++p) {
+                const uint t = lid + p * TG_THREADS;
+                const uint b_col = t / BK;
+                const uint b_row = t % BK;
+                const uint k_glob = k0 + b_row;
+                const uint n_col = b_col;
+                float v = 0.0f;
+                if (k_glob < K_g && n_col < K_out) {
+                    v = w[n_col * K_g + k_glob];
                 }
+                Bs[b_row * LDB + b_col] = v;
             }
 
             threadgroup_barrier(mem_flags::mem_threadgroup);
 
-            // Compute: TM=4 rows (ty + i*32) × TN=4 cols (tx*4 + j)
-            const uint col_base = tx * TN;
-            for (uint kk = 0; kk < BK; ++kk) {
-                float b0 = Btile[kk * BN + col_base + 0];
-                float b1 = Btile[kk * BN + col_base + 1];
-                float b2 = Btile[kk * BN + col_base + 2];
-                float b3 = Btile[kk * BN + col_base + 3];
+            #pragma unroll
+            for (uint kc = 0; kc < BK; kc += 8u) {
+                simdgroup_matrix<float, 8, 8> A_blk[MMA_M], B_blk[MMA_N];
                 #pragma unroll
-                for (uint i = 0; i < TM; ++i) {
-                    float a = Atile[(ty + i * 32) * BK + kk];
-                    acc[i][0] = fma(a, b0, acc[i][0]);
-                    acc[i][1] = fma(a, b1, acc[i][1]);
-                    acc[i][2] = fma(a, b2, acc[i][2]);
-                    acc[i][3] = fma(a, b3, acc[i][3]);
-                }
+                for (uint i = 0; i < MMA_M; ++i)
+                    simdgroup_load(A_blk[i], &As[(sm * SM + i * 8u) * LDA + kc], LDA);
+                #pragma unroll
+                for (uint j = 0; j < MMA_N; ++j)
+                    simdgroup_load(B_blk[j], &Bs[kc * LDB + sn * SN + j * 8u], LDB);
+                #pragma unroll
+                for (uint i = 0; i < MMA_M; ++i)
+                    #pragma unroll
+                    for (uint j = 0; j < MMA_N; ++j)
+                        simdgroup_multiply_accumulate(C_acc[i][j], A_blk[i], B_blk[j], C_acc[i][j]);
             }
 
             threadgroup_barrier(mem_flags::mem_threadgroup);
         }
 
-        // Write out
-        uint col0 = tx * TN;
-        for (uint i = 0; i < TM; ++i) {
-            if (row_valid[i]) {
-                uint y_base = ((n_idx[i] * H2 + h2_idx[i]) * W2 + w2_idx[i]) * K;
-                y[y_base + col0 + 0] = acc[i][0];
-                y[y_base + col0 + 1] = acc[i][1];
-                y[y_base + col0 + 2] = acc[i][2];
-                y[y_base + col0 + 3] = acc[i][3];
+        #pragma unroll
+        for (uint i = 0; i < MMA_M; ++i)
+            #pragma unroll
+            for (uint j = 0; j < MMA_N; ++j)
+                simdgroup_store(C_acc[i][j], &Cs[(sm * SM + i * 8u) * BN + sn * SN + j * 8u], BN);
+        threadgroup_barrier(mem_flags::mem_threadgroup);
+
+        {
+            #pragma unroll
+            for (uint rs = 0; rs < 2; ++rs) {
+                const uint r = (lid / 32u) + rs * 32u;
+                const uint cq = lid % 32u;
+                const uint c = cq * 4u;
+                const uint m_g = c_row0 + r;
+                if (m_g < M_g) {
+                    const uint n_idx = m_g / (H2 * W2);
+                    const uint hw = m_g - n_idx * (H2 * W2);
+                    const uint h2 = hw / W2;
+                    const uint w2 = hw - h2 * W2;
+                    float4 v = *reinterpret_cast<threadgroup float4*>(&Cs[r * BN + c]);
+                    *reinterpret_cast<device float4*>(&y[((n_idx * H2 + h2) * W2 + w2) * K_out + c]) = v;
+                }
             }
         }
         threadgroup_barrier(mem_flags::mem_threadgroup);

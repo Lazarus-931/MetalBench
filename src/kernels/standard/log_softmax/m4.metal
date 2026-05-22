@@ -19,13 +19,11 @@ kernel void log_softmax_f32(
 
     float v = X[off + t];
 
-    // max
     float m = simd_max(v);
     if (lane == 0) tg_buf[sg] = m;
     threadgroup_barrier(mem_flags::mem_threadgroup);
     float rmax = simd_max(tg_buf[lane]);
 
-    // exp + sum
     float ev = precise::exp(v - rmax);
     float s = simd_sum(ev);
     threadgroup_barrier(mem_flags::mem_threadgroup);

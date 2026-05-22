@@ -1,5 +1,4 @@
 // fused_qkv_projection: Y = X @ W. (128,512) @ (512,192). N=192=3*64.
-// 64x64 MMA tile, BK=16, 256 thr/tg, double-buffered, padded.
 #include <metal_stdlib>
 #include <metal_simdgroup>
 #include <metal_simdgroup_matrix>

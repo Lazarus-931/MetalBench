@@ -1,7 +1,4 @@
 // top_k: per-row top-k values, sorted descending. R=1024, C=1024, k=16.
-// One threadgroup per row, 1024 threads/TG.
-// Phase 1: each simdgroup (32 lanes, 32 vals) extracts top-16 via repeated argmax.
-// Phase 2: simdgroup 0 reduces 32*16=512 candidates → final top-16 via repeated argmax.
 #include <metal_stdlib>
 using namespace metal;
 
@@ -24,7 +21,6 @@ kernel void top_k_f32(
 
     threadgroup float cand[512];
 
-    // Phase 1: per-simdgroup top-16 by repeated argmax + mask.
     float cur = v;
     for (uint i = 0; i < 16; ++i) {
         float mx = simd_max(cur);
@@ -39,7 +35,6 @@ kernel void top_k_f32(
     }
     threadgroup_barrier(mem_flags::mem_threadgroup);
 
-    // Phase 2: simdgroup 0 picks top-16 of 512 candidates.
     if (simd_id == 0) {
         float local[16];
         for (uint i = 0; i < 16; ++i) {

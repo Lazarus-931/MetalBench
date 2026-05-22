@@ -1,5 +1,4 @@
 // batchnorm: normalize each column over rows. (1024, 256) input.
-// Strided simdgroup reduction over 1024 elements per column.
 #include <metal_stdlib>
 using namespace metal;
 

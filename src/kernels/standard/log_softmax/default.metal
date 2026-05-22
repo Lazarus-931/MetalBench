@@ -20,7 +20,6 @@ kernel void log_softmax_f32(
 
     float v = xr[tid];
 
-    // max
     float mx = simd_max(v);
     if (lane == 0) reduce[sg] = mx;
     threadgroup_barrier(mem_flags::mem_threadgroup);
@@ -31,7 +30,6 @@ kernel void log_softmax_f32(
     threadgroup_barrier(mem_flags::mem_threadgroup);
     float row_max = reduce[0];
 
-    // exp + sum
     float e = fast::exp(v - row_max);
     float sum = simd_sum(e);
     if (lane == 0) reduce[sg] = sum;

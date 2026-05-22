@@ -1,5 +1,4 @@
 // instance_norm: normalize per-sample per-channel over (H, W).
-// Layout (N, C, H, W). One threadgroup per (n, c) block, reduces H*W elements.
 #include <metal_stdlib>
 using namespace metal;
 

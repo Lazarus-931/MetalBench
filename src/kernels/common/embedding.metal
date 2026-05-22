@@ -1,5 +1,4 @@
 // embedding: out[s, d] = table[(uint)indices[s], d]. (S,) × (V, D) → (S, D).
-// Indices arrive as f32; we cast to uint and clamp.
 #include <metal_stdlib>
 using namespace metal;
 

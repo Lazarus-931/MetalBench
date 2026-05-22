@@ -1,5 +1,4 @@
 // sqr_matmul: C = A @ B  (N×N f32). 64×64 tile, 256 thr, BK=16.
-// Padded threadgroup memory (LDA=20, LDB=68) to avoid bank conflicts.
 #include <metal_stdlib>
 #include <metal_simdgroup>
 #include <metal_simdgroup_matrix>

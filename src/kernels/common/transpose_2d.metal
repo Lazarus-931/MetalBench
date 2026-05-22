@@ -1,6 +1,4 @@
 // transpose_2d: B = A^T. Tiled via threadgroup memory for coalesced R/W.
-// A is (M, N) row-major. B is (N, M) row-major.
-// Each TG loads a 32x33 tile (33 to avoid bank conflicts), then writes transposed.
 #include <metal_stdlib>
 using namespace metal;
 
@@ -31,8 +29,6 @@ kernel void transpose_2d_f32(
         const uint a_col = tx * TILE + lx;
         tile[ly][lx] = A[a_row * N + a_col];
         threadgroup_barrier(mem_flags::mem_threadgroup);
-        // Write transposed: B[col, row] = A[row, col]
-        // B is (N, M). Output tile is at (tx*TILE, ty*TILE) in B.
         const uint b_row = tx * TILE + ly;
         const uint b_col = ty * TILE + lx;
         B[b_row * M + b_col] = tile[lx][ly];

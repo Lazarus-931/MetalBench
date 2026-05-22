@@ -1,6 +1,4 @@
 // llama_attention: GQA + RoPE attention (no KV cache, no LN).
-// S=64 D=128 H=4 H_kv=2 D_head=32 (G = H/H_kv = 2)
-// One TG of 1024 threads, 16 threads per query row.
 #include <metal_stdlib>
 using namespace metal;
 
@@ -35,7 +33,6 @@ kernel void llama_attention_f32(
     const float two_over_dh = 2.0f / float(DH);
 
     for (uint kvh = 0; kvh < HKV; ++kvh) {
-        // K, V projection (with RoPE on K).
         {
             const uint sr   = t >> 4;
             const uint lane = t & 15;

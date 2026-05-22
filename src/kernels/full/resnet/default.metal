@@ -1,24 +1,4 @@
 // resnet-mini: stem + 1 residual block + GAP + FC. NHWC, padding=1.
-// Shapes: x (1, 32, 32, 3); W_stem (16,3,3,3); W_a (16,3,3,16); W_b (16,3,3,16); W_fc (16, 10).
-// Activations 32*32*16 = 16384 floats = 64 KB. EXCEEDS 32KB TG memory.
-// → Use device buffer y as scratch (output is only (1,10)=10 floats; y allocated larger).
-// Actually y is allocated by harness to exactly output_shape size. Can't use it for scratch.
-// → Use TG memory for stem output (small enough at 32*32*16 = 64KB? no, 16KB).
-// Wait: 32*32*16 = 16384 floats * 4 = 64 KB. Too big.
-// → Tile: compute 8 rows at a time per layer, keeping a sliding-window scratch.
-//
-// FOR INITIAL CORRECTNESS: shrink to 16x16 spatial. Use 16*16*16 = 4096 floats = 16 KB per buffer.
-// But shape is locked by registry. So we use a different approach: ONE row at a time per
-// thread cooperatively. residual + h must be kept across the block.
-//
-// Simpler: Use TG memory for ONE pass at a time. Stem output → conv_a output → conv_b output
-// → +residual. We need residual saved for second add. Use TWO TG buffers, 32*32*16 each → 32 KB total.
-// Hits exactly the limit. Risk.
-//
-// Realistic: keep this very naive: each output element of each layer is computed from
-// scratch device-side every time. Compute ((h * conv_a) ReLU) * conv_b + h - re-derive h.
-// Equivalent to inlining the whole chain into one expression per output element.
-
 #include <metal_stdlib>
 using namespace metal;
 
@@ -34,14 +14,9 @@ kernel void resnet_f32(
     const uint tid = tid3.x;
 
     threadgroup float h_stem[32 * 32 * 16];  // 64 KB — exceeds TG limit
-    // ^^ This will not compile if Metal enforces. We rely on the compiler to allocate it.
-    // If it overflows, we'll know at build time. Per Apple docs: M-series allows up to 32 KB
-    // per TG, so 64 KB will fail. Use a SMALLER kernel scaffold that just outputs zeros
-    // for correctness as a starting point — agents will redesign.
 
     threadgroup float tg_block_out[32 * 32 * 16];
 
-    // STEM: x (32,32,3) → h_stem (32,32,16) via conv with padding=1
     for (uint i = tid; i < 32u * 32u * 16u; i += 1024u) {
         uint h = i / (32u * 16u);
         uint t = i % (32u * 16u);
@@ -61,7 +36,6 @@ kernel void resnet_f32(
     }
     threadgroup_barrier(mem_flags::mem_threadgroup);
 
-    // BLOCK conv_a: h_stem → ReLU(conv) → into tg_block_out
     for (uint i = tid; i < 32u * 32u * 16u; i += 1024u) {
         uint h = i / (32u * 16u);
         uint t = i % (32u * 16u);
@@ -81,7 +55,6 @@ kernel void resnet_f32(
     }
     threadgroup_barrier(mem_flags::mem_threadgroup);
 
-    // BLOCK conv_b: tg_block_out → conv → +h_stem → ReLU → write back into h_stem (free for reuse)
     for (uint i = tid; i < 32u * 32u * 16u; i += 1024u) {
         uint h = i / (32u * 16u);
         uint t = i % (32u * 16u);
@@ -101,7 +74,6 @@ kernel void resnet_f32(
     }
     threadgroup_barrier(mem_flags::mem_threadgroup);
 
-    // GAP over (32, 32) per channel
     threadgroup float gap[16];
     if (tid < 16) {
         float s = 0.0f;
@@ -112,7 +84,6 @@ kernel void resnet_f32(
     }
     threadgroup_barrier(mem_flags::mem_threadgroup);
 
-    // FC: gap (16) @ W_fc (16, 10) → (10)
     if (tid < 10) {
         float s = 0.0f;
         for (uint k = 0; k < 16u; ++k) s += gap[k] * W_fc[k * 10u + tid];

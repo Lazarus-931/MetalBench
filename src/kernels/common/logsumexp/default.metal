@@ -16,7 +16,6 @@ kernel void logsumexp_f32(
 
     threadgroup float reduce[32];
 
-    // 1) row max
     float mx = -INFINITY;
     for (uint i = tid; i < C; i += TG) mx = fmax(mx, xr[i]);
     mx = simd_max(mx);
@@ -30,7 +29,6 @@ kernel void logsumexp_f32(
     threadgroup_barrier(mem_flags::mem_threadgroup);
     float row_max = reduce[0];
 
-    // 2) sum exp(x - row_max)
     float s = 0.0f;
     for (uint i = tid; i < C; i += TG) s += fast::exp(xr[i] - row_max);
     s = simd_sum(s);

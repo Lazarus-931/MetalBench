@@ -1,5 +1,4 @@
 // layer_norm: y = (x - mean) * rsqrt(var + eps) per row.
-// 1024 thr/tg. Two simdgroup reductions + 1 barrier.
 #include <metal_stdlib>
 using namespace metal;
 

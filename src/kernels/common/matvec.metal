@@ -12,8 +12,6 @@ kernel void matvec_f32(
 {
     const uint t = tid.x;
     const uint row = tgid.y;
-    // N=1024, 1024 thr per TG. Each thread handles 1 element -> can do float4 with 256 threads...
-    // But registry gives 1024 thr/tg. Single element per thread.
     float sum = A[row * N + t] * x[t];
     float sg_sum = simd_sum(sum);
 

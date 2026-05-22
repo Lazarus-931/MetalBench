@@ -1,20 +1,20 @@
 {
   "apple-m2": {
     "sqr_mm": {
-      "best_time_ms": 1.130917,
-      "speedup_vs_mlx": 1.1815632699182221,
-      "gflops": 1898.887051834927,
-      "gbps": 11.126291319345276,
+      "best_time_ms": 1.128875,
+      "speedup_vs_mlx": 1.4246847530448044,
+      "gflops": 1902.3219116376922,
+      "gbps": 11.146417451002101,
       "arith_intensity": 170.66666666666666,
-      "stability": 0.9386652213536695,
+      "stability": 0.9856286588640005,
       "tg_static_mem_bytes": 18944,
       "pso_max_threads_per_tg": 896,
-      "iters": 30,
+      "iters": 50,
       "target": "speed",
       "max_err": 0.0,
       "metal_source_path": "src/kernels/common/sqr_mm.metal",
       "metal_source": "// sqr_matmul: C = A @ B  (N\u00d7N f32). 64\u00d764 tile, 256 thr, BK=16.\n// Padded threadgroup memory (LDA=20, LDB=68) to avoid bank conflicts.\n#include <metal_stdlib>\n#include <metal_simdgroup>\n#include <metal_simdgroup_matrix>\nusing namespace metal;\n\nconstant constexpr uint BM           = 64;\nconstant constexpr uint BN           = 64;\nconstant constexpr uint BK           = 16;\nconstant constexpr uint SM           = 16;\nconstant constexpr uint SN           = 32;\nconstant constexpr uint SIMDS_N      = BN / SN;\nconstant constexpr uint MMA_M        = SM / 8;\nconstant constexpr uint MMA_N        = SN / 8;\nconstant constexpr uint PAD          = 4;\nconstant constexpr uint LDA          = BK + PAD;             // 20\nconstant constexpr uint LDB          = BN + PAD;             // 68\n\nkernel void sqr_matmul_f32(\n    device const float* A   [[buffer(0)]],\n    device const float* B   [[buffer(1)]],\n    device       float* C   [[buffer(2)]],\n    constant     uint&  N   [[buffer(3)]],\n    uint2 tgid              [[threadgroup_position_in_grid]],\n    uint  sgid              [[simdgroup_index_in_threadgroup]],\n    uint  lid               [[thread_index_in_threadgroup]])\n{\n    threadgroup float As[2][BM * LDA];\n    threadgroup float Bs[2][BK * LDB];\n\n    const uint sm = sgid / SIMDS_N;\n    const uint sn = sgid % SIMDS_N;\n    const uint c_row0 = tgid.y * BM;\n    const uint c_col0 = tgid.x * BN;\n\n    const uint a_row = lid / 4;\n    const uint a_c4  = lid % 4;\n    const uint b_row = lid / 16;\n    const uint b_c4  = lid % 16;\n\n    simdgroup_matrix<float, 8, 8> C_acc[MMA_M][MMA_N];\n    #pragma unroll\n    for (uint i = 0; i < MMA_M; ++i)\n        #pragma unroll\n        for (uint j = 0; j < MMA_N; ++j)\n            C_acc[i][j] = simdgroup_matrix<float, 8, 8>(0.0f);\n\n    {\n        *reinterpret_cast<threadgroup float4*>(&As[0][a_row * LDA + a_c4 * 4]) =\n            *reinterpret_cast<const device float4*>(&A[(c_row0 + a_row) * N + a_c4 * 4]);\n        *reinterpret_cast<threadgroup float4*>(&Bs[0][b_row * LDB + b_c4 * 4]) =\n            *reinterpret_cast<const device float4*>(&B[b_row * N + (c_col0 + b_c4 * 4)]);\n    }\n    threadgroup_barrier(mem_flags::mem_threadgroup);\n\n    const uint num_k_tiles = N / BK;\n    uint buf = 0;\n\n    for (uint kt = 0; kt < num_k_tiles - 1; ++kt) {\n        const uint next   = 1 - buf;\n        const uint k0_nxt = (kt + 1) * BK;\n\n        *reinterpret_cast<threadgroup float4*>(&As[next][a_row * LDA + a_c4 * 4]) =\n            *reinterpret_cast<const device float4*>(&A[(c_row0 + a_row) * N + k0_nxt + a_c4 * 4]);\n        *reinterpret_cast<threadgroup float4*>(&Bs[next][b_row * LDB + b_c4 * 4]) =\n            *reinterpret_cast<const device float4*>(&B[(k0_nxt + b_row) * N + (c_col0 + b_c4 * 4)]);\n\n        #pragma unroll\n        for (uint kc = 0; kc < BK; kc += 8) {\n            simdgroup_matrix<float, 8, 8> A_blk[MMA_M], B_blk[MMA_N];\n            #pragma unroll\n            for (uint i = 0; i < MMA_M; ++i)\n                simdgroup_load(A_blk[i], &As[buf][(sm * SM + i * 8) * LDA + kc], LDA);\n            #pragma unroll\n            for (uint j = 0; j < MMA_N; ++j)\n                simdgroup_load(B_blk[j], &Bs[buf][kc * LDB + sn * SN + j * 8], LDB);\n            #pragma unroll\n            for (uint i = 0; i < MMA_M; ++i)\n                #pragma unroll\n                for (uint j = 0; j < MMA_N; ++j)\n                    simdgroup_multiply_accumulate(C_acc[i][j], A_blk[i], B_blk[j], C_acc[i][j]);\n        }\n\n        threadgroup_barrier(mem_flags::mem_threadgroup);\n        buf = next;\n    }\n\n    #pragma unroll\n    for (uint kc = 0; kc < BK; kc += 8) {\n        simdgroup_matrix<float, 8, 8> A_blk[MMA_M], B_blk[MMA_N];\n        #pragma unroll\n        for (uint i = 0; i < MMA_M; ++i)\n            simdgroup_load(A_blk[i], &As[buf][(sm * SM + i * 8) * LDA + kc], LDA);\n        #pragma unroll\n        for (uint j = 0; j < MMA_N; ++j)\n            simdgroup_load(B_blk[j], &Bs[buf][kc * LDB + sn * SN + j * 8], LDB);\n        #pragma unroll\n        for (uint i = 0; i < MMA_M; ++i)\n            #pragma unroll\n            for (uint j = 0; j < MMA_N; ++j)\n                simdgroup_multiply_accumulate(C_acc[i][j], A_blk[i], B_blk[j], C_acc[i][j]);\n    }\n\n    #pragma unroll\n    for (uint i = 0; i < MMA_M; ++i)\n        #pragma unroll\n        for (uint j = 0; j < MMA_N; ++j)\n            simdgroup_store(C_acc[i][j],\n                            &C[(c_row0 + sm * SM + i * 8) * N + (c_col0 + sn * SN + j * 8)],\n                            N);\n}\n",
-      "updated_at": "2026-04-30T02:34:57+00:00"
+      "updated_at": "2026-05-22T13:44:41+00:00"
     },
     "rect_mm": {
       "best_time_ms": 9.153833,
@@ -97,20 +97,20 @@
       "updated_at": "2026-05-21T21:11:02+00:00"
     },
     "leaky_relu": {
-      "best_time_ms": 0.01975,
-      "speedup_vs_mlx": 12.862886078552567,
-      "gflops": 39.8193417721519,
-      "gbps": 106.18491139240507,
+      "best_time_ms": 0.019667,
+      "speedup_vs_mlx": 13.616310023693826,
+      "gflops": 39.98739004423654,
+      "gbps": 106.6330401179641,
       "arith_intensity": 0.375,
-      "stability": 0.9978779304769604,
+      "stability": 0.9972112361829429,
       "tg_static_mem_bytes": 0,
       "pso_max_threads_per_tg": 1024,
-      "iters": 5,
+      "iters": 50,
       "target": "speed",
       "max_err": 0.0,
       "metal_source_path": "src/kernels/common/leaky_relu.metal",
       "metal_source": "// leaky_relu: out = max(x, 0) + slope * min(x, 0). 1024 thr/tg, float4.\n#include <metal_stdlib>\nusing namespace metal;\n\nkernel void leaky_relu_f32(\n    device const float*  x         [[buffer(0)]],\n    device       float*  y         [[buffer(1)]],\n    constant     uint&   N         [[buffer(2)]],\n    constant     uint&   grid_size [[buffer(3)]],\n    constant     float&  slope     [[buffer(4)]],\n    uint  tid                     [[thread_position_in_grid]])\n{\n    const uint n4 = N / 4;\n    for (uint i = tid; i < n4; i += grid_size) {\n        float4 v = *reinterpret_cast<const device float4*>(&x[i * 4]);\n        v = fmax(v, 0.0f) + slope * fmin(v, 0.0f);\n        *reinterpret_cast<device float4*>(&y[i * 4]) = v;\n    }\n    for (uint i = n4 * 4 + tid; i < N; i += grid_size) {\n        float v = x[i];\n        y[i] = fmax(v, 0.0f) + slope * fmin(v, 0.0f);\n    }\n}\n",
-      "updated_at": "2026-05-07T13:43:32+00:00"
+      "updated_at": "2026-05-22T13:43:36+00:00"
     },
     "layer_norm": {
       "best_time_ms": 0.13975,
@@ -129,20 +129,20 @@
       "updated_at": "2026-05-21T18:46:57+00:00"
     },
     "gelu": {
-      "best_time_ms": 0.019958,
-      "speedup_vs_mlx": 12.8436204167711,
-      "gflops": 65.67391522196613,
-      "gbps": 105.07826435514579,
+      "best_time_ms": 0.019917,
+      "speedup_vs_mlx": 12.928652993501618,
+      "gflops": 65.80910779735903,
+      "gbps": 105.29457247577447,
       "arith_intensity": 0.625,
-      "stability": 0.9980923694779117,
+      "stability": 0.9982958247706882,
       "tg_static_mem_bytes": 0,
       "pso_max_threads_per_tg": 1024,
-      "iters": 100,
+      "iters": 50,
       "target": "speed",
       "max_err": 0.0004732739180326462,
       "metal_source_path": "src/kernels/common/gelu.metal",
       "metal_source": "// gelu: 0.5 * x * (1 + tanh(sqrt(2/pi) * (x + 0.044715 * x^3))).\n// sqrt(2/pi) \u2248 0.79788456\n#include <metal_stdlib>\nusing namespace metal;\n\nconstant constexpr float gelu_k = 0.79788456f;\n\nkernel void gelu_f32(\n    device const float*  x         [[buffer(0)]],\n    device       float*  y         [[buffer(1)]],\n    constant     uint&   N         [[buffer(2)]],\n    constant     uint&   grid_size [[buffer(3)]],\n    uint  tid                     [[thread_position_in_grid]])\n{\n    const uint n4 = N / 4;\n    for (uint i = tid; i < n4; i += grid_size) {\n        float4 v = *(reinterpret_cast<const device float4*>(&x[i * 4]));\n        v = 0.5f * v * (1.0f + tanh(gelu_k * (v + 0.044715f * v * v * v)));\n        *(reinterpret_cast<device float4*>(&y[i * 4])) = v;\n    }\n    for (uint i = n4 * 4 + tid; i < N; i += grid_size) {\n        float v = x[i];\n        y[i] = 0.5f * v * (1.0f + tanh(gelu_k * (v + 0.044715f * v * v * v)));\n    }\n}\n",
-      "updated_at": "2026-04-30T01:59:25+00:00"
+      "updated_at": "2026-05-22T13:22:54+00:00"
     },
     "selu": {
       "best_time_ms": 0.01975,
@@ -161,20 +161,20 @@
       "updated_at": "2026-04-30T02:41:01+00:00"
     },
     "logsigmoid": {
-      "best_time_ms": 0.020708,
-      "speedup_vs_mlx": 13.523325032626705,
-      "gflops": 63.29534479428239,
-      "gbps": 101.27255167085184,
+      "best_time_ms": 0.020667,
+      "speedup_vs_mlx": 13.773940140747818,
+      "gflops": 63.42091256592635,
+      "gbps": 101.47346010548216,
       "arith_intensity": 0.625,
-      "stability": 0.9994685220080205,
+      "stability": 0.9984540315957294,
       "tg_static_mem_bytes": 0,
       "pso_max_threads_per_tg": 1024,
-      "iters": 100,
+      "iters": 50,
       "target": "speed",
       "max_err": 4.76837158203125e-07,
       "metal_source_path": "src/kernels/common/logsigmoid.metal",
       "metal_source": "// logsigmoid: numerically stable log(sigmoid(x)).\n// For x > 0:  -log(1 + exp(-x))  using exp(-x) to avoid overflow.\n// For x <= 0:  x - log(1 + exp(x))  stable for negative x.\n#include <metal_stdlib>\nusing namespace metal;\n\ninline float logsigmoid_scalar(float v) {\n    if (v > 0.0f) {\n        return -log(1.0f + exp(-v));\n    } else {\n        return v - log(1.0f + exp(v));\n    }\n}\n\nkernel void logsigmoid_f32(\n    device const float*  x         [[buffer(0)]],\n    device       float*  y         [[buffer(1)]],\n    constant     uint&   N         [[buffer(2)]],\n    constant     uint&   grid_size [[buffer(3)]],\n    uint  tid                     [[thread_position_in_grid]])\n{\n    const uint n4 = N / 4;\n    for (uint i = tid; i < n4; i += grid_size) {\n        float4 v = *(reinterpret_cast<const device float4*>(&x[i * 4]));\n        v = float4(\n            logsigmoid_scalar(v.x),\n            logsigmoid_scalar(v.y),\n            logsigmoid_scalar(v.z),\n            logsigmoid_scalar(v.w));\n        *(reinterpret_cast<device float4*>(&y[i * 4])) = v;\n    }\n    for (uint i = n4 * 4 + tid; i < N; i += grid_size) {\n        y[i] = logsigmoid_scalar(x[i]);\n    }\n}\n",
-      "updated_at": "2026-04-30T01:59:28+00:00"
+      "updated_at": "2026-05-22T13:43:43+00:00"
     },
     "hardsigmoid": {
       "best_time_ms": 0.019708,
@@ -513,20 +513,20 @@
       "updated_at": "2026-05-21T18:35:06+00:00"
     },
     "conv2d": {
-      "best_time_ms": 7.98475,
-      "speedup_vs_mlx": 0.3624409072103682,
-      "gflops": 567.9034299132721,
-      "gbps": 3.0593999812141894,
+      "best_time_ms": 5.683708,
+      "speedup_vs_mlx": 0.5087715692857716,
+      "gflops": 797.8184157243827,
+      "gbps": 4.297994196746208,
       "arith_intensity": 185.62575452716297,
-      "stability": 0.9999710706888344,
-      "tg_static_mem_bytes": 16384,
+      "stability": 0.9673716554053307,
+      "tg_static_mem_bytes": 32768,
       "pso_max_threads_per_tg": 1024,
-      "iters": 200,
+      "iters": 10,
       "target": "speed",
       "max_err": 0.000152587890625,
       "metal_source_path": "src/kernels/common/conv2d.metal",
-      "metal_source": "// conv2d: implicit-im2col GEMM, NHWC, k=3, stride=1.\n// Tile BM=64, BN=128, BK=16. 1024 threads = 32x32. Each thread 2x4 reg tile.\n#include <metal_stdlib>\nusing namespace metal;\n\nkernel void conv2d_f32(\n    device const float*  x       [[buffer(0)]],\n    device const float*  w       [[buffer(1)]],\n    device       float*  y       [[buffer(2)]],\n    constant     uint&   N       [[buffer(3)]], constant     uint&   C       [[buffer(4)]],\n    constant     uint&   H       [[buffer(5)]], constant     uint&   W       [[buffer(6)]],\n    constant     uint&   K       [[buffer(7)]], constant     uint&   R       [[buffer(8)]],\n    constant     uint&   S       [[buffer(9)]], constant     uint&   stride  [[buffer(10)]],\n    uint  tid_in_tg [[thread_position_in_threadgroup]],\n    uint  tg_id     [[threadgroup_position_in_grid]],\n    uint  n_tg      [[threadgroups_per_grid]])\n{\n    constexpr uint BM = 128;\n    constexpr uint BN = 128;\n    constexpr uint BK = 16;\n    constexpr uint TM = 4;   // rows per thread\n    constexpr uint TN = 4;   // cols per thread\n\n    const uint H2 = (H - R) / stride + 1;\n    const uint W2 = (W - S) / stride + 1;\n    const uint M  = N * H2 * W2;\n    const uint Kd = C * R * S;\n    const uint SC = S * C;\n\n    const uint num_m_tiles = (M + BM - 1) / BM;\n\n    threadgroup float Atile[BM * BK];   // 1024\n    threadgroup float Btile[BK * BN];   // 2048\n\n    // Thread layout for compute: 32 rows of M (each with TM=2 \u2192 BM=64) \u00d7 32 cols of N (each TN=4 \u2192 BN=128)\n    const uint ty = tid_in_tg / 32;     // 0..31, M tile row group\n    const uint tx = tid_in_tg % 32;     // 0..31, N tile col group\n\n    for (uint mtile = tg_id; mtile < num_m_tiles; mtile += n_tg) {\n        const uint m_base = mtile * BM;\n\n        // Decode (n,h2,w2) for the 2 rows this thread owns.\n        uint n_idx[TM], h2_idx[TM], w2_idx[TM];\n        bool row_valid[TM];\n        for (uint i = 0; i < TM; ++i) {\n            uint m_g = m_base + ty + i * 32;\n            row_valid[i] = (m_g < M);\n            if (row_valid[i]) {\n                uint q = m_g;\n                n_idx[i]  = q / (H2 * W2); q %= (H2 * W2);\n                h2_idx[i] = q / W2;\n                w2_idx[i] = q % W2;\n            } else {\n                n_idx[i] = h2_idx[i] = w2_idx[i] = 0;\n            }\n        }\n\n        float acc[TM][TN];\n        for (uint i = 0; i < TM; ++i)\n            for (uint j = 0; j < TN; ++j)\n                acc[i][j] = 0.0f;\n\n        for (uint k0 = 0; k0 < Kd; k0 += BK) {\n            // A tile: BM*BK = 2048 entries, 1024 threads \u2192 2 each.\n            for (uint pass = 0; pass < 2; ++pass) {\n                uint t = tid_in_tg + pass * 1024;\n                uint a_row = t / BK;            // 0..127\n                uint a_col = t % BK;            // 0..15\n                uint k_glob = k0 + a_col;\n                uint rr = k_glob / SC;\n                uint rem = k_glob - rr * SC;\n                uint ss = rem / C;\n                uint c  = rem - ss * C;\n\n                uint mrow_g = m_base + a_row;\n                float v = 0.0f;\n                if (mrow_g < M) {\n                    uint q = mrow_g;\n                    uint nn  = q / (H2 * W2); q %= (H2 * W2);\n                    uint hh2 = q / W2;\n                    uint ww2 = q % W2;\n                    uint hi = hh2 * stride + rr;\n                    uint wi = ww2 * stride + ss;\n                    v = x[((nn * H + hi) * W + wi) * C + c];\n                }\n                Atile[a_row * BK + a_col] = v;\n            }\n\n            // B tile: BK*BN = 2048 \u2192 2 each.\n            {\n                uint t0 = tid_in_tg;\n                uint t1 = tid_in_tg + 1024;\n                {\n                    uint k_in = t0 / BN;\n                    uint n_in = t0 % BN;\n                    Btile[k_in * BN + n_in] = w[n_in * Kd + (k0 + k_in)];\n                }\n                if (t1 < BK * BN) {\n                    uint k_in = t1 / BN;\n                    uint n_in = t1 % BN;\n                    Btile[k_in * BN + n_in] = w[n_in * Kd + (k0 + k_in)];\n                }\n            }\n\n            threadgroup_barrier(mem_flags::mem_threadgroup);\n\n            // Compute: TM=4 rows (ty + i*32) \u00d7 TN=4 cols (tx*4 + j)\n            const uint col_base = tx * TN;\n            for (uint kk = 0; kk < BK; ++kk) {\n                float b0 = Btile[kk * BN + col_base + 0];\n                float b1 = Btile[kk * BN + col_base + 1];\n                float b2 = Btile[kk * BN + col_base + 2];\n                float b3 = Btile[kk * BN + col_base + 3];\n                #pragma unroll\n                for (uint i = 0; i < TM; ++i) {\n                    float a = Atile[(ty + i * 32) * BK + kk];\n                    acc[i][0] = fma(a, b0, acc[i][0]);\n                    acc[i][1] = fma(a, b1, acc[i][1]);\n                    acc[i][2] = fma(a, b2, acc[i][2]);\n                    acc[i][3] = fma(a, b3, acc[i][3]);\n                }\n            }\n\n            threadgroup_barrier(mem_flags::mem_threadgroup);\n        }\n\n        // Write out\n        uint col0 = tx * TN;\n        for (uint i = 0; i < TM; ++i) {\n            if (row_valid[i]) {\n                uint y_base = ((n_idx[i] * H2 + h2_idx[i]) * W2 + w2_idx[i]) * K;\n                y[y_base + col0 + 0] = acc[i][0];\n                y[y_base + col0 + 1] = acc[i][1];\n                y[y_base + col0 + 2] = acc[i][2];\n                y[y_base + col0 + 3] = acc[i][3];\n            }\n        }\n        threadgroup_barrier(mem_flags::mem_threadgroup);\n    }\n}\n",
-      "updated_at": "2026-05-22T03:45:58+00:00"
+      "metal_source": "// conv2d implicit im2col GEMM with simdgroup_matrix MMA, M4-tuned.\n// Shapes: x (N=8,H=64,W=64,C=64) NHWC, w (K=128,R=3,S=3,C=64), y (N,H2=62,W2=62,K=128).\n// GEMM: M_g = N*H2*W2 = 30752, N_g = K = 128, K_g = R*S*C = 576.\n// Tile BM=64, BN=128, BK=16. 1024 threads = 32 simdgroups (SIMDS_M=4, SIMDS_N=8).\n// Each simdgroup: 16x16 output tile via 2x2 MMA(8x8). BN=K_out (no n-tile loop).\n// Skip Cs: store each simdgroup's MMA tile to a small scratch and scatter directly.\n\n#include <metal_stdlib>\n#include <metal_simdgroup>\n#include <metal_simdgroup_matrix>\nusing namespace metal;\n\nconstant constexpr uint BM = 64, BN = 128, BK = 16;\nconstant constexpr uint SM = 16, SN = 16;\nconstant constexpr uint SIMDS_M = BM / SM;   // 4\nconstant constexpr uint SIMDS_N = BN / SN;   // 8\nconstant constexpr uint NUM_SG  = SIMDS_M * SIMDS_N;  // 32\nconstant constexpr uint MMA_M = SM / 8;      // 2\nconstant constexpr uint MMA_N = SN / 8;      // 2\nconstant constexpr uint TG_THREADS = 1024;\nconstant constexpr uint PAD = 4;\nconstant constexpr uint LDA = BK + PAD;      // 20\nconstant constexpr uint LDB = BN + PAD;      // 132\n\nkernel void conv2d_f32(\n    device const float*  x       [[buffer(0)]],\n    device const float*  w       [[buffer(1)]],\n    device       float*  y       [[buffer(2)]],\n    constant     uint&   N_      [[buffer(3)]],\n    constant     uint&   C       [[buffer(4)]],\n    constant     uint&   H       [[buffer(5)]],\n    constant     uint&   W       [[buffer(6)]],\n    constant     uint&   K_out   [[buffer(7)]],\n    constant     uint&   R       [[buffer(8)]],\n    constant     uint&   S       [[buffer(9)]],\n    constant     uint&   stride_ [[buffer(10)]],\n    uint tg_id   [[threadgroup_position_in_grid]],\n    uint sgid    [[simdgroup_index_in_threadgroup]],\n    uint lid     [[thread_index_in_threadgroup]],\n    uint n_tg    [[threadgroups_per_grid]])\n{\n    const uint H2 = (H - R) / stride_ + 1;\n    const uint W2 = (W - S) / stride_ + 1;\n    const uint M_g = N_ * H2 * W2;\n    const uint K_g = R * S * C;\n    const uint SC  = S * C;\n    const uint num_m_tiles = (M_g + BM - 1) / BM;\n    const uint total_tiles = num_m_tiles;\n\n    // Alias Cs over As+Bs to fit in 32KB. As+Bs = 1280+2112 = 3392; Cs = 8192.\n    // Union region size = 8192 floats = 32768 B (exactly the M4 limit).\n    threadgroup float scratch[BM * BN];\n    threadgroup float* As = scratch;\n    threadgroup float* Bs = scratch + BM * LDA;     // 1280 offset\n    threadgroup float* Cs = scratch;                // alias (used after K-loop)\n\n    const uint sm = sgid / SIMDS_N;          // 0..3\n    const uint sn = sgid % SIMDS_N;          // 0..7\n\n    for (uint tile = tg_id; tile < total_tiles; tile += n_tg) {\n        const uint c_row0 = tile * BM;\n\n        simdgroup_matrix<float, 8, 8> C_acc[MMA_M][MMA_N];\n        #pragma unroll\n        for (uint i = 0; i < MMA_M; ++i)\n            #pragma unroll\n            for (uint j = 0; j < MMA_N; ++j)\n                C_acc[i][j] = simdgroup_matrix<float, 8, 8>(0.0f);\n\n        const uint num_k_tiles = (K_g + BK - 1) / BK;\n\n        for (uint kt = 0; kt < num_k_tiles; ++kt) {\n            const uint k0 = kt * BK;\n\n            {\n                const uint a_row = lid / BK;\n                const uint a_col = lid % BK;\n                const uint m_g = c_row0 + a_row;\n                const uint k_glob = k0 + a_col;\n                float v = 0.0f;\n                if (m_g < M_g && k_glob < K_g) {\n                    const uint rr = k_glob / SC;\n                    const uint rem = k_glob - rr * SC;\n                    const uint ss = rem / C;\n                    const uint c  = rem - ss * C;\n                    const uint n_idx = m_g / (H2 * W2);\n                    const uint hw = m_g - n_idx * (H2 * W2);\n                    const uint h2 = hw / W2;\n                    const uint w2 = hw - h2 * W2;\n                    const uint hi = h2 * stride_ + rr;\n                    const uint wi = w2 * stride_ + ss;\n                    v = x[((n_idx * H + hi) * W + wi) * C + c];\n                }\n                As[a_row * LDA + a_col] = v;\n            }\n            #pragma unroll\n            for (uint p = 0; p < 2; ++p) {\n                const uint t = lid + p * TG_THREADS;\n                const uint b_col = t / BK;\n                const uint b_row = t % BK;\n                const uint k_glob = k0 + b_row;\n                const uint n_col = b_col;\n                float v = 0.0f;\n                if (k_glob < K_g && n_col < K_out) {\n                    v = w[n_col * K_g + k_glob];\n                }\n                Bs[b_row * LDB + b_col] = v;\n            }\n\n            threadgroup_barrier(mem_flags::mem_threadgroup);\n\n            #pragma unroll\n            for (uint kc = 0; kc < BK; kc += 8u) {\n                simdgroup_matrix<float, 8, 8> A_blk[MMA_M], B_blk[MMA_N];\n                #pragma unroll\n                for (uint i = 0; i < MMA_M; ++i)\n                    simdgroup_load(A_blk[i], &As[(sm * SM + i * 8u) * LDA + kc], LDA);\n                #pragma unroll\n                for (uint j = 0; j < MMA_N; ++j)\n                    simdgroup_load(B_blk[j], &Bs[kc * LDB + sn * SN + j * 8u], LDB);\n                #pragma unroll\n                for (uint i = 0; i < MMA_M; ++i)\n                    #pragma unroll\n                    for (uint j = 0; j < MMA_N; ++j)\n                        simdgroup_multiply_accumulate(C_acc[i][j], A_blk[i], B_blk[j], C_acc[i][j]);\n            }\n\n            threadgroup_barrier(mem_flags::mem_threadgroup);\n        }\n\n        #pragma unroll\n        for (uint i = 0; i < MMA_M; ++i)\n            #pragma unroll\n            for (uint j = 0; j < MMA_N; ++j)\n                simdgroup_store(C_acc[i][j], &Cs[(sm * SM + i * 8u) * BN + sn * SN + j * 8u], BN);\n        threadgroup_barrier(mem_flags::mem_threadgroup);\n\n        {\n            #pragma unroll\n            for (uint rs = 0; rs < 2; ++rs) {\n                const uint r = (lid / 32u) + rs * 32u;\n                const uint cq = lid % 32u;\n                const uint c = cq * 4u;\n                const uint m_g = c_row0 + r;\n                if (m_g < M_g) {\n                    const uint n_idx = m_g / (H2 * W2);\n                    const uint hw = m_g - n_idx * (H2 * W2);\n                    const uint h2 = hw / W2;\n                    const uint w2 = hw - h2 * W2;\n                    float4 v = *reinterpret_cast<threadgroup float4*>(&Cs[r * BN + c]);\n                    *reinterpret_cast<device float4*>(&y[((n_idx * H2 + h2) * W2 + w2) * K_out + c]) = v;\n                }\n            }\n        }\n        threadgroup_barrier(mem_flags::mem_threadgroup);\n    }\n}\n",
+      "updated_at": "2026-05-22T13:10:07+00:00"
     },
     "exp": {
       "best_time_ms": 0.019125,
@@ -1041,20 +1041,20 @@
       "updated_at": "2026-05-22T11:53:34+00:00"
     },
     "llama_decoder_layer": {
-      "best_time_ms": 0.864333,
-      "speedup_vs_mlx": 0.5211625939929989,
-      "gflops": 23.050079078318195,
-      "gbps": 0.7961375997445428,
+      "best_time_ms": 0.859,
+      "speedup_vs_mlx": 0.5254167705618183,
+      "gflops": 23.19318277066356,
+      "gbps": 0.8010803259604192,
       "arith_intensity": 28.952380952380953,
-      "stability": 0.9746068401414891,
+      "stability": 0.9727956947845015,
       "tg_static_mem_bytes": 24832,
       "pso_max_threads_per_tg": 1024,
-      "iters": 30,
+      "iters": 50,
       "target": "speed",
       "max_err": 0.091796875,
       "metal_source_path": null,
       "metal_source": null,
-      "updated_at": "2026-05-22T12:29:04+00:00"
+      "updated_at": "2026-05-22T13:43:39+00:00"
     },
     "rsqrt": {
       "best_time_ms": 0.019125,
@@ -1439,6 +1439,70 @@
       "metal_source_path": "src/kernels/common/masked_cumsum.metal",
       "metal_source": "// masked_cumsum: per-row cumsum(x * mask). Two-level scan.\n#include <metal_stdlib>\nusing namespace metal;\n\nkernel void masked_cumsum_f32(\n    device const float*  x       [[buffer(0)]],\n    device const float*  m       [[buffer(1)]],\n    device       float*  y       [[buffer(2)]],\n    constant     uint&   C       [[buffer(3)]],\n    uint3 tid                   [[thread_position_in_threadgroup]],\n    uint3 tgid                  [[threadgroup_position_in_grid]])\n{\n    const uint t = tid.x;\n    const uint row = tgid.y;\n    const uint sg = t >> 5;\n    const uint sl = t & 31;\n\n    float v = x[row * C + t] * m[row * C + t];\n    float local_scan = simd_prefix_inclusive_sum(v);\n\n    threadgroup float tg_totals[32];\n    if (sl == 31) tg_totals[sg] = local_scan;\n    threadgroup_barrier(mem_flags::mem_threadgroup);\n\n    float my_offset = 0.0f;\n    if (sg == 0) my_offset = simd_prefix_exclusive_sum(tg_totals[sl]);\n    if (t < 32) tg_totals[t] = my_offset;\n    threadgroup_barrier(mem_flags::mem_threadgroup);\n\n    y[row * C + t] = local_scan + tg_totals[sg];\n}\n",
       "updated_at": "2026-05-22T01:45:31+00:00"
+    },
+    "conv2d_relu_bias": {
+      "best_time_ms": 518.74125,
+      "speedup_vs_mlx": 0.015811029100684205,
+      "gflops": 8.75665743566759,
+      "gbps": 0.04709295048350213,
+      "arith_intensity": 185.9441242428688,
+      "stability": 0.9974685829736524,
+      "tg_static_mem_bytes": 32768,
+      "pso_max_threads_per_tg": 1024,
+      "iters": 5,
+      "target": "speed",
+      "max_err": 0.000152587890625,
+      "metal_source_path": "src/kernels/common/conv2d_relu_bias.metal",
+      "metal_source": "// conv2d_relu_bias: implicit im2col GEMM via simdgroup_matrix MMA + fused bias + ReLU epilogue.\n// NHWC. x (N=8,H=64,W=64,C=64), w (K=128,R=3,S=3,C=64), b (K), y (N,H2=62,W2=62,K=128).\n// GEMM: M_g = N*H2*W2 = 30752, N_g = K = 128, K_g = R*S*C = 576.\n// Tile BM=64, BN=128, BK=16. 1024 threads = 32 simdgroups.\n\n#include <metal_stdlib>\n#include <metal_simdgroup>\n#include <metal_simdgroup_matrix>\nusing namespace metal;\n\nconstant constexpr uint BM = 64, BN = 128, BK = 16;\nconstant constexpr uint SM = 16, SN = 16;\nconstant constexpr uint SIMDS_M = BM / SM;   // 4\nconstant constexpr uint SIMDS_N = BN / SN;   // 8\nconstant constexpr uint MMA_M = SM / 8;      // 2\nconstant constexpr uint MMA_N = SN / 8;      // 2\nconstant constexpr uint TG_THREADS = 1024;\nconstant constexpr uint PAD = 4;\nconstant constexpr uint LDA = BK + PAD;      // 20\nconstant constexpr uint LDB = BN + PAD;      // 132\n\nkernel void conv2d_relu_bias_f32(\n    device const float*  x       [[buffer(0)]],\n    device const float*  w       [[buffer(1)]],\n    device const float*  b       [[buffer(2)]],\n    device       float*  y       [[buffer(3)]],\n    constant     uint&   N_      [[buffer(4)]],\n    constant     uint&   H       [[buffer(5)]],\n    constant     uint&   W       [[buffer(6)]],\n    constant     uint&   C       [[buffer(7)]],\n    constant     uint&   K_out   [[buffer(8)]],\n    constant     uint&   R       [[buffer(9)]],\n    constant     uint&   S       [[buffer(10)]],\n    uint tg_id   [[threadgroup_position_in_grid]],\n    uint sgid    [[simdgroup_index_in_threadgroup]],\n    uint lid     [[thread_index_in_threadgroup]],\n    uint n_tg    [[threadgroups_per_grid]])\n{\n    const uint H2 = (H - R) + 1;\n    const uint W2 = (W - S) + 1;\n    const uint M_g = N_ * H2 * W2;\n    const uint K_g = R * S * C;\n    const uint SC  = S * C;\n    const uint num_m_tiles = (M_g + BM - 1) / BM;\n    const uint total_tiles = num_m_tiles;\n\n    threadgroup float scratch[BM * BN];\n    threadgroup float* As = scratch;\n    threadgroup float* Bs = scratch + BM * LDA;\n    threadgroup float* Cs = scratch;\n\n    const uint sm = sgid / SIMDS_N;\n    const uint sn = sgid % SIMDS_N;\n\n    for (uint tile = tg_id; tile < total_tiles; tile += n_tg) {\n        const uint c_row0 = tile * BM;\n\n        simdgroup_matrix<float, 8, 8> C_acc[MMA_M][MMA_N];\n        #pragma unroll\n        for (uint i = 0; i < MMA_M; ++i)\n            #pragma unroll\n            for (uint j = 0; j < MMA_N; ++j)\n                C_acc[i][j] = simdgroup_matrix<float, 8, 8>(0.0f);\n\n        const uint num_k_tiles = (K_g + BK - 1) / BK;\n\n        for (uint kt = 0; kt < num_k_tiles; ++kt) {\n            const uint k0 = kt * BK;\n\n            {\n                const uint a_row = lid / BK;\n                const uint a_col = lid % BK;\n                const uint m_g = c_row0 + a_row;\n                const uint k_glob = k0 + a_col;\n                float v = 0.0f;\n                if (m_g < M_g && k_glob < K_g) {\n                    const uint rr = k_glob / SC;\n                    const uint rem = k_glob - rr * SC;\n                    const uint ss = rem / C;\n                    const uint c  = rem - ss * C;\n                    const uint n_idx = m_g / (H2 * W2);\n                    const uint hw = m_g - n_idx * (H2 * W2);\n                    const uint h2 = hw / W2;\n                    const uint w2 = hw - h2 * W2;\n                    const uint hi = h2 + rr;\n                    const uint wi = w2 + ss;\n                    v = x[((n_idx * H + hi) * W + wi) * C + c];\n                }\n                As[a_row * LDA + a_col] = v;\n            }\n            #pragma unroll\n            for (uint p = 0; p < 2; ++p) {\n                const uint t = lid + p * TG_THREADS;\n                const uint b_col = t / BK;\n                const uint b_row = t % BK;\n                const uint k_glob = k0 + b_row;\n                const uint n_col = b_col;\n                float v = 0.0f;\n                if (k_glob < K_g && n_col < K_out) {\n                    v = w[n_col * K_g + k_glob];\n                }\n                Bs[b_row * LDB + b_col] = v;\n            }\n\n            threadgroup_barrier(mem_flags::mem_threadgroup);\n\n            #pragma unroll\n            for (uint kc = 0; kc < BK; kc += 8u) {\n                simdgroup_matrix<float, 8, 8> A_blk[MMA_M], B_blk[MMA_N];\n                #pragma unroll\n                for (uint i = 0; i < MMA_M; ++i)\n                    simdgroup_load(A_blk[i], &As[(sm * SM + i * 8u) * LDA + kc], LDA);\n                #pragma unroll\n                for (uint j = 0; j < MMA_N; ++j)\n                    simdgroup_load(B_blk[j], &Bs[kc * LDB + sn * SN + j * 8u], LDB);\n                #pragma unroll\n                for (uint i = 0; i < MMA_M; ++i)\n                    #pragma unroll\n                    for (uint j = 0; j < MMA_N; ++j)\n                        simdgroup_multiply_accumulate(C_acc[i][j], A_blk[i], B_blk[j], C_acc[i][j]);\n            }\n\n            threadgroup_barrier(mem_flags::mem_threadgroup);\n        }\n\n        #pragma unroll\n        for (uint i = 0; i < MMA_M; ++i)\n            #pragma unroll\n            for (uint j = 0; j < MMA_N; ++j)\n                simdgroup_store(C_acc[i][j], &Cs[(sm * SM + i * 8u) * BN + sn * SN + j * 8u], BN);\n        threadgroup_barrier(mem_flags::mem_threadgroup);\n\n        // Epilogue: add bias, ReLU, store. Each thread stores 1 row \u00d7 4 cols (float4).\n        // 1024 threads / (BN/4=32 cols) = 32 rows per pass; 64 rows \u2192 2 passes.\n        {\n            #pragma unroll\n            for (uint rs = 0; rs < 2; ++rs) {\n                const uint r = (lid / 32u) + rs * 32u;\n                const uint cq = lid % 32u;\n                const uint c = cq * 4u;\n                const uint m_g = c_row0 + r;\n                if (m_g < M_g) {\n                    const uint n_idx = m_g / (H2 * W2);\n                    const uint hw = m_g - n_idx * (H2 * W2);\n                    const uint h2 = hw / W2;\n                    const uint w2 = hw - h2 * W2;\n                    float4 v = *reinterpret_cast<threadgroup float4*>(&Cs[r * BN + c]);\n                    float4 bv = *reinterpret_cast<device const float4*>(&b[c]);\n                    v += bv;\n                    v = fmax(v, float4(0.0f));\n                    *reinterpret_cast<device float4*>(&y[((n_idx * H2 + h2) * W2 + w2) * K_out + c]) = v;\n                }\n            }\n        }\n        threadgroup_barrier(mem_flags::mem_threadgroup);\n    }\n}\n",
+      "updated_at": "2026-05-22T14:06:54+00:00"
+    },
+    "matmul_sub_mul_relu": {
+      "best_time_ms": 0.075125,
+      "speedup_vs_mlx": 106.31503552793465,
+      "gflops": 449.26509151414314,
+      "gbps": 10.468312811980034,
+      "arith_intensity": 42.916666666666664,
+      "stability": 0.9971198003769477,
+      "tg_static_mem_bytes": 18944,
+      "pso_max_threads_per_tg": 1024,
+      "iters": 5,
+      "target": "speed",
+      "max_err": 6.866455078125e-05,
+      "metal_source_path": "src/kernels/common/matmul_sub_mul_relu.metal",
+      "metal_source": "// matmul_sub_mul_relu: y = ReLU((x @ w - sub_val) * mul_val).\n// 64x64 MMA tile, BK=16, 256 thr/tg, double-buffered, padded.\n// Grid 65536x1x1 \u2192 256 TGs; only 16 active (4x4 tile grid).\n#include <metal_stdlib>\n#include <metal_simdgroup>\n#include <metal_simdgroup_matrix>\nusing namespace metal;\n\nconstant constexpr uint BM = 64, BN = 64, BK = 16;\nconstant constexpr uint SM = 16, SN = 32;\nconstant constexpr uint SIMDS_N = BN / SN;\nconstant constexpr uint MMA_M = SM / 8, MMA_N = SN / 8;\nconstant constexpr uint PAD = 4, LDA = BK + PAD, LDB = BN + PAD;\nconstant constexpr uint TILES_N = 256 / BN;\nconstant constexpr uint ACTIVE_TG = TILES_N * (256 / BM);\n\nkernel void matmul_sub_mul_relu_f32(\n    device const float* X       [[buffer(0)]],\n    device const float* W       [[buffer(1)]],\n    device       float* Y       [[buffer(2)]],\n    constant     uint&  M       [[buffer(3)]],\n    constant     uint&  N       [[buffer(4)]],\n    constant     uint&  K       [[buffer(5)]],\n    constant     float& sub_val [[buffer(6)]],\n    constant     float& mul_val [[buffer(7)]],\n    uint tgid_lin               [[threadgroup_position_in_grid]],\n    uint sgid                   [[simdgroup_index_in_threadgroup]],\n    uint lid                    [[thread_index_in_threadgroup]],\n    uint lane                   [[thread_index_in_simdgroup]])\n{\n    if (tgid_lin >= ACTIVE_TG) return;\n    const uint tx = tgid_lin % TILES_N;\n    const uint ty = tgid_lin / TILES_N;\n\n    // Shared scratch: holds As[2] + Bs[2] during matmul (4736 floats),\n    // reused as Cs (BM*BN = 4096 floats) for fused epilogue.\n    constexpr uint AS_SZ = 2 * BM * LDA;        // 2560\n    constexpr uint BS_SZ = 2 * BK * LDB;        // 2176\n    constexpr uint CS_SZ = BM * BN;             // 4096\n    constexpr uint SCRATCH = (AS_SZ + BS_SZ > CS_SZ) ? (AS_SZ + BS_SZ) : CS_SZ;\n    threadgroup float scratch[SCRATCH];\n    threadgroup float (*As)[BM * LDA] = reinterpret_cast<threadgroup float(*)[BM * LDA]>(&scratch[0]);\n    threadgroup float (*Bs)[BK * LDB] = reinterpret_cast<threadgroup float(*)[BK * LDB]>(&scratch[AS_SZ]);\n    threadgroup float* Cs = &scratch[0];\n\n    const uint sm = sgid / SIMDS_N;\n    const uint sn = sgid % SIMDS_N;\n    const uint c_row0 = ty * BM;\n    const uint c_col0 = tx * BN;\n\n    const uint a_row = lid / 4;\n    const uint a_c4  = lid % 4;\n    const uint b_row = lid / 16;\n    const uint b_c4  = lid % 16;\n\n    simdgroup_matrix<float, 8, 8> C_acc[MMA_M][MMA_N];\n    #pragma unroll\n    for (uint i = 0; i < MMA_M; ++i)\n        #pragma unroll\n        for (uint j = 0; j < MMA_N; ++j)\n            C_acc[i][j] = simdgroup_matrix<float, 8, 8>(0.0f);\n\n    {\n        *reinterpret_cast<threadgroup float4*>(&As[0][a_row * LDA + a_c4 * 4]) =\n            *reinterpret_cast<const device float4*>(&X[(c_row0 + a_row) * K + a_c4 * 4]);\n        *reinterpret_cast<threadgroup float4*>(&Bs[0][b_row * LDB + b_c4 * 4]) =\n            *reinterpret_cast<const device float4*>(&W[b_row * N + c_col0 + b_c4 * 4]);\n    }\n    threadgroup_barrier(mem_flags::mem_threadgroup);\n\n    const uint num_k_tiles = K / BK;\n    uint buf = 0;\n\n    for (uint kt = 0; kt < num_k_tiles - 1; ++kt) {\n        const uint next = 1 - buf;\n        const uint k0_nxt = (kt + 1) * BK;\n\n        *reinterpret_cast<threadgroup float4*>(&As[next][a_row * LDA + a_c4 * 4]) =\n            *reinterpret_cast<const device float4*>(&X[(c_row0 + a_row) * K + k0_nxt + a_c4 * 4]);\n        *reinterpret_cast<threadgroup float4*>(&Bs[next][b_row * LDB + b_c4 * 4]) =\n            *reinterpret_cast<const device float4*>(&W[(k0_nxt + b_row) * N + c_col0 + b_c4 * 4]);\n\n        #pragma unroll\n        for (uint kc = 0; kc < BK; kc += 8) {\n            simdgroup_matrix<float, 8, 8> A_blk[MMA_M], B_blk[MMA_N];\n            #pragma unroll\n            for (uint i = 0; i < MMA_M; ++i)\n                simdgroup_load(A_blk[i], &As[buf][(sm * SM + i * 8) * LDA + kc], LDA);\n            #pragma unroll\n            for (uint j = 0; j < MMA_N; ++j)\n                simdgroup_load(B_blk[j], &Bs[buf][kc * LDB + sn * SN + j * 8], LDB);\n            #pragma unroll\n            for (uint i = 0; i < MMA_M; ++i)\n                #pragma unroll\n                for (uint j = 0; j < MMA_N; ++j)\n                    simdgroup_multiply_accumulate(C_acc[i][j], A_blk[i], B_blk[j], C_acc[i][j]);\n        }\n        threadgroup_barrier(mem_flags::mem_threadgroup);\n        buf = next;\n    }\n\n    #pragma unroll\n    for (uint kc = 0; kc < BK; kc += 8) {\n        simdgroup_matrix<float, 8, 8> A_blk[MMA_M], B_blk[MMA_N];\n        #pragma unroll\n        for (uint i = 0; i < MMA_M; ++i)\n            simdgroup_load(A_blk[i], &As[buf][(sm * SM + i * 8) * LDA + kc], LDA);\n        #pragma unroll\n        for (uint j = 0; j < MMA_N; ++j)\n            simdgroup_load(B_blk[j], &Bs[buf][kc * LDB + sn * SN + j * 8], LDB);\n        #pragma unroll\n        for (uint i = 0; i < MMA_M; ++i)\n            #pragma unroll\n            for (uint j = 0; j < MMA_N; ++j)\n                simdgroup_multiply_accumulate(C_acc[i][j], A_blk[i], B_blk[j], C_acc[i][j]);\n    }\n\n    // Need a barrier before reusing scratch as Cs (matmul read As/Bs from it).\n    threadgroup_barrier(mem_flags::mem_threadgroup);\n\n    // Store accumulators into shared scratch (Cs), then apply fused\n    // epilogue (sub\u2192mul\u2192ReLU) with vectorized device writes.\n    #pragma unroll\n    for (uint i = 0; i < MMA_M; ++i)\n        #pragma unroll\n        for (uint j = 0; j < MMA_N; ++j)\n            simdgroup_store(C_acc[i][j],\n                            &Cs[(sm * SM + i * 8) * BN + (sn * SN + j * 8)],\n                            BN);\n    threadgroup_barrier(mem_flags::mem_threadgroup);\n\n    const uint total_f4 = BM * BN / 4;\n    for (uint idx = lid; idx < total_f4; idx += 256) {\n        uint r = (idx * 4) / BN;\n        uint c = (idx * 4) % BN;\n        float4 v = *reinterpret_cast<threadgroup float4*>(&Cs[r * BN + c]);\n        float4 out = (v - sub_val) * mul_val;\n        out = fmax(out, float4(0.0f));\n        *reinterpret_cast<device float4*>(&Y[(c_row0 + r) * N + c_col0 + c]) = out;\n    }\n}\n",
+      "updated_at": "2026-05-22T14:07:06+00:00"
+    },
+    "conv_transpose2d_clamp_scale_div": {
+      "best_time_ms": 160.275,
+      "speedup_vs_mlx": 0.03985233527624631,
+      "gflops": 31.258594291062238,
+      "gbps": 0.12290236156605834,
+      "arith_intensity": 254.33680763132585,
+      "stability": 0.903496957037297,
+      "tg_static_mem_bytes": 0,
+      "pso_max_threads_per_tg": 1024,
+      "iters": 5,
+      "target": "speed",
+      "max_err": 2.2977590560913086e-05,
+      "metal_source_path": "src/kernels/common/conv_transpose2d_clamp_scale_div.metal",
+      "metal_source": "#include <metal_stdlib>\nusing namespace metal;\n\nkernel void conv_transpose2d_clamp_scale_div_f32(\n    device const float* x      [[buffer(0)]],\n    device const float* w      [[buffer(1)]],\n    device const float* b      [[buffer(2)]],\n    device       float* y      [[buffer(3)]],\n    constant     uint&  N      [[buffer(4)]],\n    constant     uint&  C_in   [[buffer(5)]],\n    constant     uint&  H      [[buffer(6)]],\n    constant     uint&  W      [[buffer(7)]],\n    constant     uint&  C_out  [[buffer(8)]],\n    constant     uint&  R      [[buffer(9)]],\n    constant     uint&  stride [[buffer(10)]],\n    constant     float& scale  [[buffer(11)]],\n    constant     float& div    [[buffer(12)]],\n    uint tid [[thread_position_in_grid]])\n{\n    const uint H_out = (H - 1) * stride + R;\n    const uint W_out = (W - 1) * stride + R;\n    const uint total = N * H_out * W_out * C_out;\n    const float inv_div = 1.0f / div;\n    for (uint idx = tid; idx < total; idx += 64 * 1024) {\n        uint q = idx;\n        uint k = q % C_out; q /= C_out;\n        uint w_out = q % W_out; q /= W_out;\n        uint h_out = q % H_out; uint n = q / H_out;\n        float sum = b[k];\n        for (uint r = 0; r < R; ++r) {\n            int hi_s = int(h_out) - int(r);\n            if (hi_s < 0 || hi_s % int(stride) != 0) continue;\n            uint hi = uint(hi_s) / stride;\n            if (hi >= H) continue;\n            for (uint s = 0; s < R; ++s) {\n                int wi_s = int(w_out) - int(s);\n                if (wi_s < 0 || wi_s % int(stride) != 0) continue;\n                uint wi = uint(wi_s) / stride;\n                if (wi >= W) continue;\n                for (uint c = 0; c < C_in; ++c)\n                    sum += x[((n * H + hi) * W + wi) * C_in + c]\n                         * w[((k * R + r) * R + s) * C_in + c];\n            }\n        }\n        sum = clamp(sum, -1.0f, 1.0f) * scale;\n        y[idx] = clamp(sum, -1.0f, 1.0f) * inv_div;\n    }\n}\n",
+      "updated_at": "2026-05-22T14:07:14+00:00"
+    },
+    "conv3d_multi_act_bias": {
+      "best_time_ms": 1460.52525,
+      "speedup_vs_mlx": 0.010728047307391088,
+      "gflops": 8.272486901544497,
+      "gbps": 0.030568903892623563,
+      "arith_intensity": 270.61771434796816,
+      "stability": 0.7866554464949901,
+      "tg_static_mem_bytes": 0,
+      "pso_max_threads_per_tg": 1024,
+      "iters": 5,
+      "target": "speed",
+      "max_err": 1.8656253814697266e-05,
+      "metal_source_path": "src/kernels/common/conv3d_multi_act_bias.metal",
+      "metal_source": "#include <metal_stdlib>\nusing namespace metal;\n\nstatic inline float gelu_erf_poly(float x) {\n    const float k = 0.70710678f;\n    float z = x * k;\n    float t = 1.0f / (1.0f + 0.3275911f * fabs(z));\n    float y = 1.0f - (((((1.061405429f * t - 1.453152027f) * t)\n              + 1.421413741f) * t - 0.284496736f) * t + 0.254829592f)\n              * t * exp(-z * z);\n    float erfz = copysign(y, z);\n    return 0.5f * x * (1.0f + erfz);\n}\n\nkernel void conv3d_multi_act_bias_f32(\n    device const float* x [[buffer(0)]],\n    device const float* w [[buffer(1)]],\n    device const float* b [[buffer(2)]],\n    device       float* y [[buffer(3)]],\n    constant     uint& N  [[buffer(4)]],\n    constant     uint& C  [[buffer(5)]],\n    constant     uint& D  [[buffer(6)]],\n    constant     uint& H  [[buffer(7)]],\n    constant     uint& W  [[buffer(8)]],\n    constant     uint& K  [[buffer(9)]],\n    constant     uint& R  [[buffer(10)]],\n    uint tid [[thread_position_in_grid]])\n{\n    const uint D2 = D - R + 1, H2 = H - R + 1, W2 = W - R + 1;\n    const uint total = N * D2 * H2 * W2 * K;\n    for (uint idx = tid; idx < total; idx += 64 * 1024) {\n        uint q = idx;\n        uint k = q % K; q /= K;\n        uint w2 = q % W2; q /= W2;\n        uint h2 = q % H2; q /= H2;\n        uint d2 = q % D2; uint n = q / D2;\n        float sum = 0.0f;\n        for (uint rd = 0; rd < R; ++rd)\n            for (uint rh = 0; rh < R; ++rh)\n                for (uint rw = 0; rw < R; ++rw)\n                    for (uint c = 0; c < C; ++c)\n                        sum += x[(((n * D + d2 + rd) * H + h2 + rh) * W + w2 + rw) * C + c]\n                             * w[(((k * R + rd) * R + rh) * R + rw) * C + c];\n        float v = fmax(sum, 0.0f);\n        v = v > 0.0f ? v : 0.01f * v;\n        v = gelu_erf_poly(v);\n        v = 1.0f / (1.0f + exp(-v));\n        y[idx] = v + b[k];\n    }\n}\n",
+      "updated_at": "2026-05-22T14:07:42+00:00"
     }
   }
 }

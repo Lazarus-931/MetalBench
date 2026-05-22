@@ -367,6 +367,81 @@ REGISTRY["conv1d"] = dict(
              dict(binding=7,dtype="u32",value=3),dict(binding=8,dtype="u32",value=1)],
     flops=8*254*128*64*3*2, bytes=4*(8*256*64+128*3*64+8*254*128))
 
+REGISTRY["conv2d_mish_mish"] = dict(
+    metal_function="conv2d_mish_mish_f32", threadgroup=(1024,1,1), input_bindings=(0,1),
+    input_shapes=[(8,64,64,64),(128,3,3,64)], output_shape=(8,62,62,128),
+    rtol=1e-3, atol=1e-3, grid=(64*1024,1,1),
+    scalars=[dict(binding=3,dtype="u32",value=8),dict(binding=4,dtype="u32",value=64),
+             dict(binding=5,dtype="u32",value=64),dict(binding=6,dtype="u32",value=64),
+             dict(binding=7,dtype="u32",value=128),dict(binding=8,dtype="u32",value=3),
+             dict(binding=9,dtype="u32",value=3)],
+    flops=8*62*62*128*64*9*2+8*62*62*128*15,
+    bytes=4*(8*64*64*64+128*3*3*64+8*62*62*128))
+
+REGISTRY["matmul_sub_mul_relu"] = dict(
+    metal_function="matmul_sub_mul_relu_f32", threadgroup=(256,1,1), input_bindings=(0,1),
+    input_shapes=[(256,256),(256,256)], output_shape=(256,256),
+    rtol=1e-3, atol=1e-3, grid=(((256*256)+255)//256*256,1,1),
+    scalars=[dict(binding=3,dtype="u32",value=256),dict(binding=4,dtype="u32",value=256),
+             dict(binding=5,dtype="u32",value=256),
+             dict(binding=6,dtype="f32",value=0.5),dict(binding=7,dtype="f32",value=2.0)],
+    flops=2*256*256*256+256*256*3, bytes=4*(256*256*3))
+
+REGISTRY["conv_transpose2d_clamp_scale_div"] = dict(
+    metal_function="conv_transpose2d_clamp_scale_div_f32", threadgroup=(1024,1,1), input_bindings=(0,1,2),
+    input_shapes=[(8,32,32,64),(128,3,3,64),(128,)], output_shape=(8,65,65,128),
+    rtol=1e-3, atol=1e-3, grid=(64*1024,1,1),
+    scalars=[dict(binding=4,dtype="u32",value=8),dict(binding=5,dtype="u32",value=64),
+             dict(binding=6,dtype="u32",value=32),dict(binding=7,dtype="u32",value=32),
+             dict(binding=8,dtype="u32",value=128),dict(binding=9,dtype="u32",value=3),
+             dict(binding=10,dtype="u32",value=2),
+             dict(binding=11,dtype="f32",value=2.0),dict(binding=12,dtype="f32",value=2.0)],
+    flops=8*65*65*128*64*9*2+8*65*65*128*6,
+    bytes=4*(8*32*32*64+128*9*64+128+8*65*65*128))
+
+REGISTRY["conv3d_softmax_pool"] = dict(
+    metal_function="conv3d_softmax_pool_f32", threadgroup=(1024,1,1), input_bindings=(0,1),
+    input_shapes=[(4,32,32,32,32),(64,3,3,3,32)], output_shape=(4,7,7,7,64),
+    rtol=1e-2, atol=1e-2, grid=(64*1024,1,1),
+    scalars=[dict(binding=3,dtype="u32",value=4),dict(binding=4,dtype="u32",value=32),
+             dict(binding=5,dtype="u32",value=32),dict(binding=6,dtype="u32",value=32),
+             dict(binding=7,dtype="u32",value=32),dict(binding=8,dtype="u32",value=64),
+             dict(binding=9,dtype="u32",value=3)],
+    flops=4*7*7*7*64*64*27*32*2, bytes=4*(4*32*32*32*32+64*3*3*3*32+4*7*7*7*64))
+
+REGISTRY["conv3d_multi_act_bias"] = dict(
+    metal_function="conv3d_multi_act_bias_f32", threadgroup=(1024,1,1), input_bindings=(0,1,2),
+    input_shapes=[(4,32,32,32,32),(64,3,3,3,32),(64,)], output_shape=(4,30,30,30,64),
+    rtol=1e-3, atol=1e-3, grid=(64*1024,1,1),
+    scalars=[dict(binding=4,dtype="u32",value=4),dict(binding=5,dtype="u32",value=32),
+             dict(binding=6,dtype="u32",value=32),dict(binding=7,dtype="u32",value=32),
+             dict(binding=8,dtype="u32",value=32),dict(binding=9,dtype="u32",value=64),
+             dict(binding=10,dtype="u32",value=3)],
+    flops=4*30*30*30*64*32*27*2+4*30*30*30*64*20,
+    bytes=4*(4*32*32*32*32+64*3*3*3*32+64+4*30*30*30*64))
+
+REGISTRY["conv_transpose2d_sub_tanh"] = dict(
+    metal_function="conv_transpose2d_sub_tanh_f32", threadgroup=(1024,1,1), input_bindings=(0,1),
+    input_shapes=[(8,32,32,64),(128,3,3,64)], output_shape=(8,65,65,128),
+    rtol=1e-3, atol=1e-3, grid=(64*1024,1,1),
+    scalars=[dict(binding=3,dtype="u32",value=8),dict(binding=4,dtype="u32",value=64),
+             dict(binding=5,dtype="u32",value=32),dict(binding=6,dtype="u32",value=32),
+             dict(binding=7,dtype="u32",value=128),dict(binding=8,dtype="u32",value=3),
+             dict(binding=9,dtype="u32",value=2),dict(binding=10,dtype="f32",value=0.5)],
+    flops=8*65*65*128*64*9*2+8*65*65*128*5, bytes=4*(8*32*32*64+128*9*64+8*65*65*128))
+
+REGISTRY["conv2d_relu_bias"] = dict(
+    metal_function="conv2d_relu_bias_f32", threadgroup=(1024,1,1), input_bindings=(0,1,2),
+    input_shapes=[(8,64,64,64),(128,3,3,64),(128,)],
+    output_shape=(8,62,62,128),
+    rtol=1e-3, atol=1e-3, grid=(64*1024,1,1),
+    scalars=[dict(binding=4,dtype="u32",value=8),dict(binding=5,dtype="u32",value=64),
+             dict(binding=6,dtype="u32",value=64),dict(binding=7,dtype="u32",value=64),
+             dict(binding=8,dtype="u32",value=128),dict(binding=9,dtype="u32",value=3),
+             dict(binding=10,dtype="u32",value=3)],
+    flops=8*62*62*128*64*9*2+8*62*62*128*2,
+    bytes=4*(8*64*64*64+128*3*3*64+128+8*62*62*128))
+
 REGISTRY["conv2d"] = dict(
     metal_function="conv2d_f32", threadgroup=(1024,1,1), input_bindings=(0,1),
     input_shapes=[(8,64,64,64),(128,3,3,64)], output_shape=(8,62,62,128),
@@ -412,59 +487,6 @@ REGISTRY["conv_transpose2d"] = dict(
 
 # ---- Large block kernels (full forward of an attention/transformer block) ----
 # Shapes: S=64 tokens, D=128 hidden, H=4 heads × Dh=32, FF=256, H_kv=2 for GQA.
-
-REGISTRY["transformer_block"] = dict(
-    metal_function="transformer_block_f32",
-    threadgroup=(1024, 1, 1),
-    input_bindings=(0, 1, 2, 3, 4),
-    input_shapes=[(64, 128), (128, 3*128), (128, 128), (128, 256), (256, 128)],
-    output_shape=(64, 128),
-    rtol=1e-2, atol=1e-2,
-    grid=(1024, 1, 1),
-    scalars=[dict(binding=6, dtype="u32", value=64),
-             dict(binding=7, dtype="u32", value=128),
-             dict(binding=8, dtype="u32", value=4),
-             dict(binding=9, dtype="u32", value=256),
-             dict(binding=10, dtype="f32", value=1e-5)],
-    flops=64 * (128 * 384 * 2 + 64 * 128 * 2 + 128 * 128 * 2 + 128 * 256 * 2 + 256 * 128 * 2),
-    bytes=4 * (64*128*3 + 128*384 + 128*128 + 128*256 + 256*128),
-)
-
-REGISTRY["llama_attention"] = dict(
-    metal_function="llama_attention_f32",
-    threadgroup=(1024, 1, 1),
-    input_bindings=(0, 1, 2),
-    input_shapes=[(64, 128), (128, 128 + 2*2*32), (128, 128)],
-    output_shape=(64, 128),
-    rtol=1e-2, atol=1e-2,
-    grid=(1024, 1, 1),
-    scalars=[dict(binding=4, dtype="u32", value=64),
-             dict(binding=5, dtype="u32", value=128),
-             dict(binding=6, dtype="u32", value=4),
-             dict(binding=7, dtype="u32", value=2),
-             dict(binding=8, dtype="f32", value=10000.0)],
-    flops=64 * (128 * (128+128) * 2 + 64 * 128 * 2 + 128 * 128 * 2),
-    bytes=4 * (64*128*2 + 128*256 + 128*128),
-)
-
-REGISTRY["llama_decoder_layer"] = dict(
-    metal_function="llama_decoder_layer_f32",
-    threadgroup=(1024, 1, 1),
-    input_bindings=(0, 1, 2, 3, 4),
-    input_shapes=[(64, 128), (128, 128 + 2*2*32), (128, 128), (128, 2*256), (256, 128)],
-    output_shape=(64, 128),
-    rtol=1e-2, atol=1e-2,
-    grid=(1024, 1, 1),
-    scalars=[dict(binding=6, dtype="u32", value=64),
-             dict(binding=7, dtype="u32", value=128),
-             dict(binding=8, dtype="u32", value=4),
-             dict(binding=9, dtype="u32", value=2),
-             dict(binding=10, dtype="u32", value=256),
-             dict(binding=11, dtype="f32", value=10000.0),
-             dict(binding=12, dtype="f32", value=1e-5)],
-    flops=64 * (128 * 256 * 2 + 64 * 128 * 2 + 128 * 128 * 2 + 128 * 512 * 2 + 256 * 128 * 2),
-    bytes=4 * (64*128*3 + 128*256 + 128*128 + 128*512 + 256*128),
-)
 
 # ---- Non-obvious common kernels ----
 

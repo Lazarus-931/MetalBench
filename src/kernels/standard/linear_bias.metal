@@ -1,6 +1,4 @@
 // linear_bias: y = x @ W + b. (M,K)@(K,N)+(N,). M=N=K=256.
-// 64x64 MMA tile, BK=16, 256 thr/tg, double-buffered, padded.
-// Grid is 65536x1x1 thr → 256 TGs. We only need 16 (4x4 tile grid); rest bail.
 #include <metal_stdlib>
 #include <metal_simdgroup>
 #include <metal_simdgroup_matrix>
@@ -105,7 +103,6 @@ kernel void linear_bias_f32(
                 simdgroup_multiply_accumulate(C_acc[i][j], A_blk[i], B_blk[j], C_acc[i][j]);
     }
 
-    // Store accumulators to global, then add bias.
     #pragma unroll
     for (uint i = 0; i < MMA_M; ++i)
         #pragma unroll
@@ -113,11 +110,8 @@ kernel void linear_bias_f32(
             simdgroup_store(C_acc[i][j],
                             &Y[(c_row0 + sm * SM + i * 8) * N + (c_col0 + sn * SN + j * 8)],
                             N);
-    // No barrier needed for device writes before the bias pass below since
-    // each thread reads/writes its own outputs.
     threadgroup_barrier(mem_flags::mem_device);
 
-    // Load bias slice (BN floats) and add to the BM×BN tile.
     threadgroup float bias_tile[BN];
     if (lid < BN) bias_tile[lid] = Bias[c_col0 + lid];
     threadgroup_barrier(mem_flags::mem_threadgroup);

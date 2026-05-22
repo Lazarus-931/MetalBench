@@ -1,13 +1,6 @@
 // alexnet-mini: 3 conv (k=5/3/3) + 3 maxpool 2x2 + 2 fc. Single TG, naive sequential.
-// All activation buffers live in device output buffer (recycled). Total work per
-// dispatch dominated by conv1 (32*5*5*3 = 2400 weights, 28*28*32 outputs).
 #include <metal_stdlib>
 using namespace metal;
-
-// Hard-coded shapes:
-// x  (1, 32, 32, 3); Wc1 (32, 5, 5, 3); Wc2 (64, 3, 3, 32); Wc3 (128, 3, 3, 64);
-// Wfc1 (512, 256); Wfc2 (256, 10)
-// Pool stages: 28→14, 12→6, 4→2. Flatten: 2*2*128 = 512.
 
 kernel void alexnet_f32(
     device const float* x      [[buffer(0)]],
@@ -21,22 +14,12 @@ kernel void alexnet_f32(
 {
     const uint tid = tid3.x;
     threadgroup float a1[28 * 28 * 32];   // 100352 floats — too big. shrink layout below.
-    // Realistically use device scratch — but harness only routes one output. We use
-    // y itself as scratch since it's much bigger than the (1, 10) output we need.
-    // Output (1, 10) → only first 10 floats matter at end. Use rest as scratch.
 
-    // For simplicity, this kernel writes intermediate activations into TG memory
-    // a1 (after conv1 + maxpool); a2 (after conv2 + maxpool); a3 (after conv3 + maxpool).
-    // a1: 14*14*32 = 6272
-    // a2: 6*6*64 = 2304
-    // a3: 2*2*128 = 512
-    // total tg mem: ~9088 floats = ~35 KB — fits.
     threadgroup float tg_a1[14 * 14 * 32];
     threadgroup float tg_a2[6 * 6 * 64];
     threadgroup float tg_a3[2 * 2 * 128];
     threadgroup float tg_fc1[256];
 
-    // ---- conv1: x (1,32,32,3) @ Wc1 (32,5,5,3) → (1, 28, 28, 32), then maxpool 2x2 → (1,14,14,32) ----
     for (uint i = tid; i < 14u * 14u * 32u; i += 1024u) {
         uint h2 = i / (14u * 32u);
         uint t  = i % (14u * 32u);
@@ -58,7 +41,6 @@ kernel void alexnet_f32(
     }
     threadgroup_barrier(mem_flags::mem_threadgroup);
 
-    // ---- conv2: a1 (14,14,32) @ Wc2 (64,3,3,32) → (12,12,64), maxpool → (6,6,64) ----
     for (uint i = tid; i < 6u * 6u * 64u; i += 1024u) {
         uint h2 = i / (6u * 64u);
         uint t  = i % (6u * 64u);
@@ -80,7 +62,6 @@ kernel void alexnet_f32(
     }
     threadgroup_barrier(mem_flags::mem_threadgroup);
 
-    // ---- conv3: a2 (6,6,64) @ Wc3 (128,3,3,64) → (4,4,128), maxpool → (2,2,128) ----
     for (uint i = tid; i < 2u * 2u * 128u; i += 1024u) {
         uint h2 = i / (2u * 128u);
         uint t  = i % (2u * 128u);
@@ -102,7 +83,6 @@ kernel void alexnet_f32(
     }
     threadgroup_barrier(mem_flags::mem_threadgroup);
 
-    // ---- fc1: a3 flatten (512) @ Wfc1 (512, 256) → 256, ReLU ----
     for (uint i = tid; i < 256u; i += 1024u) {
         float s = 0.0f;
         for (uint k = 0; k < 512u; ++k) s += tg_a3[k] * Wfc1[k * 256u + i];
@@ -110,7 +90,6 @@ kernel void alexnet_f32(
     }
     threadgroup_barrier(mem_flags::mem_threadgroup);
 
-    // ---- fc2: fc1 (256) @ Wfc2 (256, 10) → 10 ----
     for (uint i = tid; i < 10u; i += 1024u) {
         float s = 0.0f;
         for (uint k = 0; k < 256u; ++k) s += tg_fc1[k] * Wfc2[k * 10u + i];

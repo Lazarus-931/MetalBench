@@ -16,7 +16,6 @@ kernel void matrix_add_f32(
     const uint n4 = N >> 2;
     const uint gs = grid_size;
 
-    // With N=1M, n4=256K, gs=64K -> 4 iters per thread. Issue loads then stores.
     uint i0 = tid;
     uint i1 = i0 + gs;
     uint i2 = i1 + gs;
@@ -35,7 +34,6 @@ kernel void matrix_add_f32(
             C4[i] = A4[i] + B4[i];
         }
     }
-    // tail
     for (uint i = n4 * 4 + tid; i < N; i += gs)
         C[i] = A[i] + B[i];
 }

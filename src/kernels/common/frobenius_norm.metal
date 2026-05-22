@@ -1,5 +1,4 @@
 // frobenius_norm: ||x||_F = sqrt(sum(x*x)). Single TG, 1024 threads. N=1024*1024.
-// float4 loads to better saturate bandwidth.
 #include <metal_stdlib>
 using namespace metal;
 

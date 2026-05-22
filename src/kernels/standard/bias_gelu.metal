@@ -1,5 +1,4 @@
 // bias_gelu: y = gelu(x + b). float4 with cached bias in threadgroup memory.
-// Uses tanh-approximation of GELU for speed.
 #include <metal_stdlib>
 using namespace metal;
 

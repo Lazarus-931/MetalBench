@@ -1,5 +1,4 @@
 // softmax_attention: softmax(Q @ K^T / sqrt(D)) @ V. S=128, D=64.
-// One TG per query row. TG=1024.
 #include <metal_stdlib>
 using namespace metal;
 
@@ -27,7 +26,6 @@ kernel void softmax_attention_f32(
 
     const float inv = rsqrt(float(D));
 
-    // Q @ K^T: 128 scores, 8 threads/score, D=64 => 8 elems per sub.
     {
         uint j   = tid >> 3;
         uint sub = tid & 7;
@@ -52,7 +50,6 @@ kernel void softmax_attention_f32(
     uint sg = tid >> 5;
     uint lane = tid & 31;
 
-    // Row max
     float v = (tid < S) ? scores[tid] : -INFINITY;
     float mx_v = simd_max(v);
     if (lane == 0) reduce[sg] = mx_v;
@@ -80,15 +77,11 @@ kernel void softmax_attention_f32(
     if (tid < S) scores[tid] = scores[tid] * inv_sum;
     threadgroup_barrier(mem_flags::mem_threadgroup);
 
-    // Output: O[qr, d] = sum_j scores[j] * V[j, d]. D=64, S=128.
-    // 1024 threads: 16 threads per d (D=64). Each handles S/16 = 8 j's.
-    // tid = d * 16 + jl. d in [0,64), jl in [0,16).
     {
         uint d  = tid >> 4;      // 0..63
         uint jl = tid & 15;      // 0..15
         uint j0 = jl * 8;
         float acc = 0.0f;
-        // Unroll 8
         acc += scores[j0+0] * V[(j0+0)*D + d];
         acc += scores[j0+1] * V[(j0+1)*D + d];
         acc += scores[j0+2] * V[(j0+2)*D + d];
@@ -97,7 +90,6 @@ kernel void softmax_attention_f32(
         acc += scores[j0+5] * V[(j0+5)*D + d];
         acc += scores[j0+6] * V[(j0+6)*D + d];
         acc += scores[j0+7] * V[(j0+7)*D + d];
-        // 16 lanes (jl=0..15) for same d. Their tids: d*16+0..d*16+15 — contiguous within a simdgroup.
         acc += simd_shuffle_xor(acc, 1);
         acc += simd_shuffle_xor(acc, 2);
         acc += simd_shuffle_xor(acc, 4);

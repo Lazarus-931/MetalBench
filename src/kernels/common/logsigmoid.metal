@@ -1,6 +1,4 @@
 // logsigmoid: numerically stable log(sigmoid(x)).
-// For x > 0:  -log(1 + exp(-x))  using exp(-x) to avoid overflow.
-// For x <= 0:  x - log(1 + exp(x))  stable for negative x.
 #include <metal_stdlib>
 using namespace metal;
 

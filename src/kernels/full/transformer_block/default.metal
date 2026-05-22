@@ -1,9 +1,4 @@
 // transformer_block — pre-LN BERT/ViT block (M4)
-// One TG of 1024 threads. S=64 D=128 H=4 Dh=32 FF=256.
-//
-// FFN strategy: snapshot LN2(y) into tg pool, then per-row simdgroup computes
-// hidden_f cooperatively (each lane does D/32 fmacs, simd_sum, broadcast),
-// then accumulates into per-lane d_out outputs.
 #include <metal_stdlib>
 using namespace metal;
 
@@ -40,7 +35,6 @@ kernel void transformer_block_f32(
     for (uint i = t; i < S*D; i += TG) y[i] = x[i];
     threadgroup_barrier(mem_flags::mem_threadgroup | mem_flags::mem_device);
 
-    // LN1 stats
     {
         const uint row = t >> 4;
         const uint lane = t & 15;
@@ -147,8 +141,6 @@ kernel void transformer_block_f32(
         threadgroup_barrier(mem_flags::mem_threadgroup | mem_flags::mem_device);
     }
 
-    // ===== FFN =====
-    // Snapshot LN2(y) into pool (overwriting Q/K/V). pool[S*D=8192] = 32 KB.
     threadgroup float* ln_snap = pool;
 
     {
@@ -178,46 +170,30 @@ kernel void transformer_block_f32(
     }
     threadgroup_barrier(mem_flags::mem_threadgroup);
 
-    // FFN compute: 32 threads per row (one simdgroup), 32 rows per pass, 2 passes.
-    // Within a row: each lane handles 4 d_out (lane*4..lane*4+3) and cooperates
-    // on computing hidden_f via partial dot products + simd_sum.
-    //
-    // For each f in [0, FF):
-    //   each lane computes partial = sum_{d in [lane*4..lane*4+4)} ln_snap[s,d] * W_ff1[d, f]
-    //   hidden_f = simd_sum(partial)   (all lanes see same value)
-    //   gel_f = gelu(hidden_f)
-    //   each lane accumulates: out_acc[i] += gel_f * W_ff2[f, lane*4+i] for i=0..3
-    // After the f loop, write y[s, lane*4..lane*4+3] += out_acc.
-
     const uint sg   = t >> 5;       // simdgroup 0..31
     const uint lane = t & 31;       // 0..31
     for (uint pass = 0; pass < 2; ++pass) {
         const uint s = sg + pass * 32;
         const uint roff = s * D;
-        // load ln_snap[s, lane*4..lane*4+3] into 4 registers
         const uint d0 = lane * 4;
         float l0 = ln_snap[roff + d0 + 0];
         float l1 = ln_snap[roff + d0 + 1];
         float l2 = ln_snap[roff + d0 + 2];
         float l3 = ln_snap[roff + d0 + 3];
 
-        // outputs to accumulate
         float o0 = 0, o1 = 0, o2 = 0, o3 = 0;
 
         for (uint f = 0; f < FF; ++f) {
-            // load W_ff1 values for this f and lane's d block
             float w0 = W_ff1[(d0 + 0)*FF + f];
             float w1 = W_ff1[(d0 + 1)*FF + f];
             float w2 = W_ff1[(d0 + 2)*FF + f];
             float w3 = W_ff1[(d0 + 3)*FF + f];
             float partial = l0*w0 + l1*w1 + l2*w2 + l3*w3;
             float h_f = simd_sum(partial);
-            // GELU via tanh approx
             const float k0 = 0.7978845608028654f;
             const float k1 = 0.044715f;
             float gel = 0.5f * h_f * (1.0f + precise::tanh(k0 * (h_f + k1 * h_f * h_f * h_f)));
 
-            // accumulate
             o0 += gel * W_ff2[f * D + d0 + 0];
             o1 += gel * W_ff2[f * D + d0 + 1];
             o2 += gel * W_ff2[f * D + d0 + 2];

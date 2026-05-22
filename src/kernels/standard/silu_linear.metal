@@ -21,7 +21,6 @@ kernel void silu_linear_f32(
     uint  sgid              [[simdgroup_index_in_threadgroup]],
     uint  lid               [[thread_index_in_threadgroup]])
 {
-    // Combined storage: As (2*BM*LDA=2560) + Bs (2*BK*LDB=2176) = 4736 ≥ BM*BN=4096.
     threadgroup float shared[2 * BM * LDA + 2 * BK * LDB];
     threadgroup float (*As)[BM * LDA] = (threadgroup float (*)[BM * LDA]) &shared[0];
     threadgroup float (*Bs)[BK * LDB] = (threadgroup float (*)[BK * LDB]) &shared[2 * BM * LDA];
@@ -80,8 +79,6 @@ kernel void silu_linear_f32(
                 simdgroup_multiply_accumulate(C_acc[i][j], A_blk[i], B_blk[j], C_acc[i][j]);
     }
 
-    // Reuse As as Cs (BM*BN = 4096 floats; As holds 2*64*20 = 2560 — not enough).
-    // Reuse both As and Bs: BM*LDA*2 + BK*LDB*2 = 2560+2176 = 4736 floats > 4096. OK.
     threadgroup_barrier(mem_flags::mem_threadgroup);
     threadgroup float* Cs = &shared[0];
     #pragma unroll
@@ -91,7 +88,6 @@ kernel void silu_linear_f32(
             simdgroup_store(C_acc[i][j], &Cs[(sm*SM + i*8) * BN + sn*SN + j*8], BN);
     threadgroup_barrier(mem_flags::mem_threadgroup);
 
-    // Each thread writes float4s (BM*BN/4 = 1024 elements, 256 threads → 4 each)
     const uint total_f4 = BM * BN / 4;
     #pragma unroll
     for (uint idx = lid; idx < total_f4; idx += 256) {

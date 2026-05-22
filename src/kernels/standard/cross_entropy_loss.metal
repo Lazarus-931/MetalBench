@@ -25,7 +25,6 @@ kernel void cross_entropy_loss_f32(
     float lv = lp[tid];
     float yv = yp[tid];
 
-    // 1) row max
     float mx = simd_max(lv);
     if (lane == 0) reduce[sgid] = mx;
     threadgroup_barrier(mem_flags::mem_threadgroup);
@@ -37,7 +36,6 @@ kernel void cross_entropy_loss_f32(
     threadgroup_barrier(mem_flags::mem_threadgroup);
     float row_max = scalars[0];
 
-    // 2) sum exp
     float e = precise::exp(lv - row_max);
     float s = simd_sum(e);
     if (lane == 0) reduce[sgid] = s;
@@ -50,7 +48,6 @@ kernel void cross_entropy_loss_f32(
     threadgroup_barrier(mem_flags::mem_threadgroup);
     float lse = scalars[1];
 
-    // 3) nll
     float nll = yv * (lse - lv);
     float ns = simd_sum(nll);
     if (lane == 0) reduce[sgid] = ns;

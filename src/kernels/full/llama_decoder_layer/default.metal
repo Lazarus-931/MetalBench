@@ -1,5 +1,4 @@
 // llama_decoder_layer: RMSNorm + GQA(+RoPE) + residual + RMSNorm + SwiGLU FFN + residual.
-// S=64 D=128 H=4 H_kv=2 D_head=32 FF=256 (G = H/H_kv = 2). One TG of 1024 threads.
 #include <metal_stdlib>
 using namespace metal;
 
@@ -38,14 +37,10 @@ kernel void llama_decoder_layer_f32(
     threadgroup float Kh[S * DH];               // 2048
     threadgroup float Vh[S * DH];               // 2048
     threadgroup float oh[S * DH];               // 2048
-    // Total: 64 + 6144 = 6208 floats = ~24.5 KB
-    // After attention: reuse Kh + Vh + oh as ff_out (6144 floats covers most of y; need 8192).
-    // For FFN we accumulate into y itself by computing one row at a time (no y-read/write race).
 
     const float inv_sqrt_dh = rsqrt(float(DH));
     const float two_over_dh = 2.0f / float(DH);
 
-    // RMSNorm rstd over x.
     {
         const uint sr   = t >> 4;
         const uint lane = t & 15;
@@ -63,13 +58,10 @@ kernel void llama_decoder_layer_f32(
     }
     threadgroup_barrier(mem_flags::mem_threadgroup);
 
-    // y = x.
     for (uint i = t; i < S*D; i += TG) y[i] = x[i];
     threadgroup_barrier(mem_flags::mem_threadgroup | mem_flags::mem_device);
 
-    // GQA attention.
     for (uint kvh = 0; kvh < HKV; ++kvh) {
-        // K, V projection + RoPE on K.
         {
             const uint sr   = t >> 4;
             const uint lane = t & 15;
@@ -163,7 +155,6 @@ kernel void llama_decoder_layer_f32(
         }
     }
 
-    // RMSNorm rstd over y.
     {
         const uint sr   = t >> 4;
         const uint lane = t & 15;
@@ -181,12 +172,6 @@ kernel void llama_decoder_layer_f32(
     }
     threadgroup_barrier(mem_flags::mem_threadgroup);
 
-    // Row-serial SwiGLU FFN — avoids the y-read/y-write race across tiles.
-    // We have Kh+Vh+oh = 6144 floats available (attention done).
-    // Per-row buffers:
-    //   ln_row[D=128]      = LN(y)[sr, :]
-    //   tile[FF=256]       = silu(gate)*up for this row
-    // Total per row: 384 floats. Use the start of Kh.
     threadgroup float* ln_row = Kh;          // [D]
     threadgroup float* tile   = Kh + D;      // [FF]
 
@@ -194,13 +179,11 @@ kernel void llama_decoder_layer_f32(
         const float rs = rstd[sr];
         const uint row_off = sr * D;
 
-        // Load ln_row.
         for (uint d = t; d < D; d += TG) {
             ln_row[d] = y[row_off + d] * rs;
         }
         threadgroup_barrier(mem_flags::mem_threadgroup);
 
-        // tile[f] = silu(gate)*up; one thread per f.
         for (uint f = t; f < FF; f += TG) {
             float gate_acc = 0.f, up_acc = 0.f;
             for (uint d = 0; d < D; ++d) {
@@ -212,7 +195,6 @@ kernel void llama_decoder_layer_f32(
         }
         threadgroup_barrier(mem_flags::mem_threadgroup);
 
-        // y[sr, d_out] += sum_f tile[f] * W_down[f, d_out]; one thread per d_out (D=128).
         for (uint d_out = t; d_out < D; d_out += TG) {
             float acc = 0.f;
             for (uint f = 0; f < FF; ++f) {

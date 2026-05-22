@@ -1,5 +1,4 @@
 // group_norm: normalize per-sample per-group over (CG, H, W) where CG = C/G.
-// One threadgroup per (n, g) block, reduces CG*H*W elements.
 #include <metal_stdlib>
 using namespace metal;
 

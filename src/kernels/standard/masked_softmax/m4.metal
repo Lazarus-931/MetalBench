@@ -1,4 +1,4 @@
-// masked_softmax: y = softmax(x + mask). Per-row. Assumes C == TG = 1024.
+// masked_softmax M4: y = softmax(x + mask). Per-row. C=TG=1024.
 #include <metal_stdlib>
 using namespace metal;
 
@@ -16,23 +16,21 @@ kernel void masked_softmax_f32(
     const uint lane = t & 31u;
     const uint sg = t >> 5;
 
-    threadgroup float tg_buf[32];
+    threadgroup float tg_max[32];
+    threadgroup float tg_sum[32];
 
     float val = X[off + t] + M[off + t];
 
-    // max
     float m = simd_max(val);
-    if (lane == 0) tg_buf[sg] = m;
+    if (lane == 0) tg_max[sg] = m;
     threadgroup_barrier(mem_flags::mem_threadgroup);
-    float rmax = simd_max(tg_buf[lane]);  // every simdgroup computes; we'll broadcast via tg_buf
+    float rmax = simd_max(tg_max[lane]);
 
-    // exp + sum (reuse tg_buf after another barrier)
-    float ev = fast::exp(val - rmax);
+    float ev = precise::exp(val - rmax);
     float s = simd_sum(ev);
-    threadgroup_barrier(mem_flags::mem_threadgroup);  // ensure tg_buf reads done
-    if (lane == 0) tg_buf[sg] = s;
+    if (lane == 0) tg_sum[sg] = s;
     threadgroup_barrier(mem_flags::mem_threadgroup);
-    float rsum = simd_sum(tg_buf[lane]);
+    float rsum = simd_sum(tg_sum[lane]);
 
     Y[off + t] = ev * (1.0f / rsum);
 }

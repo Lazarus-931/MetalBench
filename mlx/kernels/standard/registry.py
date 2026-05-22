@@ -7,6 +7,21 @@ sets (common / standard / full).
 
 REGISTRY = {}
 
+REGISTRY["matmul_gelu_softmax"] = dict(
+    metal_function="matmul_gelu_softmax_f32",
+    threadgroup=(256, 1, 1),
+    input_bindings=(0, 1),
+    input_shapes=[(256, 256), (256, 256)],
+    output_shape=(256, 256),
+    rtol=1e-3, atol=1e-3,
+    grid=(256, 256, 1),
+    scalars=[dict(binding=3, dtype="u32", value=256),
+             dict(binding=4, dtype="u32", value=256),
+             dict(binding=5, dtype="u32", value=256)],
+    flops=256 * (2*256*256 + 256*8 + 256*4),
+    bytes=4 * (256*256*2 + 256*256),
+)
+
 # rms_norm_linear: rms_norm(x) @ W (LLaMA/Mistral core block)
 REGISTRY["rms_norm_linear"] = dict(
     metal_function="rms_norm_linear_f32",
@@ -380,3 +395,21 @@ REGISTRY["scaled_dot_product"] = dict(
     flops=128 * 128 * 128 * 4 + 128 * 128 * 5,
     bytes=128 * 128 * 4 * 4,
 )
+
+REGISTRY["llama_attention"] = dict(
+    metal_function="llama_attention_f32",
+    threadgroup=(1024, 1, 1),
+    input_bindings=(0, 1, 2),
+    input_shapes=[(64, 128), (128, 128 + 2*2*32), (128, 128)],
+    output_shape=(64, 128),
+    rtol=1e-2, atol=1e-2,
+    grid=(1024, 1, 1),
+    scalars=[dict(binding=4, dtype="u32", value=64),
+             dict(binding=5, dtype="u32", value=128),
+             dict(binding=6, dtype="u32", value=4),
+             dict(binding=7, dtype="u32", value=2),
+             dict(binding=8, dtype="f32", value=10000.0)],
+    flops=64 * (128 * (128+128) * 2 + 64 * 128 * 2 + 128 * 128 * 2),
+    bytes=4 * (64*128*2 + 128*256 + 128*128),
+)
+

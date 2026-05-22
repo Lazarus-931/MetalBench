@@ -26,21 +26,13 @@ kernel void rms_norm_linear_f32(
     const uint c_row0 = tgid.y * BM, c_col0 = tgid.x * BN;
     const uint a_row = lid / 4, a_c4 = lid % 4, b_row = lid / 16, b_c4 = lid % 16;
 
-    // Pass 1: per-row sumsq. RMS norm is per-row of A; we need inv_rms for each
-    // row in this BM-tile (a_row in [0, BM)). Each row processed by 4 threads
-    // sharing a_row → use float4 accumulators across K, then simd-reduce within
-    // the row's 4 threads via lane mask.
     threadgroup float inv_rms_row[BM];
     {
         float acc = 0.0f;
-        // 4 threads per row (a_c4 = 0..3) each handle K/4 elements stride 4 floats.
         for (uint k = a_c4 * 4; k < K; k += 16) {
             float4 v = *reinterpret_cast<const device float4*>(&A[(c_row0 + a_row) * K + k]);
             acc += v.x * v.x + v.y * v.y + v.z * v.z + v.w * v.w;
         }
-        // Reduce across 4 threads with same a_row. They occupy 4 consecutive lanes
-        // within their simd? lid = a_row*4 + a_c4. With simd size 32, lanes 0..31
-        // hold a_row=0..7. So 4 threads with same a_row are adjacent.
         acc += simd_shuffle_xor(acc, 1);
         acc += simd_shuffle_xor(acc, 2);
         if (a_c4 == 0) inv_rms_row[a_row] = rsqrt(acc / float(K) + eps);
@@ -48,7 +40,6 @@ kernel void rms_norm_linear_f32(
     threadgroup_barrier(mem_flags::mem_threadgroup);
     float inv_rms = inv_rms_row[a_row];
 
-    // Pass 2: matmul with normalized A
     simdgroup_matrix<float, 8, 8> C_acc[MMA_M][MMA_N];
     #pragma unroll
     for (uint i = 0; i < MMA_M; ++i)
@@ -59,17 +50,16 @@ kernel void rms_norm_linear_f32(
     {
         float4 v = *reinterpret_cast<const device float4*>(&A[(c_row0 + a_row) * K + a_c4 * 4]);
         *reinterpret_cast<threadgroup float4*>(&As[0][a_row*LDA + a_c4*4]) = inv_rms * v;
-        // B is (N, K) effectively (we compute A @ B.T). Load Bs[k, n] = B[n, k].
-        // b_row in [0, BK), b_c4 in [0, BN/4) → 4 cols of N.
         {
-            uint k0 = b_row;
-            uint n0 = c_col0 + b_c4 * 4;
-            float4 v;
-            v.x = B[(n0 + 0) * K + k0];
-            v.y = B[(n0 + 1) * K + k0];
-            v.z = B[(n0 + 2) * K + k0];
-            v.w = B[(n0 + 3) * K + k0];
-            *reinterpret_cast<threadgroup float4*>(&Bs[0][b_row*LDB + b_c4*4]) = v;
+            uint n_local = lid / 4;
+            uint k_quad  = lid % 4;
+            uint k_start = k_quad * 4;
+            uint nn = c_col0 + n_local;
+            float4 v = *reinterpret_cast<const device float4*>(&B[nn * K + k_start]);
+            Bs[0][(k_start + 0) * LDB + n_local] = v.x;
+            Bs[0][(k_start + 1) * LDB + n_local] = v.y;
+            Bs[0][(k_start + 2) * LDB + n_local] = v.z;
+            Bs[0][(k_start + 3) * LDB + n_local] = v.w;
         }
     }
     threadgroup_barrier(mem_flags::mem_threadgroup);
@@ -80,14 +70,15 @@ kernel void rms_norm_linear_f32(
         float4 v = *reinterpret_cast<const device float4*>(&A[(c_row0 + a_row)*K + k0 + a_c4*4]);
         *reinterpret_cast<threadgroup float4*>(&As[next][a_row*LDA + a_c4*4]) = inv_rms * v;
         {
-            uint kk = k0 + b_row;
-            uint nn = c_col0 + b_c4 * 4;
-            float4 v;
-            v.x = B[(nn + 0) * K + kk];
-            v.y = B[(nn + 1) * K + kk];
-            v.z = B[(nn + 2) * K + kk];
-            v.w = B[(nn + 3) * K + kk];
-            *reinterpret_cast<threadgroup float4*>(&Bs[next][b_row*LDB + b_c4*4]) = v;
+            uint n_local = lid / 4;
+            uint k_quad  = lid % 4;
+            uint k_start = k_quad * 4;
+            uint nn = c_col0 + n_local;
+            float4 v = *reinterpret_cast<const device float4*>(&B[nn * K + k0 + k_start]);
+            Bs[next][(k_start + 0) * LDB + n_local] = v.x;
+            Bs[next][(k_start + 1) * LDB + n_local] = v.y;
+            Bs[next][(k_start + 2) * LDB + n_local] = v.z;
+            Bs[next][(k_start + 3) * LDB + n_local] = v.w;
         }
         #pragma unroll
         for (uint kc = 0; kc < BK; kc += 8) {

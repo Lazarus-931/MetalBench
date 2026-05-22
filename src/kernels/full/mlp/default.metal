@@ -1,5 +1,4 @@
 // mlp: x @ W1 → GELU → @ W2 → GELU → @ W3. Single TG, sequential layers via TG memory.
-// Shapes: x (16, 128), W1 (128, 512), W2 (512, 128), W3 (128, 10).
 #include <metal_stdlib>
 using namespace metal;
 

@@ -1,8 +1,4 @@
 // conv1d implicit im2col GEMM with simdgroup_matrix MMA.
-// Shapes: x (N=8,L=256,C=64) NLC, w (K=128,R=3,C=64), y (N,L2=254,K=128).
-// GEMM: M = N*L2 = 2032, N_g = K_out = 128, K_g = R*C = 192.
-// Tile BM=64, BN=64, BK=16. 1024 threads = 32 simdgroups (SIMDS_M=4, SIMDS_N=8).
-
 #include <metal_stdlib>
 #include <metal_simdgroup>
 #include <metal_simdgroup_matrix>
@@ -65,7 +61,6 @@ kernel void conv1d_f32(
             const uint rr = k0 / C;
             const uint c_base = k0 - rr * C;
 
-            // Load A: 64*16 = 1024 elems, 1/thread.
             {
                 const uint a_row = lid / 16u;
                 const uint a_col = lid % 16u;
@@ -79,7 +74,6 @@ kernel void conv1d_f32(
                 }
                 As[a_row * LDA + a_col] = v;
             }
-            // Load B: 16 rows × 64 cols = 1024 elems, coalesced along k dim.
             {
                 const uint b_col = lid / BK;
                 const uint b_row = lid % BK;
