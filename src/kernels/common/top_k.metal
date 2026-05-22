@@ -38,7 +38,7 @@ kernel void top_k_f32(
     if (simd_id == 0) {
         float local[16];
         for (uint i = 0; i < 16; ++i) {
-            local[i] = cand[i * 32 + simd_lane];
+            local[i] = cand[simd_lane * 16 + i];
         }
         for (uint out_i = 0; out_i < 16; ++out_i) {
             float lmax = local[0];
