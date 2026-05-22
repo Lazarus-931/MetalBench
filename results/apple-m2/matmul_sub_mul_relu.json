@@ -1,5 +1,5 @@
 {
-  "task": "resnet",
+  "task": "matmul_sub_mul_relu",
   "chip": {
     "type": "m2",
     "name": "Apple M2",
@@ -9,17 +9,17 @@
     "ram_bytes": 8589934592
   },
   "metal_device": "Apple M2",
-  "tg_static_mem_bytes": 31168,
-  "pso_max_threads_per_tg": 1024,
+  "tg_static_mem_bytes": 32768,
+  "pso_max_threads_per_tg": 832,
   "correct": true,
   "metrics": {
-    "speedup": 0.6875231599074257,
-    "gflops": 18.17161407079054,
-    "gbps": 0.058319631294869036,
-    "arith_intensity": 311.5865732914755,
-    "stability": 0.999665405774744
+    "speedup": 0.40968007959883934,
+    "gflops": 52.558041755493505,
+    "gbps": 1.224653400128004,
+    "arith_intensity": 42.916666666666664,
+    "stability": 0.9778220034960989
   },
-  "speedup": 0.6875231599074257,
+  "speedup": 0.40968007959883934,
   "kernel_timing": {
     "chip": {
       "type": "m2",
@@ -30,12 +30,12 @@
       "ram_bytes": 8589934592
     },
     "metal_device": "Apple M2",
-    "tg_static_mem_bytes": 31168,
-    "pso_max_threads_per_tg": 1024,
-    "min_ms": 0.554208,
-    "median_ms": 0.568042,
-    "mean_ms": 0.567852,
-    "iters": 100,
+    "tg_static_mem_bytes": 32768,
+    "pso_max_threads_per_tg": 832,
+    "min_ms": 0.599792,
+    "median_ms": 0.642167,
+    "mean_ms": 0.656732,
+    "iters": 50,
     "available_counter_sets": [
       "timestamp"
     ],
@@ -44,16 +44,16 @@
     }
   },
   "reference_timing": {
-    "min_ms": 0.3487910144031048,
-    "median_ms": 0.39054203080013394,
-    "mean_ms": 0.39120162022300065,
-    "iters": 100,
-    "peak_memory_bytes": 297512
+    "min_ms": 0.23945898283272982,
+    "median_ms": 0.26308302767574787,
+    "mean_ms": 0.2660282829310745,
+    "iters": 50,
+    "peak_memory_bytes": 2621480
   },
   "outputs": [
     {
       "ok": true,
-      "max_err": 0.2103271484375
+      "max_err": 6.866455078125e-05
     }
   ],
   "available_counter_sets": [
@@ -63,5 +63,5 @@
     "counters_available": false
   },
   "target": "speed",
-  "score": 0.6875231599074257
+  "score": 0.40968007959883934
 }

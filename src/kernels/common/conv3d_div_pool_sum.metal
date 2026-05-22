@@ -1,11 +1,20 @@
 // Single-threadgroup design (1024 threads = 32 simdgroups).
-// One TG iterates over all (n,d2,h2,w2) tiles. Per tile:
-//   - Cooperatively load patch (864 f32) into tg memory.
-//   - 32 simdgroups each compute dot products for 2 k's (k=sg and k=sg+32),
-//     32 lanes splitting the 864 elements (27 per lane), then simd_sum.
-//   - max over (s0, s1) within sg → per_sg_max
-//   - cross-simdgroup max reduce using tg mem + one simdgroup
-// All threads keep running_sum; finally thread 0 writes y[0].
+// Each SG handles k=sg and k=sg+32 over all (n,d2,h2,w2) tiles.
+// Per tile: each lane reads its 27 patch elements DIRECTLY from device (no tg load),
+// computes 27 FMAs against pre-cached weights, simd_sum, max(k0,k1), then
+// cross-SG max via tg mem.
+//
+// Key optimizations vs prior version:
+//   - Eliminated threadgroup patch staging (no patch[864] tg buffer, no patch-load barrier).
+//   - Each lane streams its strided slice of the input patch directly into regs.
+//   - Input layout: x[n,d,h,w,c], lane reads c=lane%32, j indexes (rd,rh,rw,cvec) in
+//     the order matching the prior patch[lane + 32*j] mapping:
+//       index i = lane + 32*j, with j∈[0,27)
+//       spatial = i>>3 = (lane>>3) + 4*j  (since lane = 32 = 8*4? no: i>>3 across i)
+//   - Let me redo: i = lane + 32*j. spatial = i / 8. cvec = i & 7. So as j increments,
+//     spatial advances by 4. We need per-lane: list of (rd,rh,rw,cvec) for j=0..26.
+//     Lane-dependent path — precompute per-lane (rd_base,rh_base,rw_base,cvec_base) and step.
+//   - Simpler: compute (rd,rh,rw,cvec) at runtime per j (cheap).
 #include <metal_stdlib>
 using namespace metal;
 
@@ -32,73 +41,104 @@ kernel void conv3d_div_pool_sum_f32(
     constexpr uint PATCH = Cc*Rc*Rc*Rc;      // 864
     constexpr uint TG = 1024;
     constexpr uint NSG = TG / 32;            // 32
-    constexpr uint PV4 = PATCH / 4;          // 216
 
-    threadgroup float patch[PATCH];
-    threadgroup float sgmax[NSG];
-    threadgroup float bcast;                  // broadcast slot for tile_max
+    constexpr uint TPB = 10;  // tiles per batch between barriers
+    threadgroup float sgmax_buf[2][TPB][NSG];
 
     const float final_scale = (1.0f / div_val) / float(VOL);
 
-    // Preload weight slices for k0=sg, k1=sg+32 into registers (27 each, strided).
+    // Preload weight slices for k0=sg, k1=sg+32 into registers.
     float wreg0[27];
     float wreg1[27];
     {
         const device float* wk0 = w + (uint)sg          * PATCH;
         const device float* wk1 = w + (uint)(sg + 32u)  * PATCH;
+        #pragma unroll
         for (uint j = 0; j < 27; ++j) {
-            wreg0[j] = wk0[lane + 32u*j];
-            wreg1[j] = wk1[lane + 32u*j];
+            uint off = lane + 32u*j;
+            wreg0[j] = wk0[off];
+            wreg1[j] = wk1[off];
         }
     }
 
-    device const float4* x4 = (device const float4*)x;
-    threadgroup float4* p4  = (threadgroup float4*)patch;
+    // Precompute per-lane (rd,rh,rw,cvec_off) for each j=0..26.
+    // i = lane + 32*j. spatial = i/8 (0..107). cvec = i & 7 (which float4 within C=32).
+    // spatial = rd*9 + rh*3 + rw. Each spatial position has 8 vec4s (32 floats / 4).
+    // But here we want a single float per lane (not vec4): the patch[i] is a SCALAR.
+    // patch was loaded as p4[i] = x4[x_idx + cvec], so patch float i corresponds to
+    // x[n,d2+rd,h2+rh,w2+rw, (cvec*4 + (i mod 4))]. Let me recompute carefully:
+    //   p4 indexed by i (vec4-index 0..215). For each i: spatial=i>>3, cvec=i&7.
+    //   p4[i] is a float4 of the 4 channel-elements (cvec*4 .. cvec*4+3) at that spatial.
+    // But we read patch[lane + 32*j] which is a SCALAR (float). lane+32*j is a float index 0..863.
+    // patch float index I corresponds to p4 vec4 index I>>2, lane within vec4 I&3.
+    // I = lane + 32*j. I>>2 = (lane>>2) + 8*j  (since 32/4=8). I&3 = lane & 3.
+    // So float at I lives in p4 vec4 index P = (lane>>2) + 8*j, scalar offset (lane & 3).
+    // p4[P] = x4[x_idx_base + cvec], where for P: spatial = P>>3 = ((lane>>2) + 8*j) >> 3.
+    //   For j in [0,27), P ranges (lane>>2) + 0,8,16,...,208. spatial = P>>3, cvec = P&7.
+    //   With lane>>2 in [0,8): P = (lane>>2) + 8j. P&7 = lane>>2. P>>3 = j.
+    //   So spatial = j, cvec = lane>>2. spatial = j means rd = j/9, rh = (j%9)/3, rw = j%3.
+    // Channel index within C=32: c = cvec*4 + (lane & 3) = (lane>>2)*4 + (lane & 3)
+    //                          = (lane & ~3) + (lane & 3) = lane.  (since lane<32)
+    // So patch[lane + 32*j] = x[n, d2 + rd(j), h2 + rh(j), w2 + rw(j), lane].
+    //
+    // BEAUTIFUL: each lane reads channel c=lane for j=0..26 at (rd,rh,rw)=(j/9,(j%9)/3,j%3).
 
     float running_sum = 0.0f;
+    uint pp = 0;
+
+    // Precompute the 27 (rd,rh,rw) offsets as flat x-index strides at lane channel.
+    // Stride per (rd,rh,rw): rd*Hc*Wc*Cc + rh*Wc*Cc + rw*Cc.
+    // We'll compute base = ((n*Dc+d2)*Hc+h2)*Wc+w2)*Cc + lane, then add stride[j].
+    uint strides[27];
+    #pragma unroll
+    for (uint j = 0; j < 27; ++j) {
+        uint rd = j / 9u;
+        uint rem = j - rd*9u;
+        uint rh = rem / 3u;
+        uint rw = rem - rh*3u;
+        strides[j] = (rd*Hc + rh)*Wc*Cc + rw*Cc;
+    }
 
     for (uint n = 0; n < Nc; ++n) {
         for (uint d2 = 0; d2 < D2; ++d2) {
         for (uint h2 = 0; h2 < H2; ++h2) {
-        for (uint w2 = 0; w2 < W2; ++w2) {
-            // Load patch: 216 vec4s, 1024 threads.
-            // Strided: thread tid fetches vec4 idx tid mod 216 if tid<216, else skip.
-            if (tid < PV4) {
-                uint i = tid;
-                uint spatial = i >> 3;
-                uint cvec    = i & 7;
-                uint rd = spatial / 9u;
-                uint rem= spatial - rd*9u;
-                uint rh = rem / 3u;
-                uint rw = rem - rh*3u;
-                uint x_idx = ((((n*Dc + d2 + rd)*Hc + h2 + rh)*Wc + w2 + rw)*Cc) >> 2;
-                p4[i] = x4[x_idx + cvec];
-            }
-            threadgroup_barrier(mem_flags::mem_threadgroup);
-
-            float s0 = 0.0f, s1 = 0.0f;
-            // 27 fmas
+        // W2=30, batches of TPB=3 → 10 batches.
+        for (uint w2b = 0; w2b < W2; w2b += TPB) {
+            float per_sg_max_t[TPB];
             #pragma unroll
-            for (uint j = 0; j < 27; ++j) {
-                float p = patch[lane + 32u*j];
-                s0 = fma(p, wreg0[j], s0);
-                s1 = fma(p, wreg1[j], s1);
+            for (uint t = 0; t < TPB; ++t) {
+                uint w2 = w2b + t;
+                uint base = ((((n*Dc + d2)*Hc + h2)*Wc + w2)*Cc) + lane;
+                float preg[27];
+                #pragma unroll
+                for (uint j = 0; j < 27; ++j) preg[j] = x[base + strides[j]];
+                float s0 = 0.0f, s1 = 0.0f;
+                #pragma unroll
+                for (uint j = 0; j < 27; ++j) {
+                    s0 = fma(preg[j], wreg0[j], s0);
+                    s1 = fma(preg[j], wreg1[j], s1);
+                }
+                s0 = simd_sum(s0);
+                s1 = simd_sum(s1);
+                per_sg_max_t[t] = max(s0, s1);
             }
-            s0 = simd_sum(s0);
-            s1 = simd_sum(s1);
-            float per_sg_max = max(s0, s1);
 
-            if (lane == 0) sgmax[sg] = per_sg_max;
+            if (lane == 0) {
+                #pragma unroll
+                for (uint t = 0; t < TPB; ++t)
+                    sgmax_buf[pp][t][sg] = per_sg_max_t[t];
+            }
             threadgroup_barrier(mem_flags::mem_threadgroup);
 
-            // Cross-sg max: have sg==0 do simd_max over the 32 values.
-            if (sg == 0) {
-                float v = sgmax[lane];
+            float acc = 0.0f;
+            #pragma unroll
+            for (uint t = 0; t < TPB; ++t) {
+                float v = sgmax_buf[pp][t][lane];
                 v = simd_max(v);
-                if (lane == 0) bcast = v;
+                acc += v;
             }
-            threadgroup_barrier(mem_flags::mem_threadgroup);
-            running_sum += bcast;
+            running_sum += acc;
+            pp ^= 1u;
         }}}
     }
 

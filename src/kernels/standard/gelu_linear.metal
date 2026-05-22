@@ -4,21 +4,19 @@
 #include <metal_simdgroup_matrix>
 using namespace metal;
 
-static inline float erf_approx(float z) {
-    float t = 1.0f / (1.0f + 0.3275911f * fabs(z));
-    float y = 1.0f - (((((1.061405429f * t - 1.453152027f) * t)
-              + 1.421413741f) * t - 0.284496736f) * t + 0.254829592f)
-              * t * exp(-z * z);
+// erf via 6th-order rational approximation (Abramowitz & Stegun 7.1.26), |err| < 1.5e-7.
+// Vectorized to evaluate 4 lanes in parallel — saves scalar tail vs the original loop.
+static inline float4 erf4(float4 z) {
+    float4 az = fabs(z);
+    float4 t  = 1.0f / (1.0f + 0.3275911f * az);
+    float4 p  = ((((1.061405429f * t - 1.453152027f) * t
+              + 1.421413741f) * t - 0.284496736f) * t + 0.254829592f) * t;
+    float4 y  = 1.0f - p * exp(-z * z);
     return copysign(y, z);
 }
 static inline float4 gelu4(float4 v) {
-    const float k = 0.70710678f; // 1/sqrt(2)
-    float4 r;
-    r.x = 0.5f * v.x * (1.0f + erf_approx(v.x * k));
-    r.y = 0.5f * v.y * (1.0f + erf_approx(v.y * k));
-    r.z = 0.5f * v.z * (1.0f + erf_approx(v.z * k));
-    r.w = 0.5f * v.w * (1.0f + erf_approx(v.w * k));
-    return r;
+    const float k = 0.70710678118654752f; // 1/sqrt(2)
+    return 0.5f * v * (1.0f + erf4(v * k));
 }
 
 constant constexpr uint BM  = 64, BN  = 64, BK  = 16;

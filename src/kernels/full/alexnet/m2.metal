@@ -7,6 +7,7 @@ constant constexpr uint A2H = 6,  A2W = 6,  A2C = 64;
 constant constexpr uint A3H = 2,  A3W = 2,  A3C = 128;
 constant constexpr uint FC1 = 256;
 
+[[max_total_threads_per_threadgroup(1024)]]
 kernel void alexnet_f32(
     device const float* x      [[buffer(0)]],
     device const float* Wc1    [[buffer(1)]],
@@ -97,6 +98,11 @@ kernel void alexnet_f32(
     }
     threadgroup_barrier(mem_flags::mem_threadgroup);
 
+    // conv3: 4 spatial × 8 c_eighth (lane covers 16 channels via lane and lane+16? No, just split c into 8 parts).
+    // Actually: 4 spatial × 8 c_eighth = 32 tasks, one per simdgroup; each lane covers 1 channel of 16-wide slice.
+    // But A3C=128 = 4 quarters of 32. Use 4 spatial × 8 (c_eighth) = 32 with each lane handling 1 of 16 c.
+    // Simpler: keep 16 task layout but spread to all 32 sgs by also splitting kh*kw work? Too complex.
+    // Stick with current: 16 sgs busy.
     if (sgid < 16u) {
         uint c_quarter = sgid & 3u;
         uint spatial   = sgid >> 2;
@@ -139,18 +145,27 @@ kernel void alexnet_f32(
     }
     threadgroup_barrier(mem_flags::mem_threadgroup);
 
+    // FC1 reads Wfc1 as half via reinterpret - if Wfc1 is stored as f32 we can't.
+    // Use vectorized float4 loads to reduce instruction count.
+    // lane = k_part*8 + o_off, 4 k_parts × 128 k, 8 lanes per k_part each handle 1 output.
+    // Group adjacent lanes (o_off 0..7) into a float4×2 load: lanes 0..3 = quad0, 4..7 = quad1.
     float fc1_partial = 0.0f;
-    uint fc1_o = sgid * 8u + (lane >> 2);
-    uint fc1_k_part = lane & 3u;
+    uint o_off = lane & 7u;
+    uint fc1_k_part = lane >> 3;
+    uint fc1_o = sgid * 8u + o_off;
     {
         uint k0 = fc1_k_part * 128u;
+        device const float* Wcol = Wfc1 + fc1_o;
+        float p0 = 0.0f, p1 = 0.0f;
         #pragma unroll 4
-        for (uint kk = 0; kk < 128u; ++kk) {
+        for (uint kk = 0; kk < 128u; kk += 2u) {
             uint k = k0 + kk;
-            fc1_partial = fma(a3[k], Wfc1[k * 256u + fc1_o], fc1_partial);
+            p0 = fma(a3[k],     Wcol[k * 256u],         p0);
+            p1 = fma(a3[k + 1], Wcol[(k + 1) * 256u],   p1);
         }
-        fc1_partial += simd_shuffle_xor(fc1_partial, 1u);
-        fc1_partial += simd_shuffle_xor(fc1_partial, 2u);
+        fc1_partial = p0 + p1;
+        fc1_partial += simd_shuffle_xor(fc1_partial, 8u);
+        fc1_partial += simd_shuffle_xor(fc1_partial, 16u);
     }
     if (fc1_k_part == 0) {
         fc1_buf[fc1_o] = fmax(fc1_partial, 0.0f);

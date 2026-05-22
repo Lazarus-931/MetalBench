@@ -17,45 +17,51 @@ kernel void top_k_f32(
     device const float* xr = x + row * C;
     device       float* yr = y + row * k;
 
+    // Each thread owns one column value.
     float v = (tid < C) ? xr[tid] : -INFINITY;
 
-    threadgroup float cand[512];
+    // Per-simd partial maxes and the winning simd id for each iteration.
+    // Layout: smax[0..31] = per-simd max; smax[32] = global max (broadcast);
+    // win_simd[0] = id of the simd that owns the global max (lowest-id wins ties).
+    threadgroup float smax[33];
+    threadgroup uint  win_simd[1];
 
-    float cur = v;
-    for (uint i = 0; i < 16; ++i) {
-        float mx = simd_max(cur);
-        bool is_winner = (cur == mx);
-        simd_vote vote = simd_ballot(is_winner);
-        ulong mask = (ulong)vote;
-        uint win_lane = (uint)ctz(mask);
-        if (simd_lane == win_lane) {
-            cand[simd_id * 16 + i] = cur;
-            cur = -INFINITY;
+    // 16 iterations. Each iter:
+    //  A) every simd reduces its 32 lanes -> 32 partials.
+    //  B) simd 0 reduces 32 partials -> global max + winning simd id.
+    //  C) only the winning simd masks one of its lanes that equals gmx.
+    for (uint out_i = 0; out_i < 16; ++out_i) {
+        // Stage A: per-simd max.
+        float sm = simd_max(v);
+        if (simd_lane == 0) {
+            smax[simd_id] = sm;
         }
-    }
-    threadgroup_barrier(mem_flags::mem_threadgroup);
+        threadgroup_barrier(mem_flags::mem_threadgroup);
 
-    if (simd_id == 0) {
-        float local[16];
-        for (uint i = 0; i < 16; ++i) {
-            local[i] = cand[i * 32 + simd_lane];
-        }
-        for (uint out_i = 0; out_i < 16; ++out_i) {
-            float lmax = local[0];
-            uint lmax_idx = 0;
-            for (uint i = 1; i < 16; ++i) {
-                if (local[i] > lmax) { lmax = local[i]; lmax_idx = i; }
-            }
-            float gmx = simd_max(lmax);
-            bool is_winner = (lmax == gmx);
-            simd_vote vote = simd_ballot(is_winner);
-            ulong mask = (ulong)vote;
-            uint win_lane = (uint)ctz(mask);
-            if (simd_lane == win_lane) {
-                local[lmax_idx] = -INFINITY;
-            }
+        // Stage B: simd 0 reduces 32 partials.
+        if (simd_id == 0) {
+            float p = smax[simd_lane];        // 32 lanes load 32 partials.
+            float g = simd_max(p);
+            // Find lowest-lane index with p==g.
+            simd_vote vv = simd_ballot(p == g);
+            uint w = (uint)ctz((ulong)vv);
             if (simd_lane == 0) {
-                yr[out_i] = gmx;
+                smax[32]    = g;
+                win_simd[0] = w;
+                yr[out_i]   = g;
+            }
+        }
+        threadgroup_barrier(mem_flags::mem_threadgroup);
+
+        float gmx     = smax[32];
+        uint  win_sid = win_simd[0];
+
+        // Stage C: only the winning simd masks exactly one lane equal to gmx.
+        if (simd_id == win_sid) {
+            simd_vote vote = simd_ballot(v == gmx);
+            uint wl = (uint)ctz((ulong)vote);
+            if (simd_lane == wl) {
+                v = -INFINITY;
             }
         }
     }

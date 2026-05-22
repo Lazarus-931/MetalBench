@@ -90,7 +90,7 @@
 | swiglu | ? | 0.074ms | 4.4× |
 | swish | elem | 0.020ms | 10.8× |
 | tanh | elem | 0.020ms | 13.4× |
-| top_k | ? | 0.485ms | 1.9× |
+| top_k | ? | 0.116ms | 8.5× |
 | transformer_block | ? | 0.707ms | 0.6× |
 | transpose_2d | ? | 0.225ms | 0.1× |
 | triplet_margin_loss | ? | 0.145ms | 6.8× |

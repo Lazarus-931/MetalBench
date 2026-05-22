@@ -4,7 +4,7 @@
 #include <metal_simdgroup_matrix>
 using namespace metal;
 
-constant constexpr uint BM = 64, BN = 128, BK = 16;
+constant constexpr uint BM = 64, BN = 128, BK = 32;
 constant constexpr uint SM = 16, SN = 16;
 constant constexpr uint SIMDS_M = BM / SM;   // 4
 constant constexpr uint SIMDS_N = BN / SN;   // 8
@@ -71,9 +71,11 @@ kernel void conv2d_mish_mish_f32(
         for (uint kt = 0; kt < num_k_tiles; ++kt) {
             const uint k0 = kt * BK;
 
-            {
-                const uint a_row = lid / BK;
-                const uint a_col = lid % BK;
+            #pragma unroll
+            for (uint pa = 0; pa < (BM * BK) / TG_THREADS; ++pa) {
+                const uint t = lid + pa * TG_THREADS;
+                const uint a_row = t / BK;
+                const uint a_col = t % BK;
                 const uint m_g = c_row0 + a_row;
                 const uint k_glob = k0 + a_col;
                 float v = 0.0f;
@@ -93,7 +95,7 @@ kernel void conv2d_mish_mish_f32(
                 As[a_row * LDA + a_col] = v;
             }
             #pragma unroll
-            for (uint p = 0; p < 2; ++p) {
+            for (uint p = 0; p < (BN * BK) / TG_THREADS; ++p) {
                 const uint t = lid + p * TG_THREADS;
                 const uint b_col = t / BK;
                 const uint b_row = t % BK;

@@ -1,4 +1,7 @@
 // rect_matmul: C = A @ B (MxK @ KxN -> MxN f32). M=1024 N=2048 K=4096.
+// M4 variant: 2x4 simdgroup grid (SM=32, SN=16), BK=16 double-buffered.
+// Prefetch next K-tile while MMA-ing current tile -> overlap DRAM with FMA.
+// 4 A-tiles x 2 B-tiles per kc step -> 6 simdgroup_loads / 8 MMAs.
 #include <metal_stdlib>
 #include <metal_simdgroup>
 #include <metal_simdgroup_matrix>
@@ -6,15 +9,16 @@ using namespace metal;
 
 constant constexpr uint BM  = 64;
 constant constexpr uint BN  = 64;
-constant constexpr uint BK  = 32;
-constant constexpr uint SM  = 8;
-constant constexpr uint SN  = 64;
-constant constexpr uint SIMDS_N = BN / SN;
-constant constexpr uint MMA_M   = SM / 8;
-constant constexpr uint MMA_N   = SN / 8;
+constant constexpr uint BK  = 16;
+constant constexpr uint SM  = 32;
+constant constexpr uint SN  = 16;
+constant constexpr uint SIMDS_M = BM / SM;     // 2
+constant constexpr uint SIMDS_N = BN / SN;     // 4
+constant constexpr uint MMA_M   = SM / 8;      // 4
+constant constexpr uint MMA_N   = SN / 8;      // 2
 constant constexpr uint PAD = 4;
-constant constexpr uint LDA = BK + PAD;   // 36
-constant constexpr uint LDB = BN + PAD;   // 68
+constant constexpr uint LDA = BK + PAD;        // 20
+constant constexpr uint LDB = BN + PAD;        // 68
 
 kernel void rect_matmul_f32(
     device const float* A   [[buffer(0)]],
@@ -27,18 +31,21 @@ kernel void rect_matmul_f32(
     uint  sgid              [[simdgroup_index_in_threadgroup]],
     uint  lid               [[thread_index_in_threadgroup]])
 {
-    threadgroup float As[BM * LDA];     // 64*36 = 2304 = 9216 B
-    threadgroup float Bs[BK * LDB];     // 32*68 = 2176 = 8704 B  total 17920
+    threadgroup float As[2][BM * LDA];   // 2 * 64*20 = 2560 floats = 10240 B
+    threadgroup float Bs[2][BK * LDB];   // 2 * 16*68 = 2176 floats =  8704 B   total ~19 KB
 
+    // 2x4 simdgroup layout: sm in {0,1}, sn in {0..3}.
     const uint sm = sgid / SIMDS_N;
     const uint sn = sgid % SIMDS_N;
     const uint c_row0 = tgid.y * BM;
     const uint c_col0 = tgid.x * BN;
 
-    const uint a_row0 = lid / 8;          // 0..31
-    const uint a_c4_0 = lid % 8;          // 0..7
-    const uint b_row0 = lid / 16;         // 0..15
-    const uint b_c4_0 = lid % 16;         // 0..15
+    // A tile (64 x 16) = 1024 floats = 256 float4 / 256 threads = 1 float4/thread.
+    const uint a_row = lid / 4;          // 0..63
+    const uint a_c4  = lid % 4;          // 0..3
+    // B tile (16 x 64) = 1024 floats = 256 float4 / 256 threads = 1 float4/thread.
+    const uint b_row = lid / 16;         // 0..15
+    const uint b_c4  = lid % 16;         // 0..15
 
     simdgroup_matrix<float, 8, 8> C_acc[MMA_M][MMA_N];
     #pragma unroll
@@ -47,39 +54,69 @@ kernel void rect_matmul_f32(
         for (uint j = 0; j < MMA_N; ++j)
             C_acc[i][j] = simdgroup_matrix<float, 8, 8>(0.0f);
 
-    const uint num_k_tiles = K / BK;     // 4096/32 = 128
+    // Hoisted base pointers / offsets for the load streams.
+    const device float* A_row_base = A + (c_row0 + a_row) * K + a_c4 * 4u;     // walks +BK each kt
+    const device float* B_row_base = B + b_row * N + c_col0 + b_c4 * 4u;       // walks +BK*N each kt
+    const uint as_off = a_row * LDA + a_c4 * 4u;
+    const uint bs_off = b_row * LDB + b_c4 * 4u;
 
-    for (uint kt = 0; kt < num_k_tiles; ++kt) {
-        const uint k0 = kt * BK;
+    // Prefetch tile 0 into buf 0.
+    {
+        *reinterpret_cast<threadgroup float4*>(&As[0][as_off]) =
+            *reinterpret_cast<const device float4*>(A_row_base);
+        *reinterpret_cast<threadgroup float4*>(&Bs[0][bs_off]) =
+            *reinterpret_cast<const device float4*>(B_row_base);
+    }
+    threadgroup_barrier(mem_flags::mem_threadgroup);
 
-        *reinterpret_cast<threadgroup float4*>(&As[a_row0 * LDA + a_c4_0 * 4]) =
-            *reinterpret_cast<const device float4*>(&A[(c_row0 + a_row0) * K + k0 + a_c4_0 * 4]);
-        *reinterpret_cast<threadgroup float4*>(&As[(a_row0 + 32) * LDA + a_c4_0 * 4]) =
-            *reinterpret_cast<const device float4*>(&A[(c_row0 + a_row0 + 32) * K + k0 + a_c4_0 * 4]);
+    const uint num_k_tiles = K / BK;     // 256
+    uint buf = 0;
 
-        *reinterpret_cast<threadgroup float4*>(&Bs[b_row0 * LDB + b_c4_0 * 4]) =
-            *reinterpret_cast<const device float4*>(&B[(k0 + b_row0) * N + c_col0 + b_c4_0 * 4]);
-        *reinterpret_cast<threadgroup float4*>(&Bs[(b_row0 + 16) * LDB + b_c4_0 * 4]) =
-            *reinterpret_cast<const device float4*>(&B[(k0 + b_row0 + 16) * N + c_col0 + b_c4_0 * 4]);
+    for (uint kt = 0; kt < num_k_tiles - 1u; ++kt) {
+        const uint next = 1u - buf;
 
-        threadgroup_barrier(mem_flags::mem_threadgroup);
+        // Prefetch next K-tile into 'next' buffer (overlaps with MMA below).
+        *reinterpret_cast<threadgroup float4*>(&As[next][as_off]) =
+            *reinterpret_cast<const device float4*>(A_row_base + (kt + 1u) * BK);
+        *reinterpret_cast<threadgroup float4*>(&Bs[next][bs_off]) =
+            *reinterpret_cast<const device float4*>(B_row_base + (kt + 1u) * BK * N);
 
+        // Compute on current 'buf'.
         #pragma unroll
-        for (uint kc = 0; kc < BK; kc += 8) {
+        for (uint kc = 0; kc < BK; kc += 8u) {
             simdgroup_matrix<float, 8, 8> A_blk[MMA_M], B_blk[MMA_N];
             #pragma unroll
             for (uint i = 0; i < MMA_M; ++i)
-                simdgroup_load(A_blk[i], &As[(sm * SM + i * 8) * LDA + kc], LDA);
+                simdgroup_load(A_blk[i], &As[buf][(sm * SM + i * 8u) * LDA + kc], LDA);
             #pragma unroll
             for (uint j = 0; j < MMA_N; ++j)
-                simdgroup_load(B_blk[j], &Bs[kc * LDB + sn * SN + j * 8], LDB);
+                simdgroup_load(B_blk[j], &Bs[buf][kc * LDB + sn * SN + j * 8u], LDB);
             #pragma unroll
             for (uint i = 0; i < MMA_M; ++i)
                 #pragma unroll
                 for (uint j = 0; j < MMA_N; ++j)
                     simdgroup_multiply_accumulate(C_acc[i][j], A_blk[i], B_blk[j], C_acc[i][j]);
         }
+
         threadgroup_barrier(mem_flags::mem_threadgroup);
+        buf = next;
+    }
+
+    // Final tile.
+    #pragma unroll
+    for (uint kc = 0; kc < BK; kc += 8u) {
+        simdgroup_matrix<float, 8, 8> A_blk[MMA_M], B_blk[MMA_N];
+        #pragma unroll
+        for (uint i = 0; i < MMA_M; ++i)
+            simdgroup_load(A_blk[i], &As[buf][(sm * SM + i * 8u) * LDA + kc], LDA);
+        #pragma unroll
+        for (uint j = 0; j < MMA_N; ++j)
+            simdgroup_load(B_blk[j], &Bs[buf][kc * LDB + sn * SN + j * 8u], LDB);
+        #pragma unroll
+        for (uint i = 0; i < MMA_M; ++i)
+            #pragma unroll
+            for (uint j = 0; j < MMA_N; ++j)
+                simdgroup_multiply_accumulate(C_acc[i][j], A_blk[i], B_blk[j], C_acc[i][j]);
     }
 
     #pragma unroll
@@ -87,6 +124,6 @@ kernel void rect_matmul_f32(
         #pragma unroll
         for (uint j = 0; j < MMA_N; ++j)
             simdgroup_store(C_acc[i][j],
-                            &C[(c_row0 + sm * SM + i * 8) * N + (c_col0 + sn * SN + j * 8)],
+                            &C[(c_row0 + sm * SM + i * 8u) * N + (c_col0 + sn * SN + j * 8u)],
                             N);
 }
