@@ -1,4 +1,5 @@
-// llama_decoder_layer (M4) — MMA-based redesign. Single TG of 1024 threads.
+// llama_decoder_layer (M2) — MMA, register-pressure-reduced for M2.
+// Streams A tiles in QKV instead of preloading all 16, so 1024 threads/TG fit.
 #include <metal_stdlib>
 #include <metal_simdgroup>
 #include <metal_simdgroup_matrix>
@@ -16,6 +17,7 @@ using namespace metal;
 #define QKV_W (D + 2*HKV*DH)   // 256
 #define HEAD_DIM_F4 (DH/4)     // 8
 
+[[max_total_threads_per_threadgroup(1024)]]
 kernel void llama_decoder_layer_f32(
     device const float* x       [[buffer(0)]],
     device const float* W_qkv   [[buffer(1)]],
@@ -62,54 +64,47 @@ kernel void llama_decoder_layer_f32(
         const uint sn = sgid & 3u;
         const uint row0 = sm * 8;
 
-        simdgroup_matrix<float, 8, 8> A0,A1,A2,A3,A4,A5,A6,A7,A8,A9,A10,A11,A12,A13,A14,A15;
-        simdgroup_load(A0,  &act[row0 * D + 0*8], D);
-        simdgroup_load(A1,  &act[row0 * D + 1*8], D);
-        simdgroup_load(A2,  &act[row0 * D + 2*8], D);
-        simdgroup_load(A3,  &act[row0 * D + 3*8], D);
-        simdgroup_load(A4,  &act[row0 * D + 4*8], D);
-        simdgroup_load(A5,  &act[row0 * D + 5*8], D);
-        simdgroup_load(A6,  &act[row0 * D + 6*8], D);
-        simdgroup_load(A7,  &act[row0 * D + 7*8], D);
-        simdgroup_load(A8,  &act[row0 * D + 8*8], D);
-        simdgroup_load(A9,  &act[row0 * D + 9*8], D);
-        simdgroup_load(A10, &act[row0 * D + 10*8], D);
-        simdgroup_load(A11, &act[row0 * D + 11*8], D);
-        simdgroup_load(A12, &act[row0 * D + 12*8], D);
-        simdgroup_load(A13, &act[row0 * D + 13*8], D);
-        simdgroup_load(A14, &act[row0 * D + 14*8], D);
-        simdgroup_load(A15, &act[row0 * D + 15*8], D);
+        // M2: stream A tiles to keep register pressure low (max ~128 regs/thread
+        // to keep occupancy at 1024 threads/TG). Each simdgroup handles 8 rows
+        // × 64 cols. We split into TWO half-passes of 4 output tiles each, so
+        // we hold 4 C accumulators + 4 B + 1 A at peak instead of 8+8+16.
 
-        threadgroup_barrier(mem_flags::mem_threadgroup);  // ensure all simdgroups finished reading act
-
-        // Compute full QKV: each simdgroup handles 8 rows x 64 cols = 8 tiles.
+        // Compute full QKV: each simdgroup handles 8 rows x 64 cols.
         // col block: sn=0..3 → output cols sn*64 .. sn*64+63 of QKV_W=256.
         // cols 0..127 = Q (write to y), cols 128..255 = K|V (write to act).
-        simdgroup_matrix<float, 8, 8> C0(0.0f), C1(0.0f), C2(0.0f), C3(0.0f),
-                                     C4(0.0f), C5(0.0f), C6(0.0f), C7(0.0f);
         const uint qcol0 = sn * 64;  // 0..192 step 64
-        #define DO_K(IDX) { \
-            simdgroup_matrix<float, 8, 8> B0, B1, B2, B3, B4, B5, B6, B7; \
-            simdgroup_load(B0, &W_qkv[(IDX*8) * QKV_W + qcol0 + 0],  QKV_W); \
-            simdgroup_load(B1, &W_qkv[(IDX*8) * QKV_W + qcol0 + 8],  QKV_W); \
-            simdgroup_load(B2, &W_qkv[(IDX*8) * QKV_W + qcol0 + 16], QKV_W); \
-            simdgroup_load(B3, &W_qkv[(IDX*8) * QKV_W + qcol0 + 24], QKV_W); \
-            simdgroup_load(B4, &W_qkv[(IDX*8) * QKV_W + qcol0 + 32], QKV_W); \
-            simdgroup_load(B5, &W_qkv[(IDX*8) * QKV_W + qcol0 + 40], QKV_W); \
-            simdgroup_load(B6, &W_qkv[(IDX*8) * QKV_W + qcol0 + 48], QKV_W); \
-            simdgroup_load(B7, &W_qkv[(IDX*8) * QKV_W + qcol0 + 56], QKV_W); \
-            simdgroup_multiply_accumulate(C0, A##IDX, B0, C0); \
-            simdgroup_multiply_accumulate(C1, A##IDX, B1, C1); \
-            simdgroup_multiply_accumulate(C2, A##IDX, B2, C2); \
-            simdgroup_multiply_accumulate(C3, A##IDX, B3, C3); \
-            simdgroup_multiply_accumulate(C4, A##IDX, B4, C4); \
-            simdgroup_multiply_accumulate(C5, A##IDX, B5, C5); \
-            simdgroup_multiply_accumulate(C6, A##IDX, B6, C6); \
-            simdgroup_multiply_accumulate(C7, A##IDX, B7, C7); \
+
+        // Stream A: hold 8 C accumulators + 4 B + 1 A at a time. Two passes
+        // covering cols 0..31 and 32..63 of the qcol0 output block.
+        simdgroup_matrix<float, 8, 8> C0(0.0f), C1(0.0f), C2(0.0f), C3(0.0f);
+        simdgroup_matrix<float, 8, 8> C4(0.0f), C5(0.0f), C6(0.0f), C7(0.0f);
+        for (uint kk = 0; kk < 16; ++kk) {
+            simdgroup_matrix<float, 8, 8> A_blk;
+            simdgroup_load(A_blk, &act[row0 * D + kk*8], D);
+            {
+                simdgroup_matrix<float, 8, 8> B0, B1, B2, B3;
+                simdgroup_load(B0, &W_qkv[(kk*8) * QKV_W + qcol0 + 0],  QKV_W);
+                simdgroup_load(B1, &W_qkv[(kk*8) * QKV_W + qcol0 + 8],  QKV_W);
+                simdgroup_load(B2, &W_qkv[(kk*8) * QKV_W + qcol0 + 16], QKV_W);
+                simdgroup_load(B3, &W_qkv[(kk*8) * QKV_W + qcol0 + 24], QKV_W);
+                simdgroup_multiply_accumulate(C0, A_blk, B0, C0);
+                simdgroup_multiply_accumulate(C1, A_blk, B1, C1);
+                simdgroup_multiply_accumulate(C2, A_blk, B2, C2);
+                simdgroup_multiply_accumulate(C3, A_blk, B3, C3);
+            }
+            {
+                simdgroup_matrix<float, 8, 8> B0, B1, B2, B3;
+                simdgroup_load(B0, &W_qkv[(kk*8) * QKV_W + qcol0 + 32], QKV_W);
+                simdgroup_load(B1, &W_qkv[(kk*8) * QKV_W + qcol0 + 40], QKV_W);
+                simdgroup_load(B2, &W_qkv[(kk*8) * QKV_W + qcol0 + 48], QKV_W);
+                simdgroup_load(B3, &W_qkv[(kk*8) * QKV_W + qcol0 + 56], QKV_W);
+                simdgroup_multiply_accumulate(C4, A_blk, B0, C4);
+                simdgroup_multiply_accumulate(C5, A_blk, B1, C5);
+                simdgroup_multiply_accumulate(C6, A_blk, B2, C6);
+                simdgroup_multiply_accumulate(C7, A_blk, B3, C7);
+            }
         }
-        DO_K(0) DO_K(1) DO_K(2) DO_K(3) DO_K(4) DO_K(5) DO_K(6) DO_K(7)
-        DO_K(8) DO_K(9) DO_K(10) DO_K(11) DO_K(12) DO_K(13) DO_K(14) DO_K(15)
-        #undef DO_K
+        threadgroup_barrier(mem_flags::mem_threadgroup);  // all readers done with x_norm in act
 
         // Lower 2 simdgroup_matrices (C0..C3, cols 0..31 of qcol0 block) and
         // upper 2 (C4..C7, cols 32..63). For sn=0,1 (qcol0=0,64) all 64 cols
@@ -137,7 +132,7 @@ kernel void llama_decoder_layer_f32(
             simdgroup_store(C7, &act[row0 * 128 + dst_col + 56], 128);
         }
     }
-    threadgroup_barrier(mem_flags::mem_threadgroup | mem_flags::mem_device);
+    threadgroup_barrier(mem_flags::mem_threadgroup);
 
     // RoPE K (in act) and Q (in y device buf). Each thread handles 2 pairs.
     // For K: HKV*DH/2 = 2*16 = 32 pairs per row → 32*S = 2048 pairs total.
@@ -183,7 +178,7 @@ kernel void llama_decoder_layer_f32(
             y[s * D + col1] = q0 * sv + q1 * cv;
         }
     }
-    threadgroup_barrier(mem_flags::mem_threadgroup | mem_flags::mem_device);
+    threadgroup_barrier(mem_flags::mem_threadgroup);
 
     #if 0
     {
@@ -204,59 +199,50 @@ kernel void llama_decoder_layer_f32(
         const uint head = sn_a;
         const uint kv = head / G;      // 0 or 1
 
-        // Q already computed via QKV MMA and RoPE'd into y. Load it.
-        float q_local[8];
+        // Process 8 rows sequentially to keep register pressure low for M2.
+        // Stash final attn_out per row into a local array, then write after barrier.
         const uint dh_lane = lid_in_sg;
+        const float inv_sqrt_dh = rsqrt(float(DH));
+        float attn_local[8];
+
         for (uint r = 0; r < 8; ++r) {
             uint sq = row0 + r;
-            q_local[r] = y[sq * D + head * DH + dh_lane];
-        }
+            float q_lane = y[sq * D + head * DH + dh_lane];
 
-        const float inv_sqrt_dh = rsqrt(float(DH));
-        float scores[8][2];  // 8 rows × 64 kt = too many. Store 64 kt: per lane, 64/32 = 2 kt values.
-
-        for (uint r = 0; r < 8; ++r) {
+            // Compute 64 scores for this row, distribute 2 per lane (lanes 0..31).
+            float s0 = -INFINITY, s1 = -INFINITY;
             for (uint kt = 0; kt < S; ++kt) {
                 float kv_val = act[kt * 128 + kv * DH + dh_lane];
-                float prod = q_local[r] * kv_val;
+                float prod = q_lane * kv_val;
                 float dot = simd_sum(prod) * inv_sqrt_dh;
                 if (lid_in_sg == (kt >> 1)) {
-                    scores[r][kt & 1u] = dot;
+                    if ((kt & 1u) == 0u) s0 = dot;
+                    else                  s1 = dot;
                 }
             }
-        }
 
-        for (uint r = 0; r < 8; ++r) {
-            float v0 = (lid_in_sg < 32u) ? scores[r][0] : -INFINITY;
-            float v1 = (lid_in_sg < 32u) ? scores[r][1] : -INFINITY;
-            float m = max(v0, v1);
+            float m = max(s0, s1);
             m = max(m, simd_shuffle_xor(m, 1));
             m = max(m, simd_shuffle_xor(m, 2));
             m = max(m, simd_shuffle_xor(m, 4));
             m = max(m, simd_shuffle_xor(m, 8));
             m = max(m, simd_shuffle_xor(m, 16));
-            float e0 = fast::exp(v0 - m);
-            float e1 = fast::exp(v1 - m);
-            float ssum = e0 + e1;
-            ssum = simd_sum(ssum);
+            float e0 = fast::exp(s0 - m);
+            float e1 = fast::exp(s1 - m);
+            float ssum = simd_sum(e0 + e1);
             float inv = 1.0f / ssum;
-            scores[r][0] = e0 * inv;
-            scores[r][1] = e1 * inv;
-        }
+            float p0 = e0 * inv;
+            float p1 = e1 * inv;
 
-        for (uint r = 0; r < 8; ++r) {
             float ao = 0.0f;
             for (uint kt = 0; kt < S; ++kt) {
-                float p = (kt & 1u) == 0u ? scores[r][0] : scores[r][1];
+                float p = (kt & 1u) == 0u ? p0 : p1;
                 float p_bcast = simd_shuffle(p, kt >> 1);
                 float vval = act[kt * 128 + 64u + kv * DH + dh_lane];
                 ao = fma(p_bcast, vval, ao);
             }
-            scores[r][0] = ao;   // hijack scores[] storage. lane lid_in_sg holds attn_out for dh=lane.
-            (void)dh_lane;
+            attn_local[r] = ao;
         }
-        float attn_local[8];
-        for (uint r = 0; r < 8; ++r) attn_local[r] = scores[r][0];
 
         threadgroup_barrier(mem_flags::mem_threadgroup);  // all simdgroups finish using K,V.
 
@@ -292,7 +278,7 @@ kernel void llama_decoder_layer_f32(
         simdgroup_store(C2, &y[row0 * D + col0 + 16], D);
         simdgroup_store(C3, &y[row0 * D + col0 + 24], D);
     }
-    threadgroup_barrier(mem_flags::mem_threadgroup | mem_flags::mem_device);
+    threadgroup_barrier(mem_flags::mem_threadgroup);
 
     float ffn_acc[8];
     {
@@ -364,7 +350,7 @@ kernel void llama_decoder_layer_f32(
             simdgroup_store(C2, &y[row0 * 128 + col0 + 16], 128);
             simdgroup_store(C3, &y[row0 * 128 + col0 + 24], 128);
         }
-        threadgroup_barrier(mem_flags::mem_threadgroup | mem_flags::mem_device);
+        threadgroup_barrier(mem_flags::mem_threadgroup);
 
         {
             for (uint i = 0; i < 4; ++i) {
@@ -377,7 +363,7 @@ kernel void llama_decoder_layer_f32(
                 y[s * 128 + fb] = sg * u;
             }
         }
-        threadgroup_barrier(mem_flags::mem_threadgroup | mem_flags::mem_device);
+        threadgroup_barrier(mem_flags::mem_threadgroup);
 
         {
             const uint row0 = row0_p;
@@ -396,7 +382,7 @@ kernel void llama_decoder_layer_f32(
                 simdgroup_multiply_accumulate(Cff3, A_blk, B3, Cff3);
             }
         }
-        threadgroup_barrier(mem_flags::mem_threadgroup | mem_flags::mem_device);
+        threadgroup_barrier(mem_flags::mem_threadgroup);
     }
 
     {
@@ -405,7 +391,7 @@ kernel void llama_decoder_layer_f32(
         simdgroup_store(Cff2, &y[row0_p * D + col0_p + 16], D);
         simdgroup_store(Cff3, &y[row0_p * D + col0_p + 24], D);
     }
-    threadgroup_barrier(mem_flags::mem_threadgroup | mem_flags::mem_device);
+    threadgroup_barrier(mem_flags::mem_threadgroup);
 
     {
         for (uint i = 0; i < 8; ++i) {

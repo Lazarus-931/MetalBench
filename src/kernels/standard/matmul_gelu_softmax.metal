@@ -113,7 +113,7 @@ kernel void matmul_gelu_softmax_f32(
             float z = s * k_inv_sqrt2;
             float at = 1.0f / (1.0f + 0.3275911f * fabs(z));
             float yp = 1.0f - (((((1.061405429f * at - 1.453152027f) * at)
-                          + 1.421413741f) * at - 0.284496736f) * at + 0.254829592f) * at * precise::exp(-z * z);
+                          + 1.421413741f) * at - 0.284496736f) * at + 0.254829592f) * at * fast::exp(-z * z);
             float erfz = copysign(yp, z);
             float gv = 0.5f * s * (1.0f + erfz);
             vals[t + u] = gv;
@@ -129,7 +129,7 @@ kernel void matmul_gelu_softmax_f32(
     float local_sum = 0.0f;
     #pragma unroll
     for (uint u = 0; u < 16; ++u) {
-        float e = precise::exp(vals[u] - rmax);
+        float e = fast::exp(vals[u] - rmax);
         vals[u] = e;
         local_sum += e;
     }

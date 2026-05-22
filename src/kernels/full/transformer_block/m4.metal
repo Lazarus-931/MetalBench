@@ -35,9 +35,6 @@ kernel void transformer_block_f32(
     threadgroup float* Vh = pool + 128 + 4096;
     threadgroup float* sc = pool + 128;
 
-    for (uint i = t; i < S*D; i += TG) y[i] = x[i];
-    threadgroup_barrier(mem_flags::mem_threadgroup | mem_flags::mem_device);
-
     {
         const uint row = t >> 4;
         const uint lane = t & 15;
@@ -106,7 +103,7 @@ kernel void transformer_block_f32(
             m = max(m, simd_shuffle_xor(m, 2));
             m = max(m, simd_shuffle_xor(m, 4));
             m = max(m, simd_shuffle_xor(m, 8));
-            v0 = exp(v0-m); v1 = exp(v1-m); v2 = exp(v2-m); v3 = exp(v3-m);
+            v0 = fast::exp(v0-m); v1 = fast::exp(v1-m); v2 = fast::exp(v2-m); v3 = fast::exp(v3-m);
             float ss = v0+v1+v2+v3;
             ss += simd_shuffle_xor(ss, 1);
             ss += simd_shuffle_xor(ss, 2);
@@ -139,7 +136,8 @@ kernel void transformer_block_f32(
             for (uint dh = 0; dh < DH; ++dh) {
                 acc += sc[sr*DH + dh] * W_o[(h*DH + dh)*D + dout];
             }
-            y[sr*D + dout] += acc;
+            if (h == 0) y[sr*D + dout] = x[sr*D + dout] + acc;
+            else        y[sr*D + dout] += acc;
         }
         threadgroup_barrier(mem_flags::mem_threadgroup | mem_flags::mem_device);
     }

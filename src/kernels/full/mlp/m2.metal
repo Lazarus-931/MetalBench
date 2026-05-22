@@ -103,10 +103,10 @@ kernel void mlp_f32(
                 simdgroup_multiply_accumulate(H2, A, B, H2);
             }
         }
-        // No barrier needed before next chunk's layer-1 store: each chunk reuses
-        // h1c, but we need the GELU/MMA to be done first. The MMA reads h1c, and
-        // the next iter writes h1c -> need a barrier.
-        threadgroup_barrier(mem_flags::mem_threadgroup);
+        // Only need a barrier before next chunk overwrites h1c. Skip on last iter.
+        if (ch + 1 < N_CHUNKS) {
+            threadgroup_barrier(mem_flags::mem_threadgroup);
+        }
     }
 
     // ---- Store H2 to threadgroup memory and apply GELU.
@@ -118,17 +118,35 @@ kernel void mlp_f32(
     h2[tid + 1024] = gelu_exact(h2[tid + 1024]);
     threadgroup_barrier(mem_flags::mem_threadgroup);
 
-    // ---- Layer 3: (16 x 128) @ (128 x 10) = (16 x 10) = 160 elements. Scalar.
-    if (tid < M_ * DO) {
-        uint r = tid / DO;
-        uint c = tid % DO;
-        float s = 0.0f;
-        for (uint k = 0; k < D1; k += 4) {
-            s += h2[r * D1 + k    ] * W3[(k    ) * DO + c];
-            s += h2[r * D1 + k + 1] * W3[(k + 1) * DO + c];
-            s += h2[r * D1 + k + 2] * W3[(k + 2) * DO + c];
-            s += h2[r * D1 + k + 3] * W3[(k + 3) * DO + c];
+    // ---- Layer 3: (16 x 128) @ (128 x 10) = (16 x 10). Parallel reduce: 1024 threads
+    //   = 160 outputs * 6.4 partials. Use simdgroup_sum over 16-thread K-shards.
+    //   Partition each (r,c) across 8 lanes -> 1280 lanes used. tid -> (r,c,k_shard).
+    // Simpler: each of 160 outputs gets 4 threads accumulating D1/4=32 elements, sum.
+    // Layer 3: 160 outputs * 4 K-shards = 640 lanes. Each shard does 32 elems.
+    {
+        if (tid < M_ * DO * 4) {
+            uint k_shard = tid & 3u;
+            uint idx = tid >> 2;
+            uint r = idx / DO;
+            uint c = idx % DO;
+            uint k0 = k_shard * 32;
+            float s = 0.0f;
+            for (uint k = k0; k < k0 + 32; k += 4) {
+                s += h2[r * D1 + k    ] * W3[(k    ) * DO + c];
+                s += h2[r * D1 + k + 1] * W3[(k + 1) * DO + c];
+                s += h2[r * D1 + k + 2] * W3[(k + 2) * DO + c];
+                s += h2[r * D1 + k + 3] * W3[(k + 3) * DO + c];
+            }
+            threadgroup float* scratch = h1c;
+            scratch[idx * 4 + k_shard] = s;
         }
-        y[r * DO + c] = s;
+        threadgroup_barrier(mem_flags::mem_threadgroup);
+        if (tid < M_ * DO) {
+            threadgroup float* scratch = h1c;
+            float s = scratch[tid * 4] + scratch[tid * 4 + 1] + scratch[tid * 4 + 2] + scratch[tid * 4 + 3];
+            uint r = tid / DO;
+            uint c = tid % DO;
+            y[r * DO + c] = s;
+        }
     }
 }
