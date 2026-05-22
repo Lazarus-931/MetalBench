@@ -2,6 +2,7 @@
 
 | kernel | time (ms) | speedup | GFLOPS | GB/s |
 |---|---|---|---|---|
+| alexnet | 0.149 | 56.67× | 74 | 5 |
 | avg_pool2d | 0.110 | 9.33× | 23 | 93 |
 | avg_pool3d | 0.193 | 5.42× | 24 | 97 |
 | batch_mm | 2.393 | 0.70× | 1785 | 48 |
@@ -11,6 +12,7 @@
 | cumsum_reverse | 0.069 | 5.52× | 24 | 99 |
 | dot_product | 0.007 | 25.11× | 4 | 17 |
 | frobenius_norm | 0.067 | 4.25× | 30 | 60 |
+| fused_qkv_projection | 0.034 | 26.67× | 662 | 19 |
 | gelu | 0.014 | 13.17× | 92 | 148 |
 | gelu_linear | 0.827 | 2.52× | 2567 | 15 |
 | hardsigmoid | 0.014 | 17.81× | 56 | 151 |
@@ -19,7 +21,7 @@
 | l2_norm | 0.040 | 8.91× | 77 | 104 |
 | layer_norm | 0.058 | 118.70× | 78 | 125 |
 | leaky_relu | 0.014 | 18.36× | 56 | 149 |
-| llama_decoder_layer | 0.671 | 1.88× | 18 | 0 |
+| llama_decoder_layer | 0.648 | 1.62× | 16 | 0 |
 | logsigmoid | 0.014 | 15.50× | 90 | 145 |
 | manhattan_similarity | 0.079 | 6.54× | 25 | 101 |
 | matrix_add | 0.117 | 3.10× | 8 | 104 |
@@ -30,6 +32,7 @@
 | outer_product | 0.151 | 1.89× | 13 | 54 |
 | rect_mm | 6.232 | 0.89× | 2720 | 9 |
 | relu | 0.014 | 15.63× | 18 | 151 |
+| resnet | 0.184 | 38.79× | 49 | 0 |
 | rms_norm | 0.083 | 3.64× | 61 | 98 |
 | rms_norm_linear | 0.856 | 1.47× | 2370 | 13 |
 | selu | 0.014 | 13.60× | 93 | 149 |
@@ -42,5 +45,5 @@
 | transformer_block | 0.343 | 21.89× | 48 | 1 |
 | transpose_2d | 0.168 | 0.11× | 0 | 94 |
 
-_39 kernels._
+_42 kernels._
 

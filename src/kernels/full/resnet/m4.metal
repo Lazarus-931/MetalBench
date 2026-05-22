@@ -91,8 +91,13 @@ kernel void resnet_f32(
             for (int kw = -1; kw <= 1; ++kw) {
                 threadgroup const half* h0p = &h0_rows[slot_h * WP * C1 + (w_ + 1u + uint(kw)) * C1];
                 threadgroup const half* wp  = &W_a_tg[((c * 3u + uint(kh+1)) * 3u + uint(kw+1)) * C1];
-                for (uint ci = 0; ci < C1; ++ci) {
-                    s += float(h0p[ci]) * float(wp[ci]);
+                threadgroup const half2* h0p2 = (threadgroup const half2*)h0p;
+                threadgroup const half2* wp2  = (threadgroup const half2*)wp;
+                for (uint ci = 0; ci < C1/2; ++ci) {
+                    float2 a = float2(h0p2[ci]);
+                    float2 b = float2(wp2[ci]);
+                    s = fma(a.x, b.x, s);
+                    s = fma(a.y, b.y, s);
                 }
             }
         }
@@ -113,8 +118,13 @@ kernel void resnet_f32(
                 for (int kw = -1; kw <= 1; ++kw) {
                     threadgroup const half* yap = &ya_rows[slot_h * WP * C1 + (w_ + 1u + uint(kw)) * C1];
                     threadgroup const half* wp  = &W_b_tg[((c * 3u + uint(kh+1)) * 3u + uint(kw+1)) * C1];
-                    for (uint ci = 0; ci < C1; ++ci) {
-                        s += float(yap[ci]) * float(wp[ci]);
+                    threadgroup const half2* yap2 = (threadgroup const half2*)yap;
+                    threadgroup const half2* wp2  = (threadgroup const half2*)wp;
+                    for (uint ci = 0; ci < C1/2; ++ci) {
+                        float2 a = float2(yap2[ci]);
+                        float2 b = float2(wp2[ci]);
+                        s = fma(a.x, b.x, s);
+                        s = fma(a.y, b.y, s);
                     }
                 }
             }
@@ -135,8 +145,13 @@ kernel void resnet_f32(
                     for (int kw = -1; kw <= 1; ++kw) {
                         threadgroup const half* h0p = &h0_rows[slot_h * WP * C1 + (w_ + 1u + uint(kw)) * C1];
                         threadgroup const half* wp  = &W_a_tg[((c * 3u + uint(kh+1)) * 3u + uint(kw+1)) * C1];
-                        for (uint ci = 0; ci < C1; ++ci) {
-                            s += float(h0p[ci]) * float(wp[ci]);
+                        threadgroup const half2* h0p2 = (threadgroup const half2*)h0p;
+                        threadgroup const half2* wp2  = (threadgroup const half2*)wp;
+                        for (uint ci = 0; ci < C1/2; ++ci) {
+                            float2 a = float2(h0p2[ci]);
+                            float2 b = float2(wp2[ci]);
+                            s = fma(a.x, b.x, s);
+                            s = fma(a.y, b.y, s);
                         }
                     }
                 }
