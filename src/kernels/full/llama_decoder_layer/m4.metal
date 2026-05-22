@@ -335,6 +335,28 @@ kernel void llama_decoder_layer_f32(
     const uint row0_p = sm_p * 8;
     const uint col0_p = sn_p * 32;
 
+    // Preload A (normalized input, 8 rows × 128 cols = 16 tiles) once for reuse
+    // across all 4 W_gu chunks.
+    simdgroup_matrix<float, 8, 8> Apre0, Apre1, Apre2, Apre3, Apre4, Apre5, Apre6,
+                                  Apre7, Apre8, Apre9, Apre10, Apre11, Apre12,
+                                  Apre13, Apre14, Apre15;
+    simdgroup_load(Apre0,  &act[row0_p * D + 0*8],  D);
+    simdgroup_load(Apre1,  &act[row0_p * D + 1*8],  D);
+    simdgroup_load(Apre2,  &act[row0_p * D + 2*8],  D);
+    simdgroup_load(Apre3,  &act[row0_p * D + 3*8],  D);
+    simdgroup_load(Apre4,  &act[row0_p * D + 4*8],  D);
+    simdgroup_load(Apre5,  &act[row0_p * D + 5*8],  D);
+    simdgroup_load(Apre6,  &act[row0_p * D + 6*8],  D);
+    simdgroup_load(Apre7,  &act[row0_p * D + 7*8],  D);
+    simdgroup_load(Apre8,  &act[row0_p * D + 8*8],  D);
+    simdgroup_load(Apre9,  &act[row0_p * D + 9*8],  D);
+    simdgroup_load(Apre10, &act[row0_p * D + 10*8], D);
+    simdgroup_load(Apre11, &act[row0_p * D + 11*8], D);
+    simdgroup_load(Apre12, &act[row0_p * D + 12*8], D);
+    simdgroup_load(Apre13, &act[row0_p * D + 13*8], D);
+    simdgroup_load(Apre14, &act[row0_p * D + 14*8], D);
+    simdgroup_load(Apre15, &act[row0_p * D + 15*8], D);
+
     for (uint cc = 0; cc < NCHUNKS; ++cc) {
         const uint fc = cc * FFC;
 
@@ -346,19 +368,20 @@ kernel void llama_decoder_layer_f32(
             if (col0 < 64u) w_col_base = fc + col0;
             else            w_col_base = FF + fc + (col0 - 64u);
 
-            for (uint kc = 0; kc < D; kc += 8) {
-                simdgroup_matrix<float, 8, 8> A_blk;
-                simdgroup_matrix<float, 8, 8> B0, B1, B2, B3;
-                simdgroup_load(A_blk, &act[row0 * D + kc], D);
-                simdgroup_load(B0, &W_gu[kc * TFF + w_col_base + 0],  TFF);
-                simdgroup_load(B1, &W_gu[kc * TFF + w_col_base + 8],  TFF);
-                simdgroup_load(B2, &W_gu[kc * TFF + w_col_base + 16], TFF);
-                simdgroup_load(B3, &W_gu[kc * TFF + w_col_base + 24], TFF);
-                simdgroup_multiply_accumulate(C0, A_blk, B0, C0);
-                simdgroup_multiply_accumulate(C1, A_blk, B1, C1);
-                simdgroup_multiply_accumulate(C2, A_blk, B2, C2);
-                simdgroup_multiply_accumulate(C3, A_blk, B3, C3);
+            #define WGU_K(IDX) { \
+                simdgroup_matrix<float, 8, 8> B0, B1, B2, B3; \
+                simdgroup_load(B0, &W_gu[(IDX*8) * TFF + w_col_base + 0],  TFF); \
+                simdgroup_load(B1, &W_gu[(IDX*8) * TFF + w_col_base + 8],  TFF); \
+                simdgroup_load(B2, &W_gu[(IDX*8) * TFF + w_col_base + 16], TFF); \
+                simdgroup_load(B3, &W_gu[(IDX*8) * TFF + w_col_base + 24], TFF); \
+                simdgroup_multiply_accumulate(C0, Apre##IDX, B0, C0); \
+                simdgroup_multiply_accumulate(C1, Apre##IDX, B1, C1); \
+                simdgroup_multiply_accumulate(C2, Apre##IDX, B2, C2); \
+                simdgroup_multiply_accumulate(C3, Apre##IDX, B3, C3); \
             }
+            WGU_K(0) WGU_K(1) WGU_K(2) WGU_K(3) WGU_K(4) WGU_K(5) WGU_K(6) WGU_K(7)
+            WGU_K(8) WGU_K(9) WGU_K(10) WGU_K(11) WGU_K(12) WGU_K(13) WGU_K(14) WGU_K(15)
+            #undef WGU_K
             simdgroup_store(C0, &y[row0 * 128 + col0 + 0],  128);
             simdgroup_store(C1, &y[row0 * 128 + col0 + 8],  128);
             simdgroup_store(C2, &y[row0 * 128 + col0 + 16], 128);

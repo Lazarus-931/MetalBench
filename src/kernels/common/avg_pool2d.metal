@@ -1,4 +1,5 @@
 // avg_pool2d: NHWC. K=2, stride=2. float4 along C dim.
+// total4 == 2 * GRID; each thread emits 2 outputs.
 #include <metal_stdlib>
 using namespace metal;
 
@@ -22,12 +23,17 @@ kernel void avg_pool2d_f32(
     const uint sW_in = C;
     const uint sH_in = W * C;
     const uint sN_in = H * W * C;
+    const uint GRID = 64u * 1024u;
 
-    for (uint idx = tid; idx < total4; idx += 64 * 1024) {
+    uint idx0 = tid;
+    uint idx1 = tid + GRID;
+
+    for (uint k = 0; k < 2; ++k) {
+        uint idx = (k == 0) ? idx0 : idx1;
         uint q = idx;
-        uint c4 = q % C4;      q /= C4;
-        uint w2 = q % W2;      q /= W2;
-        uint h2 = q % H2;      uint n = q / H2;
+        uint c4 = q & (C4 - 1);  q /= C4;
+        uint w2 = q % W2;        q /= W2;
+        uint h2 = q % H2;        uint n = q / H2;
 
         uint base = n * sN_in + (h2 * stride) * sH_in + (w2 * stride) * sW_in + (c4 << 2);
 

@@ -1,7 +1,7 @@
 // fused_add_rms_norm: y = (x+r) * rsqrt(mean((x+r)^2) + eps). Per-row.
 // D=1024, TG=1024. Single-simdgroup-per-row: only sg 0 (32 lanes) works,
-// each lane handles 8 float4 = 32 elements. No threadgroup memory, no
-// barriers; just a single simd_sum() for the reduction.
+// each lane handles 8 float4 = 32 elements. Two-pass (recompute) keeps
+// register pressure low so the 1024-thread TG dispatches.
 #include <metal_stdlib>
 using namespace metal;
 
@@ -23,13 +23,11 @@ kernel void fused_add_rms_norm_f32(
     device const float4* rr = (device const float4*)(R + row * D);
     device       float4* yr = (device       float4*)(Y + row * D);
 
-    float4 cache[8];
     float sumsq = 0.0f;
     #pragma unroll
     for (uint k = 0; k < 8; ++k) {
         uint i = k * 32u + t;
         float4 v = xr[i] + rr[i];
-        cache[k] = v;
         sumsq += dot(v, v);
     }
 
@@ -39,6 +37,7 @@ kernel void fused_add_rms_norm_f32(
     #pragma unroll
     for (uint k = 0; k < 8; ++k) {
         uint i = k * 32u + t;
-        yr[i] = cache[k] * inv;
+        float4 v = xr[i] + rr[i];
+        yr[i] = v * inv;
     }
 }

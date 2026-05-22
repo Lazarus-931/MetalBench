@@ -1,13 +1,12 @@
 // mlp on M4: simdgroup_matrix MMA, fused layer1->GELU->layer2 across D2 chunks.
 // Shapes: x(16,128) @ W1(128,512) -> GELU -> @ W2(512,128) -> GELU -> @ W3(128,10) -> y(16,10)
 //
-// Strategy:
-//   - Single pass over the M=16 batch (no row tiling).
-//   - Don't materialize the full 16x512 h1; instead chunk D2 into CHUNK=128 columns.
-//   - For each chunk: compute h1_chunk = GELU(xs @ W1[:, chunk]), then accumulate
-//     h2 += h1_chunk @ W2[chunk_rows, :].
-//   - 1 threadgroup, 1024 threads = 32 simdgroups, each owns one 8x8 output tile of
-//     a 16x128 grid (2 row tiles x 16 col tiles = 32 tiles).
+// v3 wins over v1:
+//   - Per-chunk GELU on layer1 output applied via thread_elements() in registers
+//     (eliminates a 2048-thread SMEM GELU pass + barrier per chunk).
+//   - GELU on H2 applied via thread_elements() in registers (no SMEM round-trip
+//     before layer 3).
+//   - Layer 3 kept as scalar (faster than MMA staging overhead at this size).
 #include <metal_stdlib>
 #include <metal_simdgroup_matrix>
 using namespace metal;
@@ -22,18 +21,12 @@ static inline float gelu_exact(float v) {
     return 0.5f * v * (1.0f + sign * y);
 }
 
-constant constexpr uint M_   = 16;
-constant constexpr uint D1   = 128;
-constant constexpr uint D2   = 512;
-constant constexpr uint DO   = 10;
-constant constexpr uint CHUNK = 128;       // columns of D2 processed per iteration
+constant constexpr uint M_    = 16;
+constant constexpr uint D1    = 128;
+constant constexpr uint D2    = 512;
+constant constexpr uint DO    = 10;
+constant constexpr uint CHUNK = 128;
 constant constexpr uint N_CHUNKS = D2 / CHUNK;  // 4
-
-// TG memory:
-//   xs:       M*D1     = 16*128 = 2048 floats =  8KB
-//   h1_chunk: M*CHUNK  = 16*128 = 2048 floats =  8KB
-//   h2:       M*D1     = 16*128 = 2048 floats =  8KB
-// Total: 24KB.
 
 kernel void mlp_f32(
     device const float* x   [[buffer(0)]],
@@ -52,29 +45,21 @@ kernel void mlp_f32(
     threadgroup float h1c[M_ * CHUNK];
     threadgroup float h2[M_ * D1];
 
-    // Each simdgroup owns one 8x8 output tile of a 16x128 grid:
-    //   row_tile in {0,1} (sgid >> 4), col_tile in {0..15} (sgid & 15).
-    const uint row_tile = sgid >> 4;       // 0 or 1
-    const uint col_tile = sgid & 15u;      // 0..15
+    const uint row_tile = sgid >> 4;
+    const uint col_tile = sgid & 15u;
     const uint row0 = row_tile * 8;
     const uint col0 = col_tile * 8;
 
-    // ---- Load xs (16*128 = 2048 floats); 1024 threads -> 2 per thread.
     xs[tid]        = x[tid];
     xs[tid + 1024] = x[tid + 1024];
-    // ---- Zero h2.
-    h2[tid]        = 0.0f;
-    h2[tid + 1024] = 0.0f;
     threadgroup_barrier(mem_flags::mem_threadgroup);
 
-    // h2 accumulator for this SG's tile, kept in registers across chunks.
     simdgroup_matrix<float, 8, 8> H2(0.0f);
 
     for (uint ch = 0; ch < N_CHUNKS; ++ch) {
-        const uint chunk_col_base = ch * CHUNK;  // W1 column offset, W2 row offset
+        const uint chunk_col_base = ch * CHUNK;
 
-        // ---- Layer 1 (chunked along D2): h1c_tile = xs @ W1[:, chunk_col_base + col0]
-        //   xs is (16 x D1), W1 slice is (D1 x CHUNK). Each SG produces an 8x8 tile.
+        // ---- Layer 1 chunk: C = xs @ W1[:, chunk_col_base + col0], then GELU in regs.
         {
             simdgroup_matrix<float, 8, 8> C(0.0f);
             for (uint k0 = 0; k0 < D1; k0 += 8) {
@@ -83,18 +68,15 @@ kernel void mlp_f32(
                 simdgroup_load(B, W1 + k0 * D2 + chunk_col_base + col0,             D2, ulong2(0, 0));
                 simdgroup_multiply_accumulate(C, A, B, C);
             }
-            // Store directly into h1c (16 x CHUNK).
+            thread auto& ce = C.thread_elements();
+            constexpr uint NE = sizeof(ce) / sizeof(float);
+            thread float* cf = (thread float*)&ce;
+            for (uint i = 0; i < NE; ++i) cf[i] = gelu_exact(cf[i]);
             simdgroup_store(C, h1c + row0 * CHUNK + col0, CHUNK, ulong2(0, 0));
         }
         threadgroup_barrier(mem_flags::mem_threadgroup);
 
-        // ---- GELU on h1c (16*CHUNK = 2048 floats); 2 per thread.
-        h1c[tid]        = gelu_exact(h1c[tid]);
-        h1c[tid + 1024] = gelu_exact(h1c[tid + 1024]);
-        threadgroup_barrier(mem_flags::mem_threadgroup);
-
-        // ---- Accumulate into H2: H2 += h1c @ W2[chunk_rows, :]
-        // h1c is (16 x CHUNK), W2 slice is (CHUNK x D1). Each SG owns an 8x8 of (16 x D1).
+        // ---- H2 += h1c @ W2[chunk_rows, :]
         {
             for (uint k0 = 0; k0 < CHUNK; k0 += 8) {
                 simdgroup_matrix<float, 8, 8> A, B;
@@ -103,22 +85,20 @@ kernel void mlp_f32(
                 simdgroup_multiply_accumulate(H2, A, B, H2);
             }
         }
-        // No barrier needed before next chunk's layer-1 store: each chunk reuses
-        // h1c, but we need the GELU/MMA to be done first. The MMA reads h1c, and
-        // the next iter writes h1c -> need a barrier.
         threadgroup_barrier(mem_flags::mem_threadgroup);
     }
 
-    // ---- Store H2 to threadgroup memory and apply GELU.
+    // ---- GELU on H2 in registers, then store to h2 SMEM.
+    {
+        thread auto& he = H2.thread_elements();
+        constexpr uint NE = sizeof(he) / sizeof(float);
+        thread float* hf = (thread float*)&he;
+        for (uint i = 0; i < NE; ++i) hf[i] = gelu_exact(hf[i]);
+    }
     simdgroup_store(H2, h2 + row0 * D1 + col0, D1, ulong2(0, 0));
     threadgroup_barrier(mem_flags::mem_threadgroup);
 
-    // GELU on h2 (16*128 = 2048; 2 per thread)
-    h2[tid]        = gelu_exact(h2[tid]);
-    h2[tid + 1024] = gelu_exact(h2[tid + 1024]);
-    threadgroup_barrier(mem_flags::mem_threadgroup);
-
-    // ---- Layer 3: (16 x 128) @ (128 x 10) = (16 x 10) = 160 elements. Scalar.
+    // ---- Layer 3 scalar: (16 x 128) @ (128 x 10) = (16 x 10).
     if (tid < M_ * DO) {
         uint r = tid / DO;
         uint c = tid % DO;
