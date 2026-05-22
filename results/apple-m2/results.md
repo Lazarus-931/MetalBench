@@ -7,7 +7,7 @@
 | alexnet | 0.585 | 0.87× | 19 | 1 |
 | argmax | 0.063 | 4.71× | 11 | 46 |
 | attention_scores | 0.061 | 3.09× | 35 | 2 |
-| avg_pool1d | 0.033 | 19.11× | 7 | 23 |
+| avg_pool1d | 0.014 | 67.10× | 17 | 52 |
 | avg_pool2d | 0.114 | 4.05× | 20 | 83 |
 | avg_pool3d | 0.257 | 4.39× | 17 | 70 |
 | batch_mm | 2.802 | 0.86× | 1417 | 38 |
@@ -23,16 +23,16 @@
 | cross_entropy_loss | 0.139 | 3.35× | 44 | 59 |
 | cumprod | 0.087 | 63.78× | 8 | 66 |
 | cumsum | 0.084 | 65.66× | 8 | 68 |
-| cumsum_exclusive | 0.108 | 65.42× | 8 | 69 |
+| cumsum_exclusive | 0.103 | 10.27× | 9 | 76 |
 | cumsum_reverse | 0.087 | 66.22× | 17 | 69 |
-| depthwise_conv2d | 0.316 | 24.45× | 110 | 50 |
+| depthwise_conv2d | 0.322 | 33.76× | 109 | 50 |
 | dot_product | 0.006 | 312.13× | 1 | 5 |
 | dropout | 0.138 | 2.97× | 14 | 88 |
 | elu | 0.019 | 15.74× | 65 | 105 |
 | embedding | 0.029 | 7.04× | 0 | 18 |
 | exp | 0.019 | 11.85× | 13 | 108 |
 | flash_attention | 0.710 | 0.37× | 22 | 0 |
-| frobenius_norm | 0.204 | 2.14× | 10 | 20 |
+| frobenius_norm | 0.201 | 9.44× | 9 | 19 |
 | fused_add_rms_norm | 0.133 | 3.28× | 46 | 92 |
 | fused_mlp | 1.015 | 0.18× | 114 | 0 |
 | fused_qkv_projection | 0.274 | 0.92× | 85 | 2 |
@@ -64,8 +64,8 @@
 | matrix_add | 0.141 | 2.39× | 7 | 84 |
 | matrix_scale | 0.083 | 3.44× | 11 | 94 |
 | matvec | 0.048 | 4.07× | 35 | 70 |
-| max_pool1d | 0.033 | 18.43× | 5 | 23 |
-| max_pool2d | 0.140 | 4.79× | 14 | 71 |
+| max_pool1d | 0.015 | 62.82× | 12 | 49 |
+| max_pool2d | 0.163 | 6.01× | 12 | 62 |
 | max_pool3d | 0.225 | 3.82× | 14 | 64 |
 | mingpt_new_gelu | 0.030 | 9.91× | 56 | 56 |
 | mish | 0.011 | 13.42× | 99 | 99 |
@@ -97,7 +97,7 @@
 | trace | 0.010 | 22.65× | 0 | 0 |
 | transformer_block | 2.072 | 0.23× | 8 | 0 |
 | transpose_2d | 0.208 | 0.06× | 0 | 55 |
-| triplet_margin_loss | 0.146 | 50.14× | 39 | 78 |
+| triplet_margin_loss | 0.209 | 23.10× | 29 | 58 |
 | variance | 0.059 | 6.94× | 53 | 70 |
 | where | 0.218 | 34.24× | 4 | 71 |
 
