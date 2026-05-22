@@ -241,20 +241,20 @@
       "updated_at": "2026-05-21T18:47:06+00:00"
     },
     "cumsum": {
-      "best_time_ms": 0.121792,
-      "speedup_vs_mlx": 65.66112723241399,
-      "gflops": 8.609563846558066,
-      "gbps": 68.87651077246453,
+      "best_time_ms": 0.09725,
+      "speedup_vs_mlx": 3.0668380557724624,
+      "gflops": 10.782272493573265,
+      "gbps": 86.25817994858612,
       "arith_intensity": 0.125,
-      "stability": 0.9730427083772504,
+      "stability": 0.981387407958271,
       "tg_static_mem_bytes": 128,
       "pso_max_threads_per_tg": 1024,
-      "iters": 200,
+      "iters": 50,
       "target": "speed",
       "max_err": 2.288818359375e-05,
       "metal_source_path": "src/kernels/common/cumsum.metal",
-      "metal_source": "// cumsum: 2-level prefix scan using hardware simd_prefix_inclusive_sum.\n// 2 threadgroup barriers vs 20 for Hillis-Steele.\n#include <metal_stdlib>\nusing namespace metal;\n\nkernel void cumsum_f32(\n    device const float*  x  [[buffer(0)]],\n    device       float*  y  [[buffer(1)]],\n    constant     uint&   N  [[buffer(2)]],\n    uint3 tid              [[thread_position_in_threadgroup]],\n    uint3 tgid             [[threadgroup_position_in_grid]])\n{\n    const uint t = tid.x;\n    const uint row = tgid.y;\n    const uint sg = t >> 5;        // simdgroup index (0..31)\n    const uint sl = t & 31;         // lane within simdgroup (0..31)\n\n    float val = x[row * N + t];\n\n    // Level 1: simdgroup scan (hardware-accelerated, no barrier)\n    float local_scan = simd_prefix_inclusive_sum(val);\n\n    // Last lane in each simdgroup holds the group's total sum\n    threadgroup float tg_totals[32];\n    if (sl == 31) tg_totals[sg] = local_scan;\n    threadgroup_barrier(mem_flags::mem_threadgroup);\n\n    // Level 2: first simdgroup computes exclusive scan over the 32 totals.\n    // After this, thread sl (if sg==0) holds the offset for simdgroup sl.\n    float my_offset = 0.0f;\n    if (sg == 0) {\n        my_offset = simd_prefix_exclusive_sum(tg_totals[sl]);\n    }\n    // Broadcast: thread sl writes the offset for simdgroup sl.\n    if (t < 32) tg_totals[t] = my_offset;\n    threadgroup_barrier(mem_flags::mem_threadgroup);\n\n    // Each thread adds its simdgroup's offset.\n    y[row * N + t] = local_scan + tg_totals[sg];\n}\n",
-      "updated_at": "2026-05-21T18:47:21+00:00"
+      "metal_source": "// cumsum: 2-level prefix scan using hardware simd_prefix_inclusive_sum.\n#include <metal_stdlib>\nusing namespace metal;\n\nkernel void cumsum_f32(\n    device const float*  x  [[buffer(0)]],\n    device       float*  y  [[buffer(1)]],\n    constant     uint&   N  [[buffer(2)]],\n    uint3 tid              [[thread_position_in_threadgroup]],\n    uint3 tgid             [[threadgroup_position_in_grid]])\n{\n    const uint t = tid.x;\n    const uint row = tgid.y;\n    const uint sg = t >> 5;        // simdgroup index (0..31)\n    const uint sl = t & 31;         // lane within simdgroup (0..31)\n\n    float val = x[row * N + t];\n\n    float local_scan = simd_prefix_inclusive_sum(val);\n\n    threadgroup float tg_totals[32];\n    if (sl == 31) tg_totals[sg] = local_scan;\n    threadgroup_barrier(mem_flags::mem_threadgroup);\n\n    float my_offset = 0.0f;\n    if (sg == 0) {\n        my_offset = simd_prefix_exclusive_sum(tg_totals[sl]);\n    }\n    if (t < 32) tg_totals[t] = my_offset;\n    threadgroup_barrier(mem_flags::mem_threadgroup);\n\n    y[row * N + t] = local_scan + tg_totals[sg];\n}\n",
+      "updated_at": "2026-05-22T19:00:25+00:00"
     },
     "cumprod": {
       "best_time_ms": 0.118125,
@@ -929,20 +929,20 @@
       "updated_at": "2026-05-22T03:22:12+00:00"
     },
     "attention_scores": {
-      "best_time_ms": 0.061625,
-      "speedup_vs_mlx": 3.169038527575274,
-      "gflops": 35.360194726166334,
-      "gbps": 2.126929006085193,
+      "best_time_ms": 0.023,
+      "speedup_vs_mlx": 11.637652515555207,
+      "gflops": 94.74226086956521,
+      "gbps": 5.698782608695652,
       "arith_intensity": 16.625,
-      "stability": 0.6587175184120231,
+      "stability": 0.21165968803202506,
       "tg_static_mem_bytes": 896,
       "pso_max_threads_per_tg": 1024,
-      "iters": 200,
+      "iters": 20,
       "target": "speed",
-      "max_err": 1.4901161193847656e-08,
+      "max_err": 7.450580596923828e-08,
       "metal_source_path": "src/kernels/standard/attention_scores.metal",
-      "metal_source": "// attention_scores: softmax(Q @ K^T / sqrt(D)).\n// One TG per query row. S=128, D=64. TG = 1024 threads, but only first 128 do work.\n#include <metal_stdlib>\nusing namespace metal;\n\nkernel void attention_scores_f32(\n    device const float*  Q       [[buffer(0)]],\n    device const float*  K       [[buffer(1)]],\n    device       float*  O       [[buffer(2)]],\n    constant     uint&   S       [[buffer(3)]],\n    constant     uint&   D       [[buffer(4)]],\n    uint3 tid3                  [[thread_position_in_threadgroup]],\n    uint3 tgid                  [[threadgroup_position_in_grid]])\n{\n    const uint TG = 1024;\n    const uint tid = tid3.x;\n    const uint qr = tgid.y;\n    if (qr >= S) return;\n\n    threadgroup float qrow[64];      // D up to 64\n    threadgroup float scores[128];   // S up to 128\n    threadgroup float reduce[32];\n\n    // Cooperatively load Q row.\n    for (uint d = tid; d < D; d += TG) qrow[d] = Q[qr * D + d];\n    threadgroup_barrier(mem_flags::mem_threadgroup);\n\n    float inv = rsqrt(float(D));\n    // Each of first S threads computes one score.\n    if (tid < S) {\n        device const float* kr = K + tid * D;\n        float dot = 0.0f;\n        for (uint d = 0; d < D; ++d) dot += qrow[d] * kr[d];\n        scores[tid] = dot * inv;\n    }\n    threadgroup_barrier(mem_flags::mem_threadgroup);\n\n    // Row max over S=128 elements.\n    float v = (tid < S) ? scores[tid] : -INFINITY;\n    float mx = simd_max(v);\n    if ((tid & 31) == 0) reduce[tid >> 5] = mx;\n    threadgroup_barrier(mem_flags::mem_threadgroup);\n    if (tid < 32) {\n        // 128/32 = 4 valid lanes\n        float m = (tid < 4) ? reduce[tid] : -INFINITY;\n        m = simd_max(m);\n        if (tid == 0) reduce[0] = m;\n    }\n    threadgroup_barrier(mem_flags::mem_threadgroup);\n    float row_max = reduce[0];\n\n    float e = (tid < S) ? fast::exp(scores[tid] - row_max) : 0.0f;\n    if (tid < S) scores[tid] = e;\n    float sum = simd_sum(e);\n    if ((tid & 31) == 0) reduce[tid >> 5] = sum;\n    threadgroup_barrier(mem_flags::mem_threadgroup);\n    if (tid < 32) {\n        float s = (tid < 4) ? reduce[tid] : 0.0f;\n        s = simd_sum(s);\n        if (tid == 0) reduce[0] = s;\n    }\n    threadgroup_barrier(mem_flags::mem_threadgroup);\n    float inv_sum = 1.0f / reduce[0];\n\n    if (tid < S) O[qr * S + tid] = scores[tid] * inv_sum;\n}\n",
-      "updated_at": "2026-05-21T18:09:16+00:00"
+      "metal_source": "// attention_scores: softmax(Q @ K^T / sqrt(D)).\n#include <metal_stdlib>\nusing namespace metal;\n\nkernel void attention_scores_f32(\n    device const float*  Q       [[buffer(0)]],\n    device const float*  K       [[buffer(1)]],\n    device       float*  O       [[buffer(2)]],\n    constant     uint&   S       [[buffer(3)]],\n    constant     uint&   D       [[buffer(4)]],\n    uint3 tid3                  [[thread_position_in_threadgroup]],\n    uint3 tgid                  [[threadgroup_position_in_grid]])\n{\n    const uint TG = 1024;\n    const uint tid = tid3.x;\n    const uint qr = tgid.y;\n    if (qr >= S) return;\n\n    threadgroup float qrow[64];      // D\n    threadgroup float scores[128];   // S\n    threadgroup float reduce[32];\n\n    if (tid < D) qrow[tid] = Q[qr * D + tid];\n    threadgroup_barrier(mem_flags::mem_threadgroup);\n\n    const float inv = rsqrt(float(D));\n\n    {\n        uint j   = tid >> 3;\n        uint sub = tid & 7;\n        uint d0  = sub * 8;\n        device const float* kr = K + j * D;\n        float acc = 0.0f;\n        acc += qrow[d0+0] * kr[d0+0];\n        acc += qrow[d0+1] * kr[d0+1];\n        acc += qrow[d0+2] * kr[d0+2];\n        acc += qrow[d0+3] * kr[d0+3];\n        acc += qrow[d0+4] * kr[d0+4];\n        acc += qrow[d0+5] * kr[d0+5];\n        acc += qrow[d0+6] * kr[d0+6];\n        acc += qrow[d0+7] * kr[d0+7];\n        acc += simd_shuffle_xor(acc, 1);\n        acc += simd_shuffle_xor(acc, 2);\n        acc += simd_shuffle_xor(acc, 4);\n        if (sub == 0) scores[j] = acc * inv;\n    }\n    threadgroup_barrier(mem_flags::mem_threadgroup);\n\n    float v = (tid < S) ? scores[tid] : -INFINITY;\n    float mx_v = simd_max(v);\n    if ((tid & 31) == 0) reduce[tid >> 5] = mx_v;\n    threadgroup_barrier(mem_flags::mem_threadgroup);\n    if (tid < 32) {\n        float m = (tid < 4) ? reduce[tid] : -INFINITY;\n        m = simd_max(m);\n        if (tid == 0) reduce[0] = m;\n    }\n    threadgroup_barrier(mem_flags::mem_threadgroup);\n    float row_max = reduce[0];\n\n    float e = (tid < S) ? fast::exp(scores[tid] - row_max) : 0.0f;\n    if (tid < S) scores[tid] = e;\n    float sum = simd_sum(e);\n    if ((tid & 31) == 0) reduce[tid >> 5] = sum;\n    threadgroup_barrier(mem_flags::mem_threadgroup);\n    if (tid < 32) {\n        float s = (tid < 4) ? reduce[tid] : 0.0f;\n        s = simd_sum(s);\n        if (tid == 0) reduce[0] = s;\n    }\n    threadgroup_barrier(mem_flags::mem_threadgroup);\n    float inv_sum = 1.0f / reduce[0];\n\n    if (tid < S) O[qr * S + tid] = scores[tid] * inv_sum;\n}\n",
+      "updated_at": "2026-05-22T19:13:05+00:00"
     },
     "nll_loss": {
       "best_time_ms": 0.072375,
@@ -1361,20 +1361,20 @@
       "updated_at": "2026-05-22T01:45:25+00:00"
     },
     "huber_loss": {
-      "best_time_ms": 0.170792,
-      "speedup_vs_mlx": 7.0363366674940515,
-      "gflops": 30.697456555342175,
-      "gbps": 73.67389573282121,
+      "best_time_ms": 0.160875,
+      "speedup_vs_mlx": 49.72390347126388,
+      "gflops": 32.58977466977467,
+      "gbps": 78.21545920745922,
       "arith_intensity": 0.4166666666666667,
-      "stability": 0.9653301380238065,
+      "stability": 0.8954812637766347,
       "tg_static_mem_bytes": 0,
       "pso_max_threads_per_tg": 1024,
-      "iters": 200,
+      "iters": 100,
       "target": "speed",
       "max_err": 0.0,
       "metal_source_path": "src/kernels/common/huber_loss.metal",
-      "metal_source": "#include <metal_stdlib>\nusing namespace metal;\n\nkernel void huber_loss_f32(\n    device const float*  pred      [[buffer(0)]],\n    device const float*  target    [[buffer(1)]],\n    device       float*  y         [[buffer(2)]],\n    constant     uint&   N         [[buffer(3)]],\n    constant     uint&   grid_size [[buffer(4)]],\n    constant     float&  delta     [[buffer(5)]],\n    uint  tid                     [[thread_position_in_grid]])\n{\n    for (uint i = tid; i < N; i += grid_size) {\n        float r = pred[i] - target[i];\n        float a = fabs(r);\n        float q = 0.5f * r * r;\n        float l = delta * (a - 0.5f * delta);\n        y[i] = a <= delta ? q : l;\n    }\n}\n",
-      "updated_at": "2026-05-22T00:24:48+00:00"
+      "metal_source": "#include <metal_stdlib>\nusing namespace metal;\n\n// Memory-bound elementwise. N=1M, grid=64K threads => 16 elements/thread.\n// Use float4 vectorized loads/stores: 4 float4 per thread = 16 elements,\n// fully utilizing 128B loads and halving instruction count.\nkernel void huber_loss_f32(\n    device const float*  pred      [[buffer(0)]],\n    device const float*  target    [[buffer(1)]],\n    device       float*  y         [[buffer(2)]],\n    constant     uint&   N         [[buffer(3)]],\n    constant     uint&   grid_size [[buffer(4)]],\n    constant     float&  delta     [[buffer(5)]],\n    uint  tid                     [[thread_position_in_grid]])\n{\n    const uint N4 = N >> 2;\n    device const float4* pred4 = reinterpret_cast<device const float4*>(pred);\n    device const float4* tgt4  = reinterpret_cast<device const float4*>(target);\n    device       float4* y4    = reinterpret_cast<device       float4*>(y);\n    const float half_delta = 0.5f * delta;\n\n    // Branchless: let m = min(|r|, delta). Then loss = 0.5*m^2 + delta*(|r| - m).\n    //   if |r| <= delta: m=|r|, second term=0, result = 0.5*r^2.\n    //   if |r| > delta:  m=delta, result = 0.5*delta^2 + delta*(|r| - delta).\n    for (uint i = tid; i < N4; i += grid_size) {\n        float4 r = pred4[i] - tgt4[i];\n        float4 a = fabs(r);\n        float4 m = fmin(a, delta);\n        y4[i] = fma(0.5f * m, m, delta * (a - m));\n    }\n\n    // Tail (N not divisible by 4) \u2014 ranks past N4*4\n    uint base = N4 << 2;\n    for (uint i = base + tid; i < N; i += grid_size) {\n        float r = pred[i] - target[i];\n        float a = fabs(r);\n        float m = fmin(a, delta);\n        y[i] = fma(0.5f * m, m, delta * (a - m));\n    }\n}\n",
+      "updated_at": "2026-05-22T18:33:50+00:00"
     },
     "triplet_margin_loss": {
       "best_time_ms": 0.144708,
@@ -1409,20 +1409,20 @@
       "updated_at": "2026-05-22T18:26:24+00:00"
     },
     "cumsum_exclusive": {
-      "best_time_ms": 0.12625,
-      "speedup_vs_mlx": 3.4924121665777546,
-      "gflops": 8.305552475247524,
-      "gbps": 66.44441980198019,
+      "best_time_ms": 0.102625,
+      "speedup_vs_mlx": 4.908238423037616,
+      "gflops": 10.217549330085262,
+      "gbps": 81.7403946406821,
       "arith_intensity": 0.125,
-      "stability": 0.9512377471340754,
+      "stability": 0.9378822847562175,
       "tg_static_mem_bytes": 128,
       "pso_max_threads_per_tg": 1024,
-      "iters": 100,
+      "iters": 50,
       "target": "speed",
       "max_err": 2.288818359375e-05,
       "metal_source_path": "src/kernels/common/cumsum_exclusive.metal",
-      "metal_source": "// cumsum_exclusive: per-row exclusive prefix sum. Two-level scan via simd hardware.\n#include <metal_stdlib>\nusing namespace metal;\n\nkernel void cumsum_exclusive_f32(\n    device const float*  x       [[buffer(0)]],\n    device       float*  y       [[buffer(1)]],\n    constant     uint&   C       [[buffer(2)]],\n    uint3 tid                   [[thread_position_in_threadgroup]],\n    uint3 tgid                  [[threadgroup_position_in_grid]])\n{\n    const uint t = tid.x;\n    const uint row = tgid.y;\n    const uint sg = t >> 5;\n    const uint sl = t & 31;\n\n    float v = x[row * C + t];\n    float local_scan = simd_prefix_inclusive_sum(v);\n\n    threadgroup float tg_totals[32];\n    if (sl == 31) tg_totals[sg] = local_scan;\n    threadgroup_barrier(mem_flags::mem_threadgroup);\n\n    float my_offset = 0.0f;\n    if (sg == 0) my_offset = simd_prefix_exclusive_sum(tg_totals[sl]);\n    if (t < 32) tg_totals[t] = my_offset;\n    threadgroup_barrier(mem_flags::mem_threadgroup);\n\n    // Inclusive total at this thread, then subtract own v to get exclusive.\n    y[row * C + t] = local_scan + tg_totals[sg] - v;\n}\n",
-      "updated_at": "2026-05-22T01:45:29+00:00"
+      "metal_source": "// cumsum_exclusive: per-row exclusive prefix sum. Two-level scan via simd hardware.\n#include <metal_stdlib>\nusing namespace metal;\n\nkernel void cumsum_exclusive_f32(\n    device const float*  x       [[buffer(0)]],\n    device       float*  y       [[buffer(1)]],\n    constant     uint&   C       [[buffer(2)]],\n    uint3 tid                   [[thread_position_in_threadgroup]],\n    uint3 tgid                  [[threadgroup_position_in_grid]])\n{\n    const uint t = tid.x;\n    const uint row = tgid.y;\n    const uint sg = t >> 5;\n    const uint sl = t & 31;\n\n    float v = x[row * C + t];\n    float local_scan = simd_prefix_inclusive_sum(v);\n\n    threadgroup float tg_totals[32];\n    if (sl == 31) tg_totals[sg] = local_scan;\n    threadgroup_barrier(mem_flags::mem_threadgroup);\n\n    float my_offset = 0.0f;\n    if (sg == 0) my_offset = simd_prefix_exclusive_sum(tg_totals[sl]);\n    if (t < 32) tg_totals[t] = my_offset;\n    threadgroup_barrier(mem_flags::mem_threadgroup);\n\n    y[row * C + t] = local_scan + tg_totals[sg] - v;\n}\n",
+      "updated_at": "2026-05-22T19:00:01+00:00"
     },
     "masked_cumsum": {
       "best_time_ms": 0.142125,

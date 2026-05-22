@@ -1,4 +1,5 @@
-// cumprod: 2-level prefix product using hardware simd_prefix_inclusive_product.
+// cumprod: float4-per-thread 2-level prefix product.
+// 256 threads/TG (8 simdgroups), each handles 4 contiguous elements via float4 load/store.
 #include <metal_stdlib>
 using namespace metal;
 
@@ -11,23 +12,42 @@ kernel void cumprod_f32(
 {
     const uint t = tid.x;
     const uint row = tgid.y;
-    const uint sg = t >> 5;
+    const uint sg = t >> 5;        // 0..7
     const uint sl = t & 31;
 
-    float val = x[row * N + t];
+    const uint base = row * N + t * 4;
+    float4 v = *reinterpret_cast<const device float4*>(&x[base]);
 
-    float local_scan = simd_prefix_inclusive_product(val);
+    // Local cumulative product within float4.
+    float4 lp;
+    lp.x = v.x;
+    lp.y = lp.x * v.y;
+    lp.z = lp.y * v.z;
+    lp.w = lp.z * v.w;
 
-    threadgroup float tg_totals[32];
+    // simd_prefix_inclusive over float4 totals.
+    float local_scan = simd_prefix_inclusive_product(lp.w);
+
+    // Cross-simd: 8 simdgroups in TG.
+    threadgroup float tg_totals[8];
     if (sl == 31) tg_totals[sg] = local_scan;
     threadgroup_barrier(mem_flags::mem_threadgroup);
 
-    float my_offset = 0.0f;
     if (sg == 0) {
-        my_offset = simd_prefix_exclusive_product(tg_totals[sl]);
+        float v8 = (sl < 8) ? tg_totals[sl] : 1.0f;
+        float pre = simd_prefix_exclusive_product(v8);
+        if (sl < 8) tg_totals[sl] = pre;
     }
-    if (t < 32) tg_totals[t] = my_offset;
     threadgroup_barrier(mem_flags::mem_threadgroup);
 
-    y[row * N + t] = local_scan * tg_totals[sg];
+    float thread_excl_in_simd = local_scan / lp.w;
+    float thread_offset = tg_totals[sg] * thread_excl_in_simd;
+
+    float4 out;
+    out.x = thread_offset * lp.x;
+    out.y = thread_offset * lp.y;
+    out.z = thread_offset * lp.z;
+    out.w = thread_offset * lp.w;
+
+    *reinterpret_cast<device float4*>(&y[base]) = out;
 }

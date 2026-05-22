@@ -1,4 +1,6 @@
 // linear_bias: y = x @ W + b. (M,K)@(K,N)+(N,). M=N=K=256.
+// Fuses bias-add into the epilogue via threadgroup memory to avoid the
+// store-then-reload of Y that the original kernel performed.
 #include <metal_stdlib>
 #include <metal_simdgroup>
 #include <metal_simdgroup_matrix>
@@ -9,6 +11,7 @@ constant constexpr uint SM = 16, SN = 32;
 constant constexpr uint SIMDS_N = BN / SN;
 constant constexpr uint MMA_M = SM / 8, MMA_N = SN / 8;
 constant constexpr uint PAD = 4, LDA = BK + PAD, LDB = BN + PAD;
+constant constexpr uint LDC = BN + PAD;
 constant constexpr uint TILES_N = 256 / BN;   // 4
 constant constexpr uint ACTIVE_TG = TILES_N * (256 / BM);  // 16
 
@@ -28,8 +31,14 @@ kernel void linear_bias_f32(
     const uint tx = tgid_lin % TILES_N;
     const uint ty = tgid_lin / TILES_N;
 
-    threadgroup float As[2][BM * LDA];
-    threadgroup float Bs[2][BK * LDB];
+    // Union the A/B staging buffers with the C epilogue staging buffer to
+    // stay within the 32 KB threadgroup-memory budget. A/B are dead by the
+    // time we need C/bias.
+    threadgroup float scratch[4736];  // = max(2*BM*LDA + 2*BK*LDB, BM*LDC + BN)
+    threadgroup float (*As)[BM * LDA] = reinterpret_cast<threadgroup float (*)[BM * LDA]>(scratch);
+    threadgroup float (*Bs)[BK * LDB] = reinterpret_cast<threadgroup float (*)[BK * LDB]>(scratch + 2 * BM * LDA);
+    threadgroup float* Cs        = scratch;
+    threadgroup float* bias_tile = scratch + BM * LDC;
 
     const uint sm = sgid / SIMDS_N;
     const uint sn = sgid % SIMDS_N;
@@ -103,26 +112,26 @@ kernel void linear_bias_f32(
                 simdgroup_multiply_accumulate(C_acc[i][j], A_blk[i], B_blk[j], C_acc[i][j]);
     }
 
+    // Stage the matmul tile into threadgroup memory so we can fuse the
+    // bias-add into the final device write (no read-modify-write on Y).
+    // Load bias into the (now-dead-after-barrier) tail of the shared scratch.
+    if (lid < BN)
+        bias_tile[lid] = Bias[c_col0 + lid];
     #pragma unroll
     for (uint i = 0; i < MMA_M; ++i)
         #pragma unroll
         for (uint j = 0; j < MMA_N; ++j)
             simdgroup_store(C_acc[i][j],
-                            &Y[(c_row0 + sm * SM + i * 8) * N + (c_col0 + sn * SN + j * 8)],
-                            N);
-    threadgroup_barrier(mem_flags::mem_device);
-
-    threadgroup float bias_tile[BN];
-    if (lid < BN) bias_tile[lid] = Bias[c_col0 + lid];
+                            &Cs[(sm * SM + i * 8) * LDC + sn * SN + j * 8],
+                            LDC);
     threadgroup_barrier(mem_flags::mem_threadgroup);
 
     const uint total_f4 = BM * BN / 4;
     for (uint idx = lid; idx < total_f4; idx += 256) {
         uint r = (idx * 4) / BN;
         uint c = (idx * 4) % BN;
-        device float4* yptr = reinterpret_cast<device float4*>(&Y[(c_row0 + r) * N + c_col0 + c]);
-        float4 v = *yptr;
+        float4 v = *reinterpret_cast<threadgroup float4*>(&Cs[r * LDC + c]);
         float4 b = *reinterpret_cast<threadgroup float4*>(&bias_tile[c]);
-        *yptr = v + b;
+        *reinterpret_cast<device float4*>(&Y[(c_row0 + r) * N + c_col0 + c]) = v + b;
     }
 }

@@ -1,4 +1,5 @@
-// masked_cumsum: per-row cumsum(x * mask). Two-level scan.
+// masked_cumsum: per-row cumsum(x * mask). Two-level scan with float4 loads.
+// 1024-col row -> 256 active threads * float4 = 1024 elements per TG.
 #include <metal_stdlib>
 using namespace metal;
 
@@ -7,25 +8,50 @@ kernel void masked_cumsum_f32(
     device const float*  m       [[buffer(1)]],
     device       float*  y       [[buffer(2)]],
     constant     uint&   C       [[buffer(3)]],
-    uint3 tid                   [[thread_position_in_threadgroup]],
-    uint3 tgid                  [[threadgroup_position_in_grid]])
+    uint3 tid                    [[thread_position_in_threadgroup]],
+    uint3 tgid                   [[threadgroup_position_in_grid]])
 {
-    const uint t = tid.x;
+    constexpr uint NSG = 8;        // 256/32
+    threadgroup float tg_totals[NSG];
+
+    const uint t   = tid.x;
     const uint row = tgid.y;
-    const uint sg = t >> 5;
-    const uint sl = t & 31;
+    const uint sg  = t >> 5;
+    const uint sl  = t & 31;
+    const bool active = (t < 256u);
 
-    float v = x[row * C + t] * m[row * C + t];
-    float local_scan = simd_prefix_inclusive_sum(v);
+    float4 s = float4(0.0f);
+    float local_inc = 0.0f;
+    float local_exc = 0.0f;
+    uint base = 0u;
 
-    threadgroup float tg_totals[32];
-    if (sl == 31) tg_totals[sg] = local_scan;
+    if (active) {
+        base = row * C + (t << 2);
+        // Issue both loads early for ILP
+        float4 xv = *reinterpret_cast<device const float4*>(x + base);
+        float4 mv = *reinterpret_cast<device const float4*>(m + base);
+        float4 v = xv * mv;
+        s.x = v.x;
+        s.y = s.x + v.y;
+        s.z = s.y + v.z;
+        s.w = s.z + v.w;
+        local_inc = simd_prefix_inclusive_sum(s.w);
+        local_exc = local_inc - s.w;
+
+        if (sl == 31u) tg_totals[sg] = local_inc;
+    }
     threadgroup_barrier(mem_flags::mem_threadgroup);
 
-    float my_offset = 0.0f;
-    if (sg == 0) my_offset = simd_prefix_exclusive_sum(tg_totals[sl]);
-    if (t < 32) tg_totals[t] = my_offset;
+    if (sg == 0u) {
+        float v8 = (sl < NSG) ? tg_totals[sl] : 0.0f;
+        float prefix = simd_prefix_exclusive_sum(v8);
+        if (sl < NSG) tg_totals[sl] = prefix;
+    }
     threadgroup_barrier(mem_flags::mem_threadgroup);
 
-    y[row * C + t] = local_scan + tg_totals[sg];
+    if (active) {
+        float off = tg_totals[sg] + local_exc;
+        float4 out = s + off;
+        *reinterpret_cast<device float4*>(y + base) = out;
+    }
 }

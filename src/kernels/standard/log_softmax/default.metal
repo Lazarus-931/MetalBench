@@ -1,4 +1,5 @@
 // log_softmax: y = x - logsumexp(x). One TG per row. C == TG == 1024.
+// 32 simdgroups; two-stage reduce via threadgroup scratch.
 #include <metal_stdlib>
 using namespace metal;
 
@@ -16,30 +17,24 @@ kernel void log_softmax_f32(
     device const float* xr = X + row * C;
     device       float* yr = Y + row * C;
 
-    threadgroup float reduce[32];
+    threadgroup float scratch_max[32];
+    threadgroup float scratch_sum[32];
 
     float v = xr[tid];
 
+    // Row max
     float mx = simd_max(v);
-    if (lane == 0) reduce[sg] = mx;
+    if (lane == 0) scratch_max[sg] = mx;
     threadgroup_barrier(mem_flags::mem_threadgroup);
-    if (sg == 0) {
-        float m = simd_max(reduce[lane]);
-        if (lane == 0) reduce[0] = m;
-    }
-    threadgroup_barrier(mem_flags::mem_threadgroup);
-    float row_max = reduce[0];
+    float row_max = simd_max(scratch_max[lane]);
 
+    // Row sum of exp (separate scratch -> no barrier needed between writes)
     float e = fast::exp(v - row_max);
     float sum = simd_sum(e);
-    if (lane == 0) reduce[sg] = sum;
+    if (lane == 0) scratch_sum[sg] = sum;
     threadgroup_barrier(mem_flags::mem_threadgroup);
-    if (sg == 0) {
-        float s = simd_sum(reduce[lane]);
-        if (lane == 0) reduce[0] = s;
-    }
-    threadgroup_barrier(mem_flags::mem_threadgroup);
-    float lse = row_max + log(reduce[0]);
+    float row_sum = simd_sum(scratch_sum[lane]);
 
+    float lse = row_max + fast::log(row_sum);
     yr[tid] = v - lse;
 }

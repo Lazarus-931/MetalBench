@@ -55,7 +55,7 @@
 | llama_attention | ? | 0.163ms | 2.3× |
 | llama_decoder_layer | ? | 0.379ms | 1.2× |
 | log_softmax | ? | 0.087ms | 3.7× |
-| log_softmax_cross_entropy | ? | 0.140ms | 3.3× |
+| log_softmax_cross_entropy | reduce | 0.141ms | 52.5× |
 | logsigmoid | elem | 0.021ms | 13.8× |
 | logsumexp | ? | 0.071ms | 112.7× |
 | manhattan_similarity | reduce | 0.074ms | 6.5× |

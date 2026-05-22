@@ -24,22 +24,34 @@ kernel void huber_loss_f32(
     const float d  = delta;
     const float hd = 0.5f * delta;
 
-    for (uint i = tid; i < N4; i += stride) {
+    // Branchless identity: huber(r) = a*|r| - a^2/2, where a = min(|r|, delta).
+    //   |r|<=delta: a=|r|  →  |r|^2 - |r|^2/2 = r^2/2   = q
+    //   |r|> delta: a=delta → delta*|r| - delta^2/2     = l
+    const float4 dv = float4(d);
+    const uint N8 = N4 & ~1u;
+    for (uint i = tid * 2u; i < N8; i += stride * 2u) {
+        float4 r0 = p4[i]      - t4[i];
+        float4 r1 = p4[i + 1u] - t4[i + 1u];
+        float4 ar0 = fabs(r0), ar1 = fabs(r1);
+        float4 a0 = fmin(ar0, dv), a1 = fmin(ar1, dv);
+        y4[i]      = a0 * (ar0 - 0.5f * a0);
+        y4[i + 1u] = a1 * (ar1 - 0.5f * a1);
+    }
+    if ((N4 & 1u) != 0u && tid == 0u) {
+        const uint i = N4 - 1u;
         float4 r = p4[i] - t4[i];
-        float4 a = fabs(r);
-        float4 q = 0.5f * r * r;
-        float4 l = d * (a - hd);
-        y4[i] = select(l, q, a <= float4(d));
+        float4 ar = fabs(r);
+        float4 a = fmin(ar, dv);
+        y4[i] = a * (ar - 0.5f * a);
     }
 
     if ((N & 3u) != 0u) {
         const uint tail = N4 << 2;
         for (uint j = tail + tid; j < N; j += stride) {
             float r = pred[j] - target[j];
-            float a = fabs(r);
-            float q = 0.5f * r * r;
-            float l = d * (a - hd);
-            y[j] = a <= d ? q : l;
+            float ar = fabs(r);
+            float a = fmin(ar, d);
+            y[j] = a * (ar - 0.5f * a);
         }
     }
 }

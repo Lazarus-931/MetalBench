@@ -142,6 +142,9 @@ reduction("l2_norm",    "l2_norm_f32",    1024, 1024, flops=1024*1024*3,
 scan("cumsum",          "cumsum_f32",          1024, 1024)
 scan("cumsum_reverse",  "cumsum_reverse_f32",  1024, 1024, flops_mul=2)
 scan("cumprod",         "cumprod_f32",         1024, 1024)
+# Override: float4-per-thread → 256 threads/TG, 1 TG per row.
+REGISTRY["cumprod"]["threadgroup"] = (256, 1, 1)
+REGISTRY["cumprod"]["grid"] = (256, 1024, 1)
 
 # MSE loss: element-wise + reduction
 # Matrix-vector: one tg per row, simd reduction
