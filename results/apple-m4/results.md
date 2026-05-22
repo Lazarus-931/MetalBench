@@ -2,19 +2,19 @@
 
 | kernel | time (ms) | speedup | GFLOPS | GB/s |
 |---|---|---|---|---|
-| abs | 0.015 | 380.45× | 14 | 114 |
-| add_norm | 0.122 | 8.45× | 59 | 101 |
+| abs | 2.915 | 2.32× | 0 | 0 |
+| add_norm | 0.126 | 8.22× | 57 | 98 |
 | alexnet | 0.149 | 56.67× | 74 | 5 |
-| argmax | 2.989 | 1.04× | 0 | 0 |
+| argmax | 12.959 | 1.15× | 0 | 0 |
 | attention_scores | 0.017 | 51.25× | 110 | 6 |
 | avg_pool1d | 0.008 | 7.99× | 0 | 0 |
 | avg_pool2d | 0.918 | 1.27× | 0 | 1 |
 | avg_pool3d | 3.007 | 1.56× | 0 | 2 |
-| batch_mm | 80.028 | 0.05× | 26 | 0 |
+| batch_mm | 161.056 | 0.05× | 26 | 0 |
 | batch_norm | 5.974 | 1.39× | 0 | 0 |
-| bias_add | 0.062 | 16.21× | 16 | 129 |
-| bias_gelu | 0.063 | 15.21× | 96 | 128 |
-| clip | 0.016 | 2.69× | 0 | 0 |
+| bias_add | 5.954 | 3.43× | 0 | 1 |
+| bias_gelu | 0.059 | 16.30× | 97 | 129 |
+| clip | 4.009 | 1.40× | 0 | 0 |
 | conv1d | 3.048 | 0.61× | 7 | 0 |
 | conv2d | 11.493 | 0.65× | 366 | 1 |
 | conv2d_mish_mish | 12.424 | 27.02× | 366 | 1 |
@@ -27,15 +27,15 @@
 | conv_transpose2d_clamp_scale_div | 10.483 | 24.83× | 370 | 1 |
 | conv_transpose2d_sub_tanh | 7.495 | 7.09× | 369 | 1 |
 | conv_transpose3d_norm_pool_gelu | 0.197 | 5.97× | 0 | 0 |
-| cosine_similarity | 1.999 | 4.98× | 0 | 1 |
-| cross_entropy_loss | 0.101 | 9.45× | 58 | 77 |
-| cumprod | 1.021 | 1.99× | 0 | 2 |
+| cosine_similarity | 15.969 | 1.45× | 0 | 0 |
+| cross_entropy_loss | 0.080 | 11.97× | 71 | 94 |
+| cumprod | 4.974 | 1.34× | 0 | 0 |
 | cumsum | 1.994 | 0.73× | 0 | 0 |
 | cumsum_exclusive | 1.036 | 1.82× | 0 | 0 |
 | cumsum_reverse | 3.915 | 1.99× | 0 | 1 |
 | depthwise_conv2d | 3.960 | 45.05× | 5 | 2 |
 | dot_product | 0.004 | 2.33× | 0 | 0 |
-| dropout | 0.127 | 8.08× | 16 | 97 |
+| dropout | 0.127 | 45.22× | 15 | 95 |
 | elu | 0.015 | 1.99× | 0 | 0 |
 | embedding | 0.007 | 2.33× | 0 | 0 |
 | exp | 0.016 | 2.33× | 0 | 0 |
@@ -43,7 +43,7 @@
 | fused_add_rms_norm | 0.122 | 52.64× | 47 | 95 |
 | fused_qkv_projection | 0.020 | 45.01× | 1124 | 33 |
 | gelu | 0.015 | 2.33× | 0 | 0 |
-| gelu_linear | 0.822 | 5.78× | 2552 | 14 |
+| gelu_linear | 0.842 | 1.73× | 461 | 2 |
 | group_norm | 0.028 | 204.39× | 142 | 142 |
 | hardsigmoid | 0.015 | 2.33× | 0 | 0 |
 | hardswish | 0.015 | 2.31× | 0 | 0 |
@@ -57,12 +57,12 @@
 | leaky_relu | 0.014 | 18.36× | 56 | 149 |
 | linear_bias | 0.025 | 37.04× | 1224 | 28 |
 | llama_attention | 2.221 | 11.25× | 2 | 0 |
-| llama_decoder_layer | 0.648 | 1.62× | 16 | 0 |
+| llama_decoder_layer | 1.177 | 8.74× | 15 | 0 |
 | log | 0.015 | 402.57× | 17 | 140 |
 | log_softmax | 0.077 | 3.88× | 2 | 4 |
 | log_softmax_cross_entropy | 0.084 | 66.22× | 52 | 69 |
 | logsigmoid | 0.014 | 15.50× | 90 | 145 |
-| logsumexp | 0.067 | 14.79× | 60 | 60 |
+| logsumexp | 0.054 | 18.89× | 75 | 75 |
 | manhattan_similarity | 0.079 | 6.54× | 25 | 101 |
 | masked_cumsum | 18.018 | 1.15× | 0 | 0 |
 | masked_softmax | 33.066 | 0.74× | 0 | 0 |
@@ -99,7 +99,7 @@
 | swiglu | 0.042 | 179.99× | 1516 | 23 |
 | swish | 0.014 | 16.41× | 93 | 149 |
 | tanh | 0.014 | 16.00× | 75 | 151 |
-| top_k | 120.097 | 0.38× | 0 | 0 |
+| top_k | 4.008 | 3.99× | 1 | 0 |
 | trace | 0.005 | 40.33× | 0 | 1 |
 | transformer_block | 0.343 | 21.89× | 48 | 1 |
 | transpose_2d | 0.585 | 0.03× | 0 | 26 |

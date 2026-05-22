@@ -19,7 +19,8 @@ kernel void softmax_attention_f32(
 
     threadgroup float qrow[64];
     threadgroup float scores[128];
-    threadgroup float reduce[32];
+    threadgroup float reduce_max[32];
+    threadgroup float reduce_sum[32];
 
     if (tid < D) qrow[tid] = Q[qr * D + tid];
     threadgroup_barrier(mem_flags::mem_threadgroup);
@@ -52,28 +53,28 @@ kernel void softmax_attention_f32(
 
     float v = (tid < S) ? scores[tid] : -INFINITY;
     float mx_v = simd_max(v);
-    if (lane == 0) reduce[sg] = mx_v;
+    if (lane == 0) reduce_max[sg] = mx_v;
     threadgroup_barrier(mem_flags::mem_threadgroup);
     if (sg == 0) {
-        float m = (lane < 4) ? reduce[lane] : -INFINITY;
+        float m = (lane < 4) ? reduce_max[lane] : -INFINITY;
         m = simd_max(m);
-        if (lane == 0) reduce[0] = m;
+        if (lane == 0) reduce_max[0] = m;
     }
     threadgroup_barrier(mem_flags::mem_threadgroup);
-    float row_max = reduce[0];
+    float row_max = reduce_max[0];
 
     float e = (tid < S) ? fast::exp(scores[tid] - row_max) : 0.0f;
     if (tid < S) scores[tid] = e;
     float sum = simd_sum(e);
-    if (lane == 0) reduce[sg] = sum;
+    if (lane == 0) reduce_sum[sg] = sum;
     threadgroup_barrier(mem_flags::mem_threadgroup);
     if (sg == 0) {
-        float s = (lane < 4) ? reduce[lane] : 0.0f;
+        float s = (lane < 4) ? reduce_sum[lane] : 0.0f;
         s = simd_sum(s);
-        if (lane == 0) reduce[0] = s;
+        if (lane == 0) reduce_sum[0] = s;
     }
     threadgroup_barrier(mem_flags::mem_threadgroup);
-    float inv_sum = 1.0f / reduce[0];
+    float inv_sum = 1.0f / reduce_sum[0];
     if (tid < S) scores[tid] = scores[tid] * inv_sum;
     threadgroup_barrier(mem_flags::mem_threadgroup);
 

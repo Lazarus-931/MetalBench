@@ -32,7 +32,7 @@
     "min_ms": 0.0,
     "median_ms": 0.0,
     "mean_ms": 0.0,
-    "iters": 20,
+    "iters": 200,
     "available_counter_sets": [
       "timestamp"
     ],
@@ -41,10 +41,10 @@
     }
   },
   "reference_timing": {
-    "min_ms": 5.9263750445097685,
-    "median_ms": 14.993125107139349,
-    "mean_ms": 12.299899966455996,
-    "iters": 20,
+    "min_ms": 0.9002089500427246,
+    "median_ms": 14.996583107858896,
+    "mean_ms": 12.399400071008131,
+    "iters": 200,
     "peak_memory_bytes": 2621480
   },
   "outputs": [

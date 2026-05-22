@@ -14,31 +14,34 @@ kernel void logsumexp_f32(
     const uint row = tgid.y;
     device const float* xr = x + row * C;
 
-    threadgroup float reduce[32];
+    threadgroup float reduce_mx[32];
+    threadgroup float reduce_s[32];
+    threadgroup float row_max_tg;
+    threadgroup float row_sum_tg;
 
     float mx = -INFINITY;
     for (uint i = tid; i < C; i += TG) mx = fmax(mx, xr[i]);
     mx = simd_max(mx);
-    if ((tid & 31) == 0) reduce[tid >> 5] = mx;
+    if ((tid & 31) == 0) reduce_mx[tid >> 5] = mx;
     threadgroup_barrier(mem_flags::mem_threadgroup);
     if (tid < 32) {
-        mx = reduce[tid];
-        mx = simd_max(mx);
-        if (tid == 0) reduce[0] = mx;
+        float v = reduce_mx[tid];
+        v = simd_max(v);
+        if (tid == 0) row_max_tg = v;
     }
     threadgroup_barrier(mem_flags::mem_threadgroup);
-    float row_max = reduce[0];
+    float row_max = row_max_tg;
 
     float s = 0.0f;
     for (uint i = tid; i < C; i += TG) s += precise::exp(xr[i] - row_max);
     s = simd_sum(s);
-    if ((tid & 31) == 0) reduce[tid >> 5] = s;
+    if ((tid & 31) == 0) reduce_s[tid >> 5] = s;
     threadgroup_barrier(mem_flags::mem_threadgroup);
     if (tid < 32) {
-        s = reduce[tid];
-        s = simd_sum(s);
-        if (tid == 0) reduce[0] = s;
+        float v = reduce_s[tid];
+        v = simd_sum(v);
+        if (tid == 0) row_sum_tg = v;
     }
     threadgroup_barrier(mem_flags::mem_threadgroup);
-    if (tid == 0) y[row] = row_max + precise::log(reduce[0]);
+    if (tid == 0) y[row] = row_max + precise::log(row_sum_tg);
 }
