@@ -16,11 +16,13 @@ Three sets, increasing in size/complexity:
 
 | set | what | target | live now |
 |---|---|---|---|
-| **Common** | basic ops — activations, matmuls, norms, convs, scans | 100 | 44 |
+| **Common** | basic ops — activations, matmuls, norms, convs, scans | 100 | 70 |
 | **Standard** | fused 2+ op kernels — attention, SwiGLU, RMSNorm + linear | 25 | 23 |
 | **Full** | end-to-end model blocks — transformer block, mbconv, llama_layer | 12 | 0 |
 
 See `KERNELS.md` for the full registry.
+
+Kernels can be split per M-chip generation when one impl genuinely needs different code than another (e.g. `<name>/default.metal` + `<name>/m4.metal`). The harness auto-picks the right variant at runtime based on the chip detected via `sysctl`. See [Per-chip variants](#per-chip-variants) below.
 
 ## Evaluation
 
@@ -146,3 +148,17 @@ src/kernels/common/sqr_mm/
 
 The harness auto-picks `<name>__<chip>.metallib` → `__default` → flat `<name>.metallib`
 based on the chip you're running on. Only split when you have a measured perf reason.
+
+## Citation
+
+If you use MetalBench in published work, please cite it as:
+
+```bibtex
+@misc{metalbench2026,
+  title  = {MetalBench: Apple Metal GPU Kernel Benchmarks},
+  author = {Manakelew, Alazar},
+  year   = {2026},
+  url    = {https://github.com/Lazarus-931/MetalBench},
+  note   = {Live leaderboard: https://lazarus-931.github.io/leaderboard.html}
+}
+```

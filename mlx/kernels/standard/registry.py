@@ -1,4 +1,9 @@
-"""Standard Set kernel registry — fused kernels (2+ ops in one dispatch)."""
+"""Standard Set kernel registry — fused kernels (2+ ops in one dispatch).
+
+NOTE: This module also imports/declares Full Set kernels for now (they live in
+mlx/kernels/full/ + src/kernels/full/). The harness loader checks all three
+sets (common / standard / full).
+"""
 
 REGISTRY = {}
 

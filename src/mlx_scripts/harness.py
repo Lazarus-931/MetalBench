@@ -311,6 +311,14 @@ def _print_report(result, target, score):
     if "arith_intensity" in m:
         print(f"  arith int.  : {m['arith_intensity']:.1f} FLOPs/byte")
     print(f"  stability   : {m['stability']:.2f}  (1.0 = perfectly consistent)")
+    try:
+        import roofline
+        f = m.get('gflops', 0) * (k_t['median_ms'] / 1000.0) * 1e9 if 'gflops' in m else 0
+        b = m.get('gbps',   0) * (k_t['median_ms'] / 1000.0) * 1e9 if 'gbps' in m else 0
+        rl = roofline.classify(chip['type'], f, b, k_t['median_ms'])
+        print(roofline.format_line(rl))
+    except Exception:
+        pass
     prof = result.get("profiling", {})
     if prof.get("counters_available"):
         print(f"  profiling   : {prof['counter_set']}")

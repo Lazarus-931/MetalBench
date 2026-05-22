@@ -1,12 +1,11 @@
 // cross_entropy_loss: per-row -sum(y_onehot * log_softmax(logits)).
-// Output shape (N,). One threadgroup per row.
 #include <metal_stdlib>
 using namespace metal;
 
 kernel void cross_entropy_loss_f32(
-    device const float*  L        [[buffer(0)]],   // logits (N, C)
-    device const float*  Yh       [[buffer(1)]],   // one-hot (N, C)
-    device       float*  out      [[buffer(2)]],   // (N,)
+    device const float*  L        [[buffer(0)]],
+    device const float*  Yh       [[buffer(1)]],
+    device       float*  out      [[buffer(2)]],
     constant     uint&   N        [[buffer(3)]],
     constant     uint&   C        [[buffer(4)]],
     uint3 tid3                   [[thread_position_in_threadgroup]],
@@ -15,45 +14,50 @@ kernel void cross_entropy_loss_f32(
     const uint TG = 1024;
     const uint tid = tid3.x;
     const uint row = tgid.y;
+    const uint lane = tid & 31u;
+    const uint sgid = tid >> 5;
     device const float* lp = L  + row * C;
     device const float* yp = Yh + row * C;
 
     threadgroup float reduce[32];
+    threadgroup float scalars[2]; // [row_max, lse]
 
-    float mx = -INFINITY;
-    for (uint i = tid; i < C; i += TG) mx = fmax(mx, lp[i]);
-    mx = simd_max(mx);
-    if ((tid & 31) == 0) reduce[tid >> 5] = mx;
+    float lv = lp[tid];
+    float yv = yp[tid];
+
+    // 1) row max
+    float mx = simd_max(lv);
+    if (lane == 0) reduce[sgid] = mx;
     threadgroup_barrier(mem_flags::mem_threadgroup);
     if (tid < 32) {
-        mx = reduce[tid];
-        for (uint s = 16; s > 0; s >>= 1) mx = fmax(mx, simd_shuffle_down(mx, s));
-        if (tid == 0) reduce[0] = mx;
+        float v = reduce[lane];
+        v = simd_max(v);
+        if (lane == 0) scalars[0] = v;
     }
     threadgroup_barrier(mem_flags::mem_threadgroup);
-    float row_max = reduce[0];
+    float row_max = scalars[0];
 
-    float sum = 0.0f;
-    for (uint i = tid; i < C; i += TG) sum += exp(lp[i] - row_max);
-    sum = simd_sum(sum);
-    if ((tid & 31) == 0) reduce[tid >> 5] = sum;
+    // 2) sum exp
+    float e = precise::exp(lv - row_max);
+    float s = simd_sum(e);
+    if (lane == 0) reduce[sgid] = s;
     threadgroup_barrier(mem_flags::mem_threadgroup);
     if (tid < 32) {
-        sum = reduce[tid];
-        for (uint s = 16; s > 0; s >>= 1) sum += simd_shuffle_down(sum, s);
-        if (tid == 0) reduce[0] = sum;
+        float v = reduce[lane];
+        v = simd_sum(v);
+        if (lane == 0) scalars[1] = row_max + precise::log(v);
     }
     threadgroup_barrier(mem_flags::mem_threadgroup);
-    float lse = row_max + log(reduce[0]);
+    float lse = scalars[1];
 
-    float nll = 0.0f;
-    for (uint i = tid; i < C; i += TG) nll += yp[i] * (lse - lp[i]);
-    nll = simd_sum(nll);
-    if ((tid & 31) == 0) reduce[tid >> 5] = nll;
+    // 3) nll
+    float nll = yv * (lse - lv);
+    float ns = simd_sum(nll);
+    if (lane == 0) reduce[sgid] = ns;
     threadgroup_barrier(mem_flags::mem_threadgroup);
     if (tid < 32) {
-        nll = reduce[tid];
-        for (uint s = 16; s > 0; s >>= 1) nll += simd_shuffle_down(nll, s);
-        if (tid == 0) out[row] = nll;
+        float v = reduce[lane];
+        v = simd_sum(v);
+        if (lane == 0) out[row] = v;
     }
 }

@@ -10,26 +10,39 @@ kernel void mse_loss_f32(
     uint  tid                   [[thread_position_in_threadgroup]])
 {
     const uint tg_size = 1024;
-    float sum = 0.0f;
     const uint N4 = N / 4;
     device const float4* pred4 = reinterpret_cast<device const float4*>(pred);
     device const float4* targ4 = reinterpret_cast<device const float4*>(target);
-    for (uint i = tid; i < N4; i += tg_size) {
-        float4 d = pred4[i] - targ4[i];
-        sum += d.x*d.x + d.y*d.y + d.z*d.z + d.w*d.w;
+
+    float4 acc = 0.0f;
+    uint i = tid;
+    for (; i + 3 * tg_size < N4; i += 4 * tg_size) {
+        float4 da = pred4[i] - targ4[i];
+        float4 db = pred4[i + tg_size] - targ4[i + tg_size];
+        float4 dc = pred4[i + 2 * tg_size] - targ4[i + 2 * tg_size];
+        float4 dd = pred4[i + 3 * tg_size] - targ4[i + 3 * tg_size];
+        acc = fma(da, da, acc);
+        acc = fma(db, db, acc);
+        acc = fma(dc, dc, acc);
+        acc = fma(dd, dd, acc);
     }
+    for (; i < N4; i += tg_size) {
+        float4 d = pred4[i] - targ4[i];
+        acc = fma(d, d, acc);
+    }
+    float sum = acc.x + acc.y + acc.z + acc.w;
 
     float sg_sum = simd_sum(sum);
 
     threadgroup float tg_sum[32];
     uint sg = tid >> 5;
-    if ((tid & 31) == 0) tg_sum[sg] = sg_sum;
+    uint lane = tid & 31u;
+    if (lane == 0) tg_sum[sg] = sg_sum;
     threadgroup_barrier(mem_flags::mem_threadgroup);
 
-    if (tid < 32) {
-        sg_sum = tg_sum[tid];
-        for (uint s = 16; s > 0; s >>= 1)
-            sg_sum += simd_shuffle_down(sg_sum, s);
+    if (sg == 0) {
+        float v = tg_sum[lane];
+        v = simd_sum(v);
+        if (lane == 0) *out = v / float(N);
     }
-    if (tid == 0) *out = sg_sum / float(N);
 }

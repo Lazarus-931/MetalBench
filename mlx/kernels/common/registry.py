@@ -466,6 +466,262 @@ REGISTRY["llama_decoder_layer"] = dict(
     bytes=4 * (64*128*3 + 128*256 + 128*128 + 128*512 + 256*128),
 )
 
+# ---- Non-obvious common kernels ----
+
+# ---- KernelBench Level-1 backfills ----
+
+ew("softsign", "softsign_f32", flops_mul=3)
+ew("hardtanh", "hardtanh_f32", flops_mul=1, rtol=0, atol=0)
+
+REGISTRY["frobenius_norm"] = dict(
+    metal_function="frobenius_norm_f32",
+    threadgroup=(1024, 1, 1),
+    input_bindings=(0,),
+    input_shapes=[(1024, 1024)],
+    output_shape=(1,),
+    rtol=1e-3, atol=1e-3,
+    grid=(1024, 1, 1),
+    scalars=[dict(binding=2, dtype="u32", value=1024 * 1024)],
+    flops=1024 * 1024 * 2,
+    bytes=4 * 1024 * 1024 + 4,
+)
+
+# max_pool1d: NLC. (8, 256, 64), K=3, stride=2 → (8, 127, 64).
+REGISTRY["max_pool1d"] = dict(
+    metal_function="max_pool1d_f32",
+    threadgroup=(1024, 1, 1),
+    input_bindings=(0,),
+    input_shapes=[(8, 256, 64)],
+    output_shape=(8, 127, 64),
+    rtol=0, atol=0,
+    grid=(64 * 1024, 1, 1),
+    scalars=[dict(binding=2, dtype="u32", value=8),
+             dict(binding=3, dtype="u32", value=256),
+             dict(binding=4, dtype="u32", value=64),
+             dict(binding=5, dtype="u32", value=3),
+             dict(binding=6, dtype="u32", value=2)],
+    flops=8 * 127 * 64 * 3,
+    bytes=4 * (8 * 256 * 64 + 8 * 127 * 64),
+)
+
+# max_pool2d: NHWC. (8, 64, 64, 64), K=2, stride=2 → (8, 32, 32, 64).
+REGISTRY["max_pool2d"] = dict(
+    metal_function="max_pool2d_f32",
+    threadgroup=(1024, 1, 1),
+    input_bindings=(0,),
+    input_shapes=[(8, 64, 64, 64)],
+    output_shape=(8, 32, 32, 64),
+    rtol=0, atol=0,
+    grid=(64 * 1024, 1, 1),
+    scalars=[dict(binding=2, dtype="u32", value=8),
+             dict(binding=3, dtype="u32", value=64),
+             dict(binding=4, dtype="u32", value=64),
+             dict(binding=5, dtype="u32", value=64),
+             dict(binding=6, dtype="u32", value=2),
+             dict(binding=7, dtype="u32", value=2)],
+    flops=8 * 32 * 32 * 64 * 4,
+    bytes=4 * (8 * 64 * 64 * 64 + 8 * 32 * 32 * 64),
+)
+
+# max_pool3d: NDHWC. (4, 32, 32, 32, 32), K=2, stride=2 → (4, 16, 16, 16, 32).
+REGISTRY["max_pool3d"] = dict(
+    metal_function="max_pool3d_f32",
+    threadgroup=(1024, 1, 1),
+    input_bindings=(0,),
+    input_shapes=[(4, 32, 32, 32, 32)],
+    output_shape=(4, 16, 16, 16, 32),
+    rtol=0, atol=0,
+    grid=(64 * 1024, 1, 1),
+    scalars=[dict(binding=2, dtype="u32", value=4),
+             dict(binding=3, dtype="u32", value=32),
+             dict(binding=4, dtype="u32", value=32),
+             dict(binding=5, dtype="u32", value=32),
+             dict(binding=6, dtype="u32", value=32),
+             dict(binding=7, dtype="u32", value=2),
+             dict(binding=8, dtype="u32", value=2)],
+    flops=4 * 16 * 16 * 16 * 32 * 8,
+    bytes=4 * (4 * 32 * 32 * 32 * 32 + 4 * 16 * 16 * 16 * 32),
+)
+
+REGISTRY["avg_pool1d"] = dict(
+    metal_function="avg_pool1d_f32",
+    threadgroup=(1024, 1, 1),
+    input_bindings=(0,),
+    input_shapes=[(8, 256, 64)],
+    output_shape=(8, 127, 64),
+    rtol=1e-5, atol=1e-6,
+    grid=(64 * 1024, 1, 1),
+    scalars=[dict(binding=2, dtype="u32", value=8),
+             dict(binding=3, dtype="u32", value=256),
+             dict(binding=4, dtype="u32", value=64),
+             dict(binding=5, dtype="u32", value=3),
+             dict(binding=6, dtype="u32", value=2)],
+    flops=8 * 127 * 64 * 4,
+    bytes=4 * (8 * 256 * 64 + 8 * 127 * 64),
+)
+
+REGISTRY["avg_pool2d"] = dict(
+    metal_function="avg_pool2d_f32",
+    threadgroup=(1024, 1, 1),
+    input_bindings=(0,),
+    input_shapes=[(8, 64, 64, 64)],
+    output_shape=(8, 32, 32, 64),
+    rtol=1e-5, atol=1e-6,
+    grid=(64 * 1024, 1, 1),
+    scalars=[dict(binding=2, dtype="u32", value=8),
+             dict(binding=3, dtype="u32", value=64),
+             dict(binding=4, dtype="u32", value=64),
+             dict(binding=5, dtype="u32", value=64),
+             dict(binding=6, dtype="u32", value=2),
+             dict(binding=7, dtype="u32", value=2)],
+    flops=8 * 32 * 32 * 64 * 5,
+    bytes=4 * (8 * 64 * 64 * 64 + 8 * 32 * 32 * 64),
+)
+
+REGISTRY["avg_pool3d"] = dict(
+    metal_function="avg_pool3d_f32",
+    threadgroup=(1024, 1, 1),
+    input_bindings=(0,),
+    input_shapes=[(4, 32, 32, 32, 32)],
+    output_shape=(4, 16, 16, 16, 32),
+    rtol=1e-5, atol=1e-6,
+    grid=(64 * 1024, 1, 1),
+    scalars=[dict(binding=2, dtype="u32", value=4),
+             dict(binding=3, dtype="u32", value=32),
+             dict(binding=4, dtype="u32", value=32),
+             dict(binding=5, dtype="u32", value=32),
+             dict(binding=6, dtype="u32", value=32),
+             dict(binding=7, dtype="u32", value=2),
+             dict(binding=8, dtype="u32", value=2)],
+    flops=4 * 16 * 16 * 16 * 32 * 9,
+    bytes=4 * (4 * 32 * 32 * 32 * 32 + 4 * 16 * 16 * 16 * 32),
+)
+
+# ---- KernelBench Level-1 backfills (88-100) ----
+
+ew("mingpt_new_gelu", "mingpt_new_gelu_f32", flops_mul=8)
+ew("hinge_loss", "hinge_loss_f32", flops_mul=3,
+   extra_scalars=[])
+
+REGISTRY["cumsum_exclusive"] = dict(
+    metal_function="cumsum_exclusive_f32",
+    threadgroup=(1024, 1, 1), input_bindings=(0,),
+    input_shapes=[(1024, 1024)], output_shape=(1024, 1024),
+    rtol=1e-3, atol=1e-3,
+    grid=(1024, 1024, 1),
+    scalars=[dict(binding=2, dtype="u32", value=1024)],
+    flops=1024 * 1024, bytes=2 * 1024 * 1024 * 4,
+)
+
+REGISTRY["masked_cumsum"] = dict(
+    metal_function="masked_cumsum_f32",
+    threadgroup=(1024, 1, 1), input_bindings=(0, 1),
+    input_shapes=[(1024, 1024), (1024, 1024)],
+    output_shape=(1024, 1024),
+    rtol=1e-3, atol=1e-3,
+    grid=(1024, 1024, 1),
+    scalars=[dict(binding=3, dtype="u32", value=1024)],
+    flops=1024 * 1024 * 2, bytes=3 * 1024 * 1024 * 4,
+)
+
+REGISTRY["huber_loss"] = dict(
+    metal_function="huber_loss_f32",
+    threadgroup=(1024, 1, 1), input_bindings=(0, 1),
+    input_shapes=[(1024, 1024), (1024, 1024)],
+    output_shape=(1024, 1024),
+    rtol=1e-5, atol=1e-6,
+    grid=(64 * 1024, 1, 1),
+    scalars=[dict(binding=3, dtype="u32", value=1024 * 1024),
+             dict(binding=4, dtype="u32", value=64 * 1024),
+             dict(binding=5, dtype="f32", value=1.0)],
+    flops=1024 * 1024 * 5,
+    bytes=3 * 1024 * 1024 * 4,
+)
+
+REGISTRY["kl_div_loss"] = dict(
+    metal_function="kl_div_loss_f32",
+    threadgroup=(1024, 1, 1), input_bindings=(0, 1),
+    input_shapes=[(1024, 1024), (1024, 1024)],
+    output_shape=(1024, 1024),
+    rtol=1e-3, atol=1e-3,
+    grid=(64 * 1024, 1, 1),
+    scalars=[dict(binding=3, dtype="u32", value=1024 * 1024),
+             dict(binding=4, dtype="u32", value=64 * 1024)],
+    flops=1024 * 1024 * 3,
+    bytes=3 * 1024 * 1024 * 4,
+)
+
+REGISTRY["triplet_margin_loss"] = dict(
+    metal_function="triplet_margin_loss_f32",
+    threadgroup=(1024, 1, 1), input_bindings=(0, 1, 2),
+    input_shapes=[(1024, 1024), (1024, 1024), (1024, 1024)],
+    output_shape=(1024,),
+    rtol=1e-3, atol=1e-3,
+    grid=(1024, 1024, 1),
+    scalars=[dict(binding=4, dtype="u32", value=1024),
+             dict(binding=5, dtype="f32", value=1.0)],
+    flops=1024 * 1024 * 6,
+    bytes=3 * 1024 * 1024 * 4 + 1024 * 4,
+)
+
+REGISTRY["top_k"] = dict(
+    # Input (R=1024, C=1024); output (R, k=16) sorted descending.
+    metal_function="top_k_f32",
+    threadgroup=(1024, 1, 1),
+    input_bindings=(0,),
+    input_shapes=[(1024, 1024)],
+    output_shape=(1024, 16),
+    rtol=0, atol=0,
+    grid=(1024, 1024, 1),
+    scalars=[dict(binding=2, dtype="u32", value=1024),
+             dict(binding=3, dtype="u32", value=16)],
+    flops=1024 * 1024 * 16,
+    bytes=4 * (1024 * 1024 + 1024 * 16),
+)
+
+REGISTRY["embedding"] = dict(
+    # indices (S=1024,) f32-clamped-to-int; table (V=4096, D=128); out (S, D)
+    metal_function="embedding_f32",
+    threadgroup=(1024, 1, 1),
+    input_bindings=(0, 1),
+    input_shapes=[(1024,), (4096, 128)],
+    output_shape=(1024, 128),
+    rtol=0, atol=0,
+    grid=(64 * 1024, 1, 1),
+    scalars=[dict(binding=3, dtype="u32", value=1024),
+             dict(binding=4, dtype="u32", value=4096),
+             dict(binding=5, dtype="u32", value=128)],
+    flops=0,
+    bytes=4 * (1024 + 1024 * 128),
+)
+
+REGISTRY["logsumexp"] = dict(
+    metal_function="logsumexp_f32",
+    threadgroup=(1024, 1, 1),
+    input_bindings=(0,),
+    input_shapes=[(1024, 1024)],
+    output_shape=(1024,),
+    rtol=1e-4, atol=1e-4,
+    grid=(1024, 1024, 1),
+    scalars=[dict(binding=2, dtype="u32", value=1024)],
+    flops=1024 * 1024 * 4,
+    bytes=4 * (1024 * 1024 + 1024),
+)
+
+REGISTRY["where"] = dict(
+    metal_function="where_f32",
+    threadgroup=(1024, 1, 1),
+    input_bindings=(0, 1, 2),
+    input_shapes=[(1024, 1024), (1024, 1024), (1024, 1024)],
+    output_shape=(1024, 1024),
+    rtol=0, atol=0,
+    grid=(64 * 1024, 1, 1),
+    scalars=[dict(binding=4, dtype="u32", value=1024 * 1024),
+             dict(binding=5, dtype="u32", value=64 * 1024)],
+    flops=1024 * 1024,
+    bytes=4 * 1024 * 1024 * 4,
+)
+
 REGISTRY["mse_loss"] = dict(
     metal_function="mse_loss_f32",
     threadgroup=(1024, 1, 1),

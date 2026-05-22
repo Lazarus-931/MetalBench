@@ -1,0 +1,39 @@
+#!/usr/bin/env bash
+# summary — diff current session.json vs a baseline snapshot, show speedup deltas.
+#
+#   ./summary <baseline.json>
+#
+# Prints per-kernel before/after, sorted by absolute delta.
+set -uo pipefail
+cd "$(dirname "$0")"
+
+[ $# -ne 1 ] && { echo "usage: ./summary <baseline.json>" >&2; exit 64; }
+BASELINE="$1"
+[ ! -f "$BASELINE" ] && { echo "baseline not found: $BASELINE" >&2; exit 1; }
+
+python3 - "$BASELINE" <<'PY'
+import json, sys
+base = json.load(open(sys.argv[1]))
+cur  = json.load(open('session.json'))
+for chip in ['apple-m2', 'apple-m4']:
+    b = base.get(chip, {})
+    c = cur.get(chip, {})
+    rows = []
+    for k in c:
+        ce = c.get(k); be = b.get(k)
+        if not isinstance(ce, dict) or not isinstance(be, dict): continue
+        cs = ce.get('speedup_vs_mlx'); bs = be.get('speedup_vs_mlx')
+        ck = ce.get('best_time_ms'); bk = be.get('best_time_ms')
+        if cs is None or bs is None: continue
+        rows.append((k, bs, cs, cs - bs, bk, ck))
+    rows.sort(key=lambda r: r[3])  # most-regressed first
+    print(f"\n=== {chip} (kernels with deltas) ===")
+    moved = [r for r in rows if abs(r[3]) > 0.01]
+    if not moved:
+        print("  (no meaningful changes)")
+        continue
+    print(f"  {'kernel':<25s}  {'before':>8s}  {'after':>8s}  {'Δ×':>7s}   {'before_ms':>9s}  {'after_ms':>9s}")
+    for k, bs, cs, d, bk, ck in moved:
+        marker = "↑" if d > 0 else "↓"
+        print(f"  {k:<25s}  {bs:>7.2f}x  {cs:>7.2f}x  {d:>+6.2f}× {marker}  {bk:>8.3f}   {ck:>8.3f}")
+PY

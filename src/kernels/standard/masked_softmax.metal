@@ -17,8 +17,6 @@ kernel void masked_softmax_f32(
     const uint sg = t >> 5;
 
     threadgroup float tg_buf[32];
-    threadgroup float row_max;
-    threadgroup float row_sum;
 
     float val = X[off + t] + M[off + t];
 
@@ -26,25 +24,15 @@ kernel void masked_softmax_f32(
     float m = simd_max(val);
     if (lane == 0) tg_buf[sg] = m;
     threadgroup_barrier(mem_flags::mem_threadgroup);
-    if (sg == 0) {
-        float v = tg_buf[lane];
-        v = simd_max(v);
-        if (lane == 0) row_max = v;
-    }
-    threadgroup_barrier(mem_flags::mem_threadgroup);
-    float rmax = row_max;
+    float rmax = simd_max(tg_buf[lane]);  // every simdgroup computes; we'll broadcast via tg_buf
 
-    // exp + sum
-    float ev = exp(val - rmax);
+    // exp + sum (reuse tg_buf after another barrier)
+    float ev = fast::exp(val - rmax);
     float s = simd_sum(ev);
+    threadgroup_barrier(mem_flags::mem_threadgroup);  // ensure tg_buf reads done
     if (lane == 0) tg_buf[sg] = s;
     threadgroup_barrier(mem_flags::mem_threadgroup);
-    if (sg == 0) {
-        float v = tg_buf[lane];
-        v = simd_sum(v);
-        if (lane == 0) row_sum = v;
-    }
-    threadgroup_barrier(mem_flags::mem_threadgroup);
+    float rsum = simd_sum(tg_buf[lane]);
 
-    Y[off + t] = ev / row_sum;
+    Y[off + t] = ev * (1.0f / rsum);
 }
