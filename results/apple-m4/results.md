@@ -12,8 +12,8 @@
 | avg_pool3d | 5.022 | 2.48× | 0 | 3 |
 | batch_mm | 2.329 | 3.41× | 1838 | 50 |
 | batch_norm | 0.059 | 2.22× | 0 | 0 |
-| bias_add | 0.066 | 3.65× | 0 | 2 |
-| bias_gelu | 6.025 | 1.28× | 0 | 1 |
+| bias_add | 2.041 | 2.21× | 0 | 2 |
+| bias_gelu | 0.079 | 1.49× | 1 | 1 |
 | clip | 0.013 | 7.43× | 0 | 1 |
 | conv1d | 7.042 | 1.36× | 12 | 0 |
 | conv2d | 2.303 | 0.83× | 252 | 1 |
@@ -27,7 +27,7 @@
 | conv_transpose2d_clamp_scale_div | 17.448 | 0.70× | 208 | 0 |
 | conv_transpose2d_sub_tanh | 12.502 | 0.80× | 322 | 1 |
 | conv_transpose3d_norm_pool_gelu | 0.189 | 4.83× | 0 | 0 |
-| cosine_similarity | 0.074 | 86.58× | 65 | 104 |
+| cosine_similarity | 4.070 | 1.16× | 0 | 1 |
 | cross_entropy_loss | 4.078 | 1.48× | 1 | 1 |
 | cumprod | 0.069 | 1.50× | 0 | 1 |
 | cumsum | 0.065 | 14.55× | 15 | 125 |
@@ -35,21 +35,21 @@
 | cumsum_reverse | 0.064 | 17.43× | 32 | 128 |
 | depthwise_conv2d | 0.191 | 127.74× | 154 | 71 |
 | dot_product | 0.006 | 176.24× | 5 | 22 |
-| dropout | 4.009 | 2.18× | 0 | 3 |
+| dropout | 0.130 | 4.22× | 0 | 5 |
 | elu | 0.014 | 2.99× | 0 | 0 |
 | embedding | 0.007 | 1247.97× | 0 | 73 |
 | exp | 0.013 | 5.48× | 0 | 1 |
-| frobenius_norm | 0.077 | 14.03× | 26 | 52 |
+| frobenius_norm | 0.111 | 4.15× | 0 | 1 |
 | fused_add_rms_norm | 0.133 | 5.15× | 2 | 5 |
 | fused_qkv_projection | 0.023 | 44.13× | 1076 | 32 |
 | gelu | 0.015 | 66.50× | 84 | 135 |
 | gelu_linear | 0.743 | 4.01× | 784 | 4 |
-| group_norm | 6.011 | 2.14× | 0 | 0 |
+| group_norm | 0.028 | 2.49× | 0 | 0 |
 | hardsigmoid | 0.014 | 4.48× | 0 | 1 |
 | hardswish | 0.015 | 65.63× | 69 | 138 |
 | hardtanh | 0.015 | 64.46× | 16 | 135 |
 | huber_loss | 0.127 | 62.75× | 41 | 98 |
-| instance_norm | 6.021 | 1.13× | 0 | 0 |
+| instance_norm | 0.038 | 3.72× | 1 | 1 |
 | kl_div_loss | 0.129 | 7.76× | 24 | 96 |
 | l1_norm | 0.035 | 28.67× | 58 | 116 |
 | l2_norm | 0.035 | 194.06× | 87 | 117 |
@@ -62,7 +62,7 @@
 | log_softmax | 4.067 | 1.48× | 0 | 1 |
 | log_softmax_cross_entropy | 0.094 | 4.36× | 3 | 4 |
 | logsigmoid | 0.015 | 68.00× | 84 | 134 |
-| logsumexp | 4.045 | 2.22× | 1 | 1 |
+| logsumexp | 0.069 | 2.22× | 1 | 1 |
 | manhattan_similarity | 0.073 | 90.88× | 27 | 109 |
 | masked_cumsum | 0.129 | 3.76× | 0 | 5 |
 | masked_softmax | 6.113 | 1.79× | 1 | 2 |
@@ -77,13 +77,13 @@
 | mingpt_new_gelu | 0.016 | 2.99× | 0 | 0 |
 | mish | 0.013 | 4.30× | 0 | 0 |
 | mlp | 0.049 | 2.98× | 1 | 0 |
-| mse_loss | 0.191 | 2.51× | 0 | 3 |
+| mse_loss | 0.216 | 47.32× | 13 | 54 |
 | nll_loss | 0.081 | 96.73× | 25 | 101 |
 | outer_product | 4.006 | 0.83× | 0 | 1 |
 | prelu | 0.017 | 4.47× | 0 | 1 |
 | rect_mm | 10.725 | 1.02× | 1030 | 3 |
 | relu | 0.015 | 67.38× | 16 | 135 |
-| residual_add | 0.138 | 2.91× | 0 | 4 |
+| residual_add | 0.136 | 3.25× | 0 | 3 |
 | resnet | 0.157 | 2.87× | 3 | 0 |
 | rms_norm | 0.063 | 14.85× | 73 | 118 |
 | rms_norm_linear | 0.749 | 10.37× | 2467 | 14 |
@@ -104,8 +104,8 @@
 | trace | 0.005 | 40.33× | 0 | 1 |
 | transformer_block | 0.362 | 3.78× | 7 | 0 |
 | transpose_2d | 0.167 | 0.16× | 0 | 96 |
-| triplet_margin_loss | 3.142 | 3.30× | 1 | 2 |
-| variance | 0.035 | 28.42× | 85 | 114 |
+| triplet_margin_loss | 3.135 | 1.75× | 1 | 2 |
+| variance | 4.032 | 1.49× | 0 | 0 |
 | where | 0.180 | 3.11× | 0 | 4 |
 
 _105 kernels._
