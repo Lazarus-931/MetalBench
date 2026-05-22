@@ -1,21 +1,23 @@
-// conv1d implicit im2col GEMM with simdgroup_matrix MMA (M4-tuned).
+// conv1d implicit im2col GEMM with simdgroup_matrix MMA (M4-tuned v2).
 //
-// Logical GEMM (workload from registry):
-//   M_g = N*L2 = 8*254 = 2032
-//   K_g = R*C  = 3*64 = 192
-//   N_g = C_out = 128
-//
-// Tiling: BM=64, BN=64, BK=16 → 12 K-tiles; 1024 threads/TG = 32 simdgroups.
+// Logical GEMM: M_g=2032, K_g=192, N_g=128.
+// Tiling: BM=64, BN=64, BK=32 → 6 K-tiles; 1024 threads/TG = 32 simdgroups.
 // SM=16, SN=8 → MMA_M=2, MMA_N=1, register C accumulation.
 //
-// Wins vs prior version:
-//   * direct simdgroup_store to global for full m-tiles (skip SMEM Cs round-
-//     trip); SMEM fallback only for the trailing partial m-tile.
-//   * float4 coalesced load of A from x (B = w stays scalar because consecutive
-//     n-columns of B are strided by K_g in w).
-//   * im2col mapping fused into the A loader; channel boundaries handled
-//     correctly when BK does NOT divide C (here BK=16 < C=64, so every
-//     BK-chunk lies entirely within one R-position).
+// Notes for M4 (10 GPU cores):
+//   * Workload is tiny — total FLOPs ≈ 100M. With registry-fixed
+//     threadgroup=(1024,1,1) we get only 64 TGs (grid 65536/1024).
+//     Each TG = 32 simdgroups; M4 cores fit ~1-2 such heavy TGs each →
+//     ~10-20 TGs concurrent → kernel is launch/occupancy-bound at this size.
+//   * Tile-shrink for occupancy is blocked by registry threadgroup=1024
+//     (the SM allocates per-TG, so reducing per-tile threads still consumes
+//     the same TG slot). Re-tested register-pipelined prefetch (v3) – it
+//     regressed (48 ms). Sticking with v2 PAD=0 + full-lane loads.
+//
+// Wins:
+//   * PAD=0 saves SMEM (As: 64*32, Bs: 32*64).
+//   * Wider A/B loads using ALL 1024 threads (no idle lanes).
+//   * Direct simdgroup_store to global for full m-tiles.
 
 #include <metal_stdlib>
 #include <metal_simdgroup>
@@ -27,9 +29,8 @@ constant constexpr uint SM = 16, SN = 8;
 constant constexpr uint SIMDS_N = BN / SN;   // 8
 constant constexpr uint MMA_M = SM / 8;      // 2
 constant constexpr uint MMA_N = SN / 8;      // 1
-constant constexpr uint PAD = 4;
-constant constexpr uint LDA = BK + PAD;      // 20
-constant constexpr uint LDB = BN + PAD;      // 68
+constant constexpr uint LDA = BK;            // 32, PAD=0
+constant constexpr uint LDB = BN;            // 64, PAD=0
 
 kernel void conv1d_f32(
     device const float*  x       [[buffer(0)]],
@@ -53,16 +54,13 @@ kernel void conv1d_f32(
     const uint num_n_tiles = K_out / BN;
     const uint total_tiles = num_m_tiles * num_n_tiles;
 
-    // Union As+Bs+Cs into a single threadgroup buffer to stay under the 32KB
-    // limit. After the K-loop completes the As/Bs region is dead and can be
-    // reused for the partial-tile Cs spill (Cs needs BM*BN = 16384 B).
     threadgroup float Smem[(BM * BN > BM * LDA + BK * LDB) ? BM * BN : BM * LDA + BK * LDB];
     threadgroup float* As = Smem;
     threadgroup float* Bs = Smem + BM * LDA;
-    threadgroup float* Cs = Smem;     // alias; valid only after final barrier
+    threadgroup float* Cs = Smem;
 
-    const uint sm = sgid / SIMDS_N;   // 0..3
-    const uint sn = sgid % SIMDS_N;   // 0..7
+    const uint sm = sgid / SIMDS_N;
+    const uint sn = sgid % SIMDS_N;
 
     for (uint tile = tg_id; tile < total_tiles; tile += n_tg) {
         const uint mtile  = tile / num_n_tiles;
@@ -85,36 +83,27 @@ kernel void conv1d_f32(
             const uint rr = k0 / C;
             const uint c_base = k0 - rr * C;
 
-            // ---- Load A tile: BM=64 rows × BK=16 cols, float4 along cols ----
-            // 1024 threads → use 64 rows × 4 (BK/4) = 256 lanes; each loads
-            // one float4. Remaining 768 threads idle for A.
             {
-                const uint a_row = lid >> 3;     // 0..127 → use 0..63
-                const uint a_c4  = lid & 7u;     // 0..7
-                if (a_row < BM) {
-                    const uint col = a_c4 * 4u;  // 0,4,...,28
-                    const uint m_g = c_row0 + a_row;
-                    float4 v = float4(0.0f);
-                    if (m_g < M_g) {
-                        const uint n_idx  = m_g / L2;
-                        const uint l2_idx = m_g - n_idx * L2;
-                        const uint li     = l2_idx * stride_ + rr;
-                        v = *reinterpret_cast<const device float4*>(
-                            &x[(n_idx * L + li) * C + c_base + col]);
-                    }
-                    *reinterpret_cast<threadgroup float4*>(&As[a_row * LDA + col]) = v;
+                const uint a_row = lid >> 4;
+                const uint a_c2  = lid & 15u;
+                const uint col = a_c2 * 2u;
+                const uint m_g = c_row0 + a_row;
+                float2 v = float2(0.0f);
+                if (m_g < M_g) {
+                    const uint n_idx  = m_g / L2;
+                    const uint l2_idx = m_g - n_idx * L2;
+                    const uint li     = l2_idx * stride_ + rr;
+                    v = *reinterpret_cast<const device float2*>(
+                        &x[(n_idx * L + li) * C + c_base + col]);
                 }
+                *reinterpret_cast<threadgroup float2*>(&As[a_row * LDA + col]) = v;
             }
 
-            // ---- Load B tile: BK=32 rows × BN=64 cols ----
-            // Each thread loads 2 scalars. We use a float2 coalesced load
-            // along the K dimension (consecutive in w since w is laid out
-            // (C_out, K_g) row-major) and scatter to two rows of Bs.
             {
-                const uint b_col  = lid >> 4;            // 0..63
-                const uint b_row0 = (lid & 15u) * 2u;    // 0,2,..,30
-                const uint k_glob = k0 + b_row0;
-                const uint n_col  = c_col0 + b_col;
+                const uint b_col   = lid >> 4;
+                const uint b_row0  = (lid & 15u) * 2u;
+                const uint k_glob  = k0 + b_row0;
+                const uint n_col   = c_col0 + b_col;
                 const device float2* wp = reinterpret_cast<const device float2*>(
                     &w[n_col * K_g + k_glob]);
                 float2 v = *wp;
@@ -124,7 +113,6 @@ kernel void conv1d_f32(
 
             threadgroup_barrier(mem_flags::mem_threadgroup);
 
-            // ---- Compute ----
             #pragma unroll
             for (uint kc = 0; kc < BK; kc += 8u) {
                 simdgroup_matrix<float, 8, 8> A_blk[MMA_M], B_blk[MMA_N];
@@ -144,10 +132,7 @@ kernel void conv1d_f32(
             threadgroup_barrier(mem_flags::mem_threadgroup);
         }
 
-        // ---- Store C ----
         if (!partial_m) {
-            // Direct simdgroup_store to global; y is contiguous as
-            // (M_g, K_out) row-major.
             #pragma unroll
             for (uint i = 0; i < MMA_M; ++i) {
                 #pragma unroll
@@ -167,7 +152,6 @@ kernel void conv1d_f32(
                 }
             }
             threadgroup_barrier(mem_flags::mem_threadgroup);
-            // 1024 threads × float4 = 4096 floats = BM*BN exactly.
             const uint idx = lid;
             const uint r   = (idx * 4u) / BN;
             const uint c   = (idx * 4u) - r * BN;

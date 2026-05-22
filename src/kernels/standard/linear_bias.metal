@@ -114,7 +114,10 @@ kernel void linear_bias_f32(
 
     // Stage the matmul tile into threadgroup memory so we can fuse the
     // bias-add into the final device write (no read-modify-write on Y).
-    // Load bias into the (now-dead-after-barrier) tail of the shared scratch.
+    // Barrier first: the matmul tail above still reads Bs[buf], whose region
+    // aliases bias_tile in the unioned scratch. Wait for all simdgroups to
+    // finish their tail loads before we clobber that memory.
+    threadgroup_barrier(mem_flags::mem_threadgroup);
     if (lid < BN)
         bias_tile[lid] = Bias[c_col0 + lid];
     #pragma unroll

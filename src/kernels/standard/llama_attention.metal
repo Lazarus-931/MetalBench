@@ -10,10 +10,13 @@ using namespace metal;
 #define G    2
 #define TG   1024
 
-// Optimizations vs baseline:
-//   - Project Q for ALL HH heads in one fused sweep of x and store in regs.
-//   - fast::exp / fast::cos / fast::sin / fast::log throughout.
-//   - RoPE coefficients computed once per thread (shared by Q and K).
+// v3 optimizations vs baseline (24KB TG):
+//   - Within a kv-group, fuse the G=2 query heads in the attention pass so each
+//     Kh/Vh threadgroup read is reused across both heads (halves TG reads).
+//   - float2 reads from Kh/Vh in the inner kt loop.
+//   - Keep TG memory at 24KB (Kh + Vh + single oh) for occupancy parity.
+//   - Process head 0 output projection while still holding head 1 attention
+//     result in registers.
 //
 // TG memory: Kh (8KB) + Vh (8KB) + oh (8KB) = 24KB.
 
@@ -53,8 +56,7 @@ kernel void llama_attention_f32(
     const float c_rope = fast::cos(ang);
     const float s_rope = fast::sin(ang);
 
-    // ---- Fused projection of Q (all heads) and K, V (all kv-heads) in ONE
-    //      sweep of x. ----
+    // Fused projection of Q (all heads) and K, V (all kv-heads) in one sweep.
     float qreg0[HH], qreg1[HH];
     float kreg0[HKV], kreg1[HKV];
     float vreg0[HKV], vreg1[HKV];
@@ -66,13 +68,10 @@ kernel void llama_attention_f32(
         vreg0[kv] = 0.f; vreg1[kv] = 0.f;
     }
 
-    // Use float2 loads for the column pair (dh0, dh1 = 2*lane, 2*lane+1).
     for (uint d = 0; d < D; ++d) {
         float xv = x[off + d];
         const device float2* wrow2 =
-            (const device float2*)(W_qkv + d * QKV_W) + i_pair;  // each elt is 2 consecutive cols
-        // Q heads occupy columns [0, HH*DH) = 16 pairs per head row, so
-        // for head h the pair index is h*16 + i_pair = h*(DH/2) + i_pair.
+            (const device float2*)(W_qkv + d * QKV_W) + i_pair;
         #pragma unroll
         for (uint h = 0; h < HH; ++h) {
             float2 w = wrow2[h * (DH/2)];
@@ -91,14 +90,14 @@ kernel void llama_attention_f32(
             vreg1[kv] += xv * wv.y;
         }
     }
-    // Apply RoPE to Q (in regs).
+    // RoPE Q.
     #pragma unroll
     for (uint h = 0; h < HH; ++h) {
         float q0 = qreg0[h], q1 = qreg1[h];
         qreg0[h] = q0 * c_rope - q1 * s_rope;
         qreg1[h] = q0 * s_rope + q1 * c_rope;
     }
-    // Apply RoPE to K (in regs).
+    // RoPE K.
     #pragma unroll
     for (uint kv = 0; kv < HKV; ++kv) {
         float k0 = kreg0[kv], k1 = kreg1[kv];
@@ -106,58 +105,96 @@ kernel void llama_attention_f32(
         kreg1[kv] = k0 * s_rope + k1 * c_rope;
     }
 
-    // ---- Loop over kv-heads. ----
     for (uint kvh = 0; kvh < HKV; ++kvh) {
-        // Pull this kvh's K, V from registers into TG memory.
         Kh[sq*DH + dh0] = kreg0[kvh];
         Kh[sq*DH + dh1] = kreg1[kvh];
         Vh[sq*DH + dh0] = vreg0[kvh];
         Vh[sq*DH + dh1] = vreg1[kvh];
         threadgroup_barrier(mem_flags::mem_threadgroup);
 
-        for (uint h_off = 0; h_off < G; ++h_off) {
-            const uint h  = kvh * G + h_off;
-            const float q0r = qreg0[h];
-            const float q1r = qreg1[h];
+        // Q regs for both query heads in this kv-group.
+        const float qa0 = qreg0[kvh*G + 0];
+        const float qa1 = qreg1[kvh*G + 0];
+        const float qb0 = qreg0[kvh*G + 1];
+        const float qb1 = qreg1[kvh*G + 1];
 
-            float out0 = 0.f, out1 = 0.f;
-            float m_run = -INFINITY;
-            float l_run = 0.f;
-            for (uint kt = 0; kt < S; ++kt) {
-                float ka = Kh[kt*DH + dh0];
-                float kb = Kh[kt*DH + dh1];
-                float partial = q0r * ka + q1r * kb;
+        float outA0 = 0.f, outA1 = 0.f, mA = -INFINITY, lA = 0.f;
+        float outB0 = 0.f, outB1 = 0.f, mB = -INFINITY, lB = 0.f;
+
+        for (uint kt = 0; kt < S; ++kt) {
+            const threadgroup float2* Kh2 = (const threadgroup float2*)(Kh + kt*DH);
+            const threadgroup float2* Vh2 = (const threadgroup float2*)(Vh + kt*DH);
+            float2 kv2 = Kh2[i_pair];
+            float2 vv2 = Vh2[i_pair];
+
+            // Head A.
+            {
+                float partial = qa0 * kv2.x + qa1 * kv2.y;
                 partial += simd_shuffle_xor(partial, 1);
                 partial += simd_shuffle_xor(partial, 2);
                 partial += simd_shuffle_xor(partial, 4);
                 partial += simd_shuffle_xor(partial, 8);
                 float score = partial * inv_sqrt_dh;
-                float mn = max(m_run, score);
-                float alpha = fast::exp(m_run - mn);
+                float mn = max(mA, score);
+                float alpha = fast::exp(mA - mn);
                 float beta  = fast::exp(score - mn);
-                out0 = out0 * alpha + beta * Vh[kt*DH + dh0];
-                out1 = out1 * alpha + beta * Vh[kt*DH + dh1];
-                l_run = l_run * alpha + beta;
-                m_run = mn;
+                outA0 = outA0 * alpha + beta * vv2.x;
+                outA1 = outA1 * alpha + beta * vv2.y;
+                lA = lA * alpha + beta;
+                mA = mn;
             }
-            float inv = 1.0f / l_run;
-            oh[sq*DH + dh0] = out0 * inv;
-            oh[sq*DH + dh1] = out1 * inv;
+            // Head B.
+            {
+                float partial = qb0 * kv2.x + qb1 * kv2.y;
+                partial += simd_shuffle_xor(partial, 1);
+                partial += simd_shuffle_xor(partial, 2);
+                partial += simd_shuffle_xor(partial, 4);
+                partial += simd_shuffle_xor(partial, 8);
+                float score = partial * inv_sqrt_dh;
+                float mn = max(mB, score);
+                float alpha = fast::exp(mB - mn);
+                float beta  = fast::exp(score - mn);
+                outB0 = outB0 * alpha + beta * vv2.x;
+                outB1 = outB1 * alpha + beta * vv2.y;
+                lB = lB * alpha + beta;
+                mB = mn;
+            }
+        }
 
+        // Reuse Kh as a second oh buffer (Kh no longer needed for this kvh).
+        // Barrier first: ensure all threads have finished reading Kh in the
+        // attention loop before any thread overwrites it.
+        threadgroup_barrier(mem_flags::mem_threadgroup);
+        threadgroup float* ohA = oh;
+        threadgroup float* ohB = Kh;
+        {
+            float invA = 1.0f / lA;
+            float invB = 1.0f / lB;
+            ohA[sq*DH + dh0] = outA0 * invA;
+            ohA[sq*DH + dh1] = outA1 * invA;
+            ohB[sq*DH + dh0] = outB0 * invB;
+            ohB[sq*DH + dh1] = outB1 * invB;
             threadgroup_barrier(mem_flags::mem_threadgroup);
+        }
 
+        // Fused output projection: y += ohA @ W_o[hA] + ohB @ W_o[hB].
+        {
+            const uint hA = kvh * G + 0;
+            const uint hB = kvh * G + 1;
             for (uint idx = t; idx < S*D; idx += TG) {
                 const uint sr   = idx / D;
                 const uint dout = idx % D;
                 float acc = 0.f;
+                const threadgroup float* ohA_row = ohA + sr*DH;
+                const threadgroup float* ohB_row = ohB + sr*DH;
+                const device float* WoA = W_o + hA*DH*D + dout;
+                const device float* WoB = W_o + hB*DH*D + dout;
+                #pragma unroll 8
                 for (uint dh = 0; dh < DH; ++dh) {
-                    acc += oh[sr*DH + dh] * W_o[(h*DH + dh)*D + dout];
+                    acc += ohA_row[dh] * WoA[dh*D];
+                    acc += ohB_row[dh] * WoB[dh*D];
                 }
-                if (kvh == 0 && h_off == 0) {
-                    y[idx] = acc;
-                } else {
-                    y[idx] += acc;
-                }
+                if (kvh == 0) { y[idx] = acc; } else { y[idx] += acc; }
             }
             threadgroup_barrier(mem_flags::mem_threadgroup | mem_flags::mem_device);
         }

@@ -8,7 +8,8 @@ kernel void log_f32(
     constant     uint&   grid_size [[buffer(3)]],
     uint  tid                     [[thread_position_in_grid]])
 {
+    // Mirror baseline: log(|x| + tiny) to keep random-normal inputs finite.
     for (uint i = tid; i < N; i += grid_size) {
-        y[i] = log(x[i]);
+        y[i] = log(fabs(x[i]) + 1e-30f);
     }
 }

@@ -164,12 +164,12 @@ REGISTRY["matvec"] = dict(
 # Transpose: tiled 32x32
 REGISTRY["transpose_2d"] = dict(
     metal_function="transpose_2d_f32",
-    threadgroup=(1024, 1, 1),
+    threadgroup=(256, 1, 1),
     input_bindings=(0,),
     input_shapes=[(1024, 2048)],
     output_shape=(2048, 1024),
     rtol=0, atol=0,
-    grid=(64 * 1024, 1, 1),
+    grid=(512 * 256, 1, 1),
     scalars=[
         dict(binding=2, dtype="u32", value=1024),
         dict(binding=3, dtype="u32", value=2048),
