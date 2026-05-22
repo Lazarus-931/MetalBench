@@ -12,6 +12,7 @@ constant constexpr uint SIMDS_N = BN / SN;          // 2
 constant constexpr uint MMA_M = SM / 8, MMA_N = SN / 8;  // 2, 4
 constant constexpr uint LDA = BK, LDB = BN;
 constant constexpr uint TILES_N = 256 / BN;          // 4
+constant constexpr uint ACTIVE_TG = TILES_N * (256 / BM);  // 16
 
 kernel void matmul_sub_mul_relu_f32(
     device const float* X       [[buffer(0)]],
@@ -27,6 +28,11 @@ kernel void matmul_sub_mul_relu_f32(
     uint lid                    [[thread_index_in_threadgroup]],
     uint lane                   [[thread_index_in_simdgroup]])
 {
+    // Grid is 65536 → 256 TGs but only 16 cover the 4×4 tile grid.
+    // Without this guard, the other 240 TGs perform OOB reads on X/W
+    // and OOB writes on Y (undefined behaviour on M4 — observed as
+    // silent dispatch / garbage timing).
+    if (tgid_lin >= ACTIVE_TG) return;
     const uint tx = tgid_lin % TILES_N;
     const uint ty = tgid_lin / TILES_N;
 

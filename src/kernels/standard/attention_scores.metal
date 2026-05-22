@@ -18,7 +18,14 @@ kernel void attention_scores_f32(
 
     threadgroup float qrow[64];      // D
     threadgroup float scores[128];   // S
-    threadgroup float reduce[32];
+    // Disjoint slots: max phase uses reduce_max[0..31] + max_out,
+    // sum phase uses reduce_sum[0..31] + sum_out. Prevents RAW race
+    // where tid==0's sum-phase write could clobber reduce[0] before
+    // another thread's row_max read.
+    threadgroup float reduce_max[32];
+    threadgroup float reduce_sum[32];
+    threadgroup float max_out;
+    threadgroup float sum_out;
 
     if (tid < D) qrow[tid] = Q[qr * D + tid];
     threadgroup_barrier(mem_flags::mem_threadgroup);
@@ -48,28 +55,28 @@ kernel void attention_scores_f32(
 
     float v = (tid < S) ? scores[tid] : -INFINITY;
     float mx_v = simd_max(v);
-    if ((tid & 31) == 0) reduce[tid >> 5] = mx_v;
+    if ((tid & 31) == 0) reduce_max[tid >> 5] = mx_v;
     threadgroup_barrier(mem_flags::mem_threadgroup);
     if (tid < 32) {
-        float m = (tid < 4) ? reduce[tid] : -INFINITY;
+        float m = (tid < 4) ? reduce_max[tid] : -INFINITY;
         m = simd_max(m);
-        if (tid == 0) reduce[0] = m;
+        if (tid == 0) max_out = m;
     }
     threadgroup_barrier(mem_flags::mem_threadgroup);
-    float row_max = reduce[0];
+    float row_max = max_out;
 
     float e = (tid < S) ? fast::exp(scores[tid] - row_max) : 0.0f;
     if (tid < S) scores[tid] = e;
     float sum = simd_sum(e);
-    if ((tid & 31) == 0) reduce[tid >> 5] = sum;
+    if ((tid & 31) == 0) reduce_sum[tid >> 5] = sum;
     threadgroup_barrier(mem_flags::mem_threadgroup);
     if (tid < 32) {
-        float s = (tid < 4) ? reduce[tid] : 0.0f;
+        float s = (tid < 4) ? reduce_sum[tid] : 0.0f;
         s = simd_sum(s);
-        if (tid == 0) reduce[0] = s;
+        if (tid == 0) sum_out = s;
     }
     threadgroup_barrier(mem_flags::mem_threadgroup);
-    float inv_sum = 1.0f / reduce[0];
+    float inv_sum = 1.0f / sum_out;
 
     if (tid < S) O[qr * S + tid] = scores[tid] * inv_sum;
 }

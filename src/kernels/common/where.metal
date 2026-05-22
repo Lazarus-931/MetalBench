@@ -5,6 +5,7 @@
 #include <metal_stdlib>
 using namespace metal;
 
+[[max_total_threads_per_threadgroup(1024)]]
 kernel void where_f32(
     device const float*  cond      [[buffer(0)]],
     device const float*  a         [[buffer(1)]],
