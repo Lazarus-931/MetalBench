@@ -13,13 +13,13 @@
   "pso_max_threads_per_tg": 1024,
   "correct": true,
   "metrics": {
-    "speedup": 3.8763541681587728,
-    "gflops": 2.5384639593294196,
-    "gbps": 4.061542334927071,
+    "speedup": 0.8698867163713736,
+    "gflops": 0.1690383682674931,
+    "gbps": 0.27046138922798896,
     "arith_intensity": 0.625,
-    "stability": 0.07861011518803873
+    "stability": 0.9895101450312247
   },
-  "speedup": 3.8763541681587728,
+  "speedup": 0.8698867163713736,
   "kernel_timing": {
     "chip": {
       "type": "m4",
@@ -32,9 +32,9 @@
     "metal_device": "Apple M4",
     "tg_static_mem_bytes": 128,
     "pso_max_threads_per_tg": 1024,
-    "min_ms": 0.077417,
-    "median_ms": 2.065375,
-    "mean_ms": 1.074938,
+    "min_ms": 26.96325,
+    "median_ms": 31.015917,
+    "mean_ms": 30.693942,
     "iters": 10,
     "available_counter_sets": [
       "timestamp"
@@ -44,11 +44,11 @@
     }
   },
   "reference_timing": {
-    "min_ms": 5.927082966081798,
-    "median_ms": 8.006124990060925,
-    "mean_ms": 7.999399898108095,
+    "min_ms": 20.984583999961615,
+    "median_ms": 26.980334194377065,
+    "mean_ms": 24.297171202488244,
     "iters": 10,
-    "peak_memory_bytes": 16781328
+    "peak_memory_bytes": 20979728
   },
   "outputs": [
     {
@@ -63,5 +63,5 @@
     "counters_available": false
   },
   "target": "speed",
-  "score": 3.8763541681587728
+  "score": 0.8698867163713736
 }

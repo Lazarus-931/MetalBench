@@ -1,20 +1,41 @@
-// conv2d implicit-im2col GEMM with simdgroup_matrix MMA.
-// M4 wins over the previous (M4) kernel:
-//   - K-tile double-buffering: load next tile (A and B) while compute
-//     proceeds on the current. BK=16 chosen so As + Bs (×2) + the aliased
-//     Cs region fits in the 32 KB threadgroup memory.
-//   - Hoist per-row (n_idx, h2, w2) im2col coords out of the K-loop — these
-//     are constant across all 36 K-iterations and the previous kernel
-//     recomputed them every step.
-// SMEM: As[2][64×20] = 2560 + Bs[2][16×132] = 4224 = 6784 floats during the
-// K-loop; Cs[64×128] = 8192 floats (aliased over the same scratch) during the
-// epilogue. Max = 8192 floats = 32 KB (M4 limit).
+// conv2d implicit-im2col GEMM with simdgroup_matrix MMA — M4 variant.
+// Adopts the M2-tuned split-issue + float4 loads. The prior M4 attempt
+// (BK=16 K-tile double-buffered) regressed catastrophically to ~30+ ms on
+// M4 hardware; this single-buffered BK=32 path with hoisted (n,h,w) im2col
+// coords and float4 A/B loads recovers and improves on the original win.
+//
+// M2 wins vs default.metal (4.21 → 3.53 ms, 0.67× → 0.81× MLX, 30% → 36% SOL):
+//   - Split-issue A/B loads: threads lid<512 do the entire A-tile (float4 along
+//     C), threads lid>=512 do the entire B-tile (two float4 K-contiguous halves
+//     of N). The two device loads issue in parallel rather than serially per
+//     thread, hiding global-load latency on M2's narrower memory subsystem.
+//   - Float4 A loads: within a BK-aligned k-tile, BK | C, so 4 consecutive
+//     a_col map to 4 consecutive C-indices in the source x tensor (single
+//     (rr, ss) cell). One float4 per A-loading thread instead of 2 scalars.
+//   - Per-row (n, h, w) coords cached in a TG slot parked beyond As/Bs and
+//     read by the A-load thread once per outer tile.
+//   - Hoist (rr_t, ss_t, cbase) and the x-row base address out of the inner
+//     K-loop body — these are uniform across all threads each k-tile because
+//     BK | C, so the per-thread arithmetic in the K-loop is one add/mul.
+//   - Drop bounds checks on K (K_g % BK == 0) and N (BN == K_out).
+//
+// Previous M4 wins (still active):
+//   - BK=32 (was 16): halves K-loop iterations and amortises the per-step
+//     threadgroup barriers (×2).
+//   - Hoist per-row (n_idx, h2, w2) im2col coords out of the K-loop. The
+//     original code recomputed them every K-step (4 integer divs/thread/step);
+//     with K=576 and BK=32 that's a worthwhile 18-iteration saving.
+//   - B-tile loaded as float4 along K (weights are K-major contiguous), then
+//     scattered into the K-row-major SMEM tile.
+//   - Output (Cs) store unchanged.
+// Threadgroup memory: As(64×36) + Bs(32×132) = 6528 floats = 26 KB; Cs aliased
+// to the same 8192-float scratch — 32 KB total, exactly at the M4 limit.
 #include <metal_stdlib>
 #include <metal_simdgroup>
 #include <metal_simdgroup_matrix>
 using namespace metal;
 
-constant constexpr uint BM = 64, BN = 128, BK = 16;
+constant constexpr uint BM = 64, BN = 128, BK = 32;
 constant constexpr uint SM = 16, SN = 16;
 constant constexpr uint SIMDS_M = BM / SM;   // 4
 constant constexpr uint SIMDS_N = BN / SN;   // 8
@@ -23,11 +44,10 @@ constant constexpr uint MMA_M = SM / 8;      // 2
 constant constexpr uint MMA_N = SN / 8;      // 2
 constant constexpr uint TG_THREADS = 1024;
 constant constexpr uint PAD = 4;
-constant constexpr uint LDA = BK + PAD;      // 20
+constant constexpr uint LDA = BK + PAD;      // 36
 constant constexpr uint LDB = BN + PAD;      // 132
-constant constexpr uint AS_STRIDE = BM * LDA;   // 1280
-constant constexpr uint BS_STRIDE = BK * LDB;   // 2112
 
+[[max_total_threads_per_threadgroup(1024)]]
 kernel void conv2d_f32(
     device const float*  x       [[buffer(0)]],
     device const float*  w       [[buffer(1)]],
@@ -53,18 +73,38 @@ kernel void conv2d_f32(
     const uint HW2 = H2 * W2;
     const uint num_m_tiles = (M_g + BM - 1) / BM;
 
-    threadgroup float scratch[BM * BN];
-    threadgroup float* Asb[2] = { scratch, scratch + AS_STRIDE };
-    threadgroup float* Bsb[2] = { scratch + 2u * AS_STRIDE,
-                                  scratch + 2u * AS_STRIDE + BS_STRIDE };
-    threadgroup float* Cs = scratch;
+    threadgroup float scratch[BM * BN];     // 8192 floats = 32 KB
+    threadgroup float* As = scratch;
+    threadgroup float* Bs = scratch + BM * LDA;     // offset 2304, length 32*132=4224
+    threadgroup float* Cs = scratch;                // alias (used after K-loop)
+    // Row metadata stashed after As+Bs (end=6528). 256 floats free → 4 BM-sized uint arrays.
+    threadgroup uint* row_n = (threadgroup uint*)(scratch + 6528);          // [BM]
+    threadgroup uint* row_h = (threadgroup uint*)(scratch + 6528 + BM);     // [BM]
+    threadgroup uint* row_w = (threadgroup uint*)(scratch + 6528 + 2 * BM); // [BM]
+    threadgroup uint* row_in_arr = (threadgroup uint*)(scratch + 6528 + 3 * BM); // [BM]
 
     const uint sm = sgid / SIMDS_N;          // 0..3
     const uint sn = sgid % SIMDS_N;          // 0..7
 
-    // ---- Thread-private indexing for A / B loads.
-    const uint a_row = lid / BK;             // 0..63
-    const uint a_col = lid - a_row * BK;     // 0..15
+    // ---- Split 1024 threads into two halves so A-load and B-load issue in
+    // parallel (different threads, no dependence). 512 do A, 512 do B.
+    //
+    // A-load (BM=64 × BK=32 = 2048 floats). 512 threads × 1 float4 = 2048. We
+    // tile A as float4 along c (4 consecutive c values). 64 rows × 8 float4
+    // = 512 jobs.
+    const uint a_lid  = lid;                              // 0..511 active
+    const uint a_row  = a_lid / 8u;                       // 0..63
+    const uint a_col4 = a_lid & 7u;                       // 0..7 (float4 in c)
+    const uint a_col0 = a_col4 * 4u;                      // 0..28
+
+    // B-load (BK=32 × BN=128 = 4096 floats). 512 threads × 2 float4 = 4096.
+    // Weights w[n_col, k] are K-contiguous → float4 along k.
+    // 128 n_cols × 8 float4 (k_glob=k_base..k_base+3) = 1024 float4 jobs.
+    // 512 threads × 2 float4 each.
+    const uint b_lid  = lid - 512u;                        // 0..511 when lid>=512
+    const uint b_col_a = b_lid / 8u;                       // 0..63   (1st N half)
+    const uint b_k4    = b_lid & 7u;                       // 0..7
+    const uint b_col_b = b_col_a + 64u;                    // 64..127 (2nd N half)
 
     // Persistent-threadgroup loop: each TG processes multiple BM-tiles.
     for (uint tile = tg_id; tile < num_m_tiles; tile += n_tg) {
@@ -77,120 +117,103 @@ kernel void conv2d_f32(
             for (uint j = 0; j < MMA_N; ++j)
                 C_acc[i][j] = simdgroup_matrix<float, 8, 8>(0.0f);
 
-        // Hoist per-row im2col coords (constant across the K-loop).
-        const uint m_g = c_row0 + a_row;
-        const bool row_in = (m_g < M_g);
-        uint nv = 0, hv = 0, wv = 0;
-        if (row_in) {
-            nv = m_g / HW2;
-            const uint rem = m_g - nv * HW2;
-            hv = rem / W2;
-            wv = rem - hv * W2;
-        }
-
-        const uint num_k_tiles = (K_g + BK - 1) / BK;
-
-        // ---- Prologue: load K-tile 0 into buffer 0.
-        {
-            const uint k0 = 0;
-            const uint k_glob = k0 + a_col;
-            float va = 0.0f;
-            if (row_in && k_glob < K_g) {
-                const uint rr  = k_glob / SC;
-                const uint rem = k_glob - rr * SC;
-                const uint ss  = rem / C;
-                const uint cc  = rem - ss * C;
-                const uint hi  = hv * stride_ + rr;
-                const uint wi  = wv * stride_ + ss;
-                va = x[((nv * H + hi) * W + wi) * C + cc];
+        // Hoist per-row (n,h,w) into TG SMEM so the A-load thread (which owns
+        // a_row = a_lid/8) can read its row coords without per-thread div.
+        // Hoist per-row coords into shared scratch (aliased onto Cs region).
+        if (lid < BM) {
+            const uint m_g = c_row0 + lid;
+            uint nv = 0, hv = 0, wv = 0, inb = 0;
+            if (m_g < M_g) {
+                nv = m_g / HW2;
+                const uint rem = m_g - nv * HW2;
+                hv = rem / W2;
+                wv = rem - hv * W2;
+                inb = 1;
             }
-            Asb[0][a_row * LDA + a_col] = va;
-            #pragma unroll
-            for (uint pp = 0; pp < 2; ++pp) {
-                const uint t = lid + pp * TG_THREADS;
-                const uint b_col = t / BK;
-                const uint b_row = t - b_col * BK;
-                const uint k_g_b = k0 + b_row;
-                float vb = 0.0f;
-                if (k_g_b < K_g && b_col < K_out) {
-                    vb = w[b_col * K_g + k_g_b];
-                }
-                Bsb[0][b_row * LDB + b_col] = vb;
-            }
+            row_n[lid] = nv; row_h[lid] = hv; row_w[lid] = wv;
+            row_in_arr[lid] = inb;
         }
         threadgroup_barrier(mem_flags::mem_threadgroup);
 
-        uint buf = 0;
-        for (uint kt = 0; kt < num_k_tiles - 1; ++kt) {
-            const uint next = 1u - buf;
-            const uint k0_nxt = (kt + 1u) * BK;
+        const uint nv_a = row_n[a_row];
+        const uint hv_a = row_h[a_row];
+        const uint wv_a = row_w[a_row];
+        const bool a_row_in = (row_in_arr[a_row] != 0);
+        // Pre-compute the row-major x offset for (n, h0*stride, w0*stride, c=0)
+        // so the K-loop only adds (rr*W + ss)*C + cbase.
+        const uint x_row_base = ((nv_a * H + hv_a * stride_) * W + wv_a * stride_) * C;
 
-            // ---- Prefetch next K-tile into the other buffer.
-            const uint k_glob = k0_nxt + a_col;
-            float va = 0.0f;
-            if (row_in && k_glob < K_g) {
-                const uint rr  = k_glob / SC;
-                const uint rem = k_glob - rr * SC;
-                const uint ss  = rem / C;
-                const uint cc  = rem - ss * C;
-                const uint hi  = hv * stride_ + rr;
-                const uint wi  = wv * stride_ + ss;
-                va = x[((nv * H + hi) * W + wi) * C + cc];
-            }
-            Asb[next][a_row * LDA + a_col] = va;
+        const uint num_k_tiles = (K_g + BK - 1) / BK;
 
-            #pragma unroll
-            for (uint pp = 0; pp < 2; ++pp) {
-                const uint t = lid + pp * TG_THREADS;
-                const uint b_col = t / BK;
-                const uint b_row = t - b_col * BK;
-                const uint k_g_b = k0_nxt + b_row;
-                float vb = 0.0f;
-                if (k_g_b < K_g && b_col < K_out) {
-                    vb = w[b_col * K_g + k_g_b];
+        // K_g = R*S*C is divisible by BK (576 % 32 == 0 in registry), and each
+        // BK-aligned k-tile sits inside a single (rr, ss) cell because BK | C
+        // (32 | 64). Compute rr, ss, and c_base ONCE per k-tile (uniform across
+        // threads) and only the per-thread c offset varies.
+        for (uint kt = 0; kt < num_k_tiles; ++kt) {
+            const uint k0 = kt * BK;
+            const uint rr_t   = k0 / SC;
+            const uint rem_t  = k0 - rr_t * SC;
+            const uint ss_t   = rem_t / C;
+            const uint cbase  = rem_t - ss_t * C;     // c for a_col=0
+            // ---- A-load (lid < 512): 1 float4 per thread along c.
+            // Each a_row's A-tile covers c=[cbase, cbase+BK). Within a tile,
+            // 4 consecutive a_col → 4 consecutive c (no boundary crossing).
+            if (lid < 512u) {
+                float4 v = float4(0.0f);
+                if (a_row_in) {
+                    // (h0+rr)*W + (w0+ss) - (h0*W + w0) = rr*W + ss; multiplied
+                    // by C and added to cbase gives the per-k offset.
+                    const uint k_off = (rr_t * W + ss_t) * C + cbase + a_col0;
+                    v = *reinterpret_cast<const device float4*>(
+                            &x[x_row_base + k_off]);
                 }
-                Bsb[next][b_row * LDB + b_col] = vb;
+                *reinterpret_cast<threadgroup float4*>(&As[a_row * LDA + a_col0]) = v;
+            } else {
+            // ---- B-load (lid >= 512): 2 float4s per thread, K-contiguous.
+                const uint k_base = k0 + b_k4 * 4u;
+                const uint k_row  = b_k4 * 4u;
+                // K-major Bs layout (k=row, n=col). Float4 from w (K-contig)
+                // is scattered to 4 distinct k-rows. Two N halves per thread.
+                {
+                    float4 va = *reinterpret_cast<const device float4*>(
+                            &w[b_col_a * K_g + k_base]);
+                    Bs[(k_row + 0u) * LDB + b_col_a] = va.x;
+                    Bs[(k_row + 1u) * LDB + b_col_a] = va.y;
+                    Bs[(k_row + 2u) * LDB + b_col_a] = va.z;
+                    Bs[(k_row + 3u) * LDB + b_col_a] = va.w;
+                }
+                {
+                    float4 vb = *reinterpret_cast<const device float4*>(
+                            &w[b_col_b * K_g + k_base]);
+                    Bs[(k_row + 0u) * LDB + b_col_b] = vb.x;
+                    Bs[(k_row + 1u) * LDB + b_col_b] = vb.y;
+                    Bs[(k_row + 2u) * LDB + b_col_b] = vb.z;
+                    Bs[(k_row + 3u) * LDB + b_col_b] = vb.w;
+                }
             }
 
-            // ---- Compute on the current buffer.
+            threadgroup_barrier(mem_flags::mem_threadgroup);
+
             #pragma unroll
             for (uint kc = 0; kc < BK; kc += 8u) {
                 simdgroup_matrix<float, 8, 8> A_blk[MMA_M], B_blk[MMA_N];
                 #pragma unroll
                 for (uint i = 0; i < MMA_M; ++i)
-                    simdgroup_load(A_blk[i], &Asb[buf][(sm * SM + i * 8u) * LDA + kc], LDA);
+                    simdgroup_load(A_blk[i], &As[(sm * SM + i * 8u) * LDA + kc], LDA);
                 #pragma unroll
                 for (uint j = 0; j < MMA_N; ++j)
-                    simdgroup_load(B_blk[j], &Bsb[buf][kc * LDB + sn * SN + j * 8u], LDB);
+                    simdgroup_load(B_blk[j], &Bs[kc * LDB + sn * SN + j * 8u], LDB);
                 #pragma unroll
                 for (uint i = 0; i < MMA_M; ++i)
                     #pragma unroll
                     for (uint j = 0; j < MMA_N; ++j)
                         simdgroup_multiply_accumulate(C_acc[i][j], A_blk[i], B_blk[j], C_acc[i][j]);
             }
+
             threadgroup_barrier(mem_flags::mem_threadgroup);
-            buf = next;
         }
 
-        // ---- Tail: compute on the last loaded buffer.
-        #pragma unroll
-        for (uint kc = 0; kc < BK; kc += 8u) {
-            simdgroup_matrix<float, 8, 8> A_blk[MMA_M], B_blk[MMA_N];
-            #pragma unroll
-            for (uint i = 0; i < MMA_M; ++i)
-                simdgroup_load(A_blk[i], &Asb[buf][(sm * SM + i * 8u) * LDA + kc], LDA);
-            #pragma unroll
-            for (uint j = 0; j < MMA_N; ++j)
-                simdgroup_load(B_blk[j], &Bsb[buf][kc * LDB + sn * SN + j * 8u], LDB);
-            #pragma unroll
-            for (uint i = 0; i < MMA_M; ++i)
-                #pragma unroll
-                for (uint j = 0; j < MMA_N; ++j)
-                    simdgroup_multiply_accumulate(C_acc[i][j], A_blk[i], B_blk[j], C_acc[i][j]);
-        }
-        threadgroup_barrier(mem_flags::mem_threadgroup);
-
-        // Stage simdgroup tiles to SMEM Cs (aliased), then float4 scatter to y.
+        // Stage simdgroup tiles to SMEM Cs, then float4 scatter to device y.
         #pragma unroll
         for (uint i = 0; i < MMA_M; ++i)
             #pragma unroll
@@ -204,14 +227,14 @@ kernel void conv2d_f32(
                 const uint r = (lid / 32u) + rs * 32u;
                 const uint cq = lid % 32u;
                 const uint cc = cq * 4u;
-                const uint m_g_e = c_row0 + r;
-                if (m_g_e < M_g) {
-                    const uint nv_e = m_g_e / HW2;
-                    const uint rem = m_g_e - nv_e * HW2;
-                    const uint hv_e = rem / W2;
-                    const uint wv_e = rem - hv_e * W2;
+                const uint m_g = c_row0 + r;
+                if (m_g < M_g) {
+                    const uint nv = m_g / HW2;
+                    const uint rem = m_g - nv * HW2;
+                    const uint hv = rem / W2;
+                    const uint wv = rem - hv * W2;
                     float4 v = *reinterpret_cast<threadgroup float4*>(&Cs[r * BN + cc]);
-                    *reinterpret_cast<device float4*>(&y[((nv_e * H2 + hv_e) * W2 + wv_e) * K_out + cc]) = v;
+                    *reinterpret_cast<device float4*>(&y[((nv * H2 + hv) * W2 + wv) * K_out + cc]) = v;
                 }
             }
         }

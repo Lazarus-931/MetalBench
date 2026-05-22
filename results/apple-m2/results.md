@@ -9,7 +9,7 @@
 | attention_scores | 0.061 | 3.09× | 35 | 2 |
 | avg_pool1d | 0.033 | 19.11× | 7 | 23 |
 | avg_pool2d | 0.114 | 4.05× | 20 | 83 |
-| avg_pool3d | 0.221 | 4.37× | 18 | 75 |
+| avg_pool3d | 0.257 | 4.39× | 17 | 70 |
 | batch_mm | 2.802 | 0.86× | 1417 | 38 |
 | batch_norm | 0.067 | 7.00× | 30 | 30 |
 | bias_add | 0.058 | 3.81× | 15 | 120 |
@@ -23,7 +23,7 @@
 | cross_entropy_loss | 0.139 | 3.35× | 44 | 59 |
 | cumprod | 0.087 | 63.78× | 8 | 66 |
 | cumsum | 0.084 | 65.66× | 8 | 68 |
-| cumsum_exclusive | 0.078 | 4.91× | 10 | 81 |
+| cumsum_exclusive | 0.126 | 4.63× | 8 | 66 |
 | cumsum_reverse | 0.087 | 66.22× | 17 | 69 |
 | depthwise_conv2d | 0.316 | 24.45× | 110 | 50 |
 | dot_product | 0.006 | 312.13× | 1 | 5 |
@@ -58,14 +58,14 @@
 | logsigmoid | 0.021 | 12.68× | 63 | 100 |
 | logsumexp | 0.071 | 108.03× | 56 | 56 |
 | manhattan_similarity | 0.083 | 72.21× | 18 | 75 |
-| masked_cumsum | 0.130 | 2.70× | 11 | 69 |
+| masked_cumsum | 0.164 | 3.06× | 11 | 68 |
 | masked_softmax | 0.141 | 2.80× | 42 | 85 |
 | matmul_sub_mul_relu | 0.590 | 0.39× | 54 | 1 |
 | matrix_add | 0.141 | 2.39× | 7 | 84 |
 | matrix_scale | 0.083 | 3.44× | 11 | 94 |
 | matvec | 0.048 | 4.07× | 35 | 70 |
-| max_pool1d | 0.011 | 47.22× | 14 | 59 |
-| max_pool2d | 0.117 | 3.64× | 16 | 81 |
+| max_pool1d | 0.033 | 18.43× | 5 | 23 |
+| max_pool2d | 0.140 | 4.79× | 14 | 71 |
 | max_pool3d | 0.225 | 3.82× | 14 | 64 |
 | mingpt_new_gelu | 0.030 | 9.91× | 56 | 56 |
 | mish | 0.011 | 13.42× | 99 | 99 |
