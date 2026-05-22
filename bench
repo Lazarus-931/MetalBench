@@ -58,6 +58,7 @@ while [ $# -gt 0 ]; do
     --no-save) save=""; shift ;;
     --mlx|--mlx-only)     extra+=("--mlx-only");   save=""; shift ;;
     --metal|--metal-only) extra+=("--metal-only"); save=""; shift ;;
+    --xcode)              extra+=("--xcode");      save=""; shift ;;
     --) shift; extra=("${extra[@]+"${extra[@]}"}" "$@"); break ;;
     *)  extra+=("$1"); shift ;;
   esac

@@ -396,6 +396,8 @@ def main(argv=None):
                     help="record an MLX .gputrace at this path")
     ap.add_argument("--capture-host", default=None,
                     help="record a .gputrace of the host Metal dispatch at this path")
+    ap.add_argument("--xcode",      action="store_true",
+                    help="record a host .gputrace into results/<chip>/<name>.gputrace and open it in Xcode")
     ap.add_argument("--profile",    action="store_true",
                     help="enable GPU counter sampling via MTLCounterSet (adds one extra dispatch)")
     ap.add_argument("--cold-start", action="store_true",
@@ -450,11 +452,29 @@ def main(argv=None):
     except Exception:
         pass
 
+    xcode_path = None
+    if args.xcode:
+        out_dir = Path(__file__).resolve().parents[2] / "results" / chip["type"]
+        out_dir.mkdir(parents=True, exist_ok=True)
+        xcode_path = str(out_dir / f"{args.name}.gputrace")
+        if args.capture_host is None:
+            args.capture_host = xcode_path
+        import os as _os
+        _os.environ["MTL_CAPTURE_ENABLED"] = "1"
+        print(f"[xcode] will record host .gputrace → {xcode_path}", file=sys.stderr)
+
     result = evaluate(args.name, seed=args.seed, warmup=args.warmup,
                       iters=args.iters, dry_run=args.dry_run,
                       capture_path=args.capture, cold_start=args.cold_start,
                       profile=args.profile, capture_host=args.capture_host,
                       solo=solo_mode)
+
+    if xcode_path:
+        try:
+            subprocess.run(["open", xcode_path], check=False)
+            print(f"[xcode] opened {xcode_path}", file=sys.stderr)
+        except Exception as e:
+            print(f"[xcode] failed to open: {e}", file=sys.stderr)
 
     if args.dry_run:
         # For dry run, print the manifest as text dump (it's the only artifact).
