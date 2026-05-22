@@ -23,7 +23,7 @@
 | cross_entropy_loss | 0.139 | 3.35× | 44 | 59 |
 | cumprod | 0.087 | 63.78× | 8 | 66 |
 | cumsum | 0.084 | 65.66× | 8 | 68 |
-| cumsum_exclusive | 0.126 | 4.63× | 8 | 66 |
+| cumsum_exclusive | 0.108 | 65.42× | 8 | 69 |
 | cumsum_reverse | 0.087 | 66.22× | 17 | 69 |
 | depthwise_conv2d | 0.316 | 24.45× | 110 | 50 |
 | dot_product | 0.006 | 312.13× | 1 | 5 |
