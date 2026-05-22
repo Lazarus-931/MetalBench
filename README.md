@@ -8,7 +8,13 @@
 
 Live leaderboard: **[lazarus-931.github.io/leaderboard.html](https://lazarus-931.github.io/leaderboard.html)**.
 
-While working on inference for apple silicon, I found a agent based loop of kernel writing & testing against a written test for perf/acc helped alot along the way. This contains harneseses and code used to benchmark against baseline mlx versions. Kernels don't differ much, just how threadgroups are utilized. One of the main differences was performance across a array of newer m series chips. I soon realized this was a we-have-kernel-bench-at-home version I made, so I polished some stuff and releasing this as a benchmark + as a repo to continue your own metal kernel testing using any model. Much of this repo is orgaized/inspired by KernelBench, so props for them!
+While working on inference for apple silicon, I found a agent based loop of kernel writing & testing against a written test for perf/acc helped alot along the way. This contains harneseses and code used to benchmark against baseline mlx versions. Kernels don't differ much, just how threadgroups are utilized. One of the main differences was performance across a array of newer m series chips. I soon realized this was a we-have-kernel-bench-at-home version I made, so I polished some stuff and releasing this as a benchmark + agent harness for metal kernel authoring(agent steel). Much of this repo is orgaized/inspired by KernelBench, so props for them!
+
+
+## Agent-Steel 👨‍🏭
+
+Located in `agent-steele/`, the agent harness for full e2e kernel authoring. 
+
 
 ## Kernels
 
