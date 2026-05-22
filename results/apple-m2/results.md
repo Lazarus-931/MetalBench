@@ -98,7 +98,7 @@
 | trace | 0.010 | 22.65× | 0 | 0 |
 | transformer_block | 2.072 | 0.23× | 8 | 0 |
 | transpose_2d | 0.208 | 0.06× | 0 | 55 |
-| triplet_margin_loss | 0.189 | 12.78× | 30 | 61 |
+| triplet_margin_loss | 0.211 | 7.78× | 29 | 59 |
 | variance | 0.059 | 6.94× | 53 | 70 |
 | where | 0.223 | 4.43× | 4 | 71 |
 
