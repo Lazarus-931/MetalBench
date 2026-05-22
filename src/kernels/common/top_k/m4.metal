@@ -1,9 +1,9 @@
 // top_k: per-row top-k values, sorted descending. R=1024, C=1024, k=16.
-// Strategy: single simdgroup (32 lanes) per row. Each lane owns 32 elements
-// (C_PER_LANE = 1024/32). Each iteration: simd_max picks row-global max; we
-// resolve ties by lane id via a tagged simd_max on (uint)(~lane). The winning
-// lane invalidates its slot and rescans its 32 registers. No threadgroup
-// memory, no barriers.
+// Strategy: 32 threads per row. Each thread holds 32 elements in registers
+// (loaded via float4). Threads write their best (current local max) to
+// threadgroup memory each iteration; thread 0 reduces the 32 candidates to
+// pick the row-global winner, broadcasts the winning lane id, then the
+// winning lane invalidates its slot and rescans its registers.
 #include <metal_stdlib>
 using namespace metal;
 
@@ -20,13 +20,17 @@ kernel void top_k_f32(
     uint  simd_lane             [[thread_index_in_simdgroup]],
     uint  simd_id               [[simdgroup_index_in_threadgroup]])
 {
-    (void)C; (void)k; (void)simd_id;
+    (void)C; (void)k; (void)simd_id; (void)simd_lane;
     const uint row = tgid.y;
     const uint tid = tid3.x;
+
+    threadgroup float t_vals[32];
+    threadgroup uint  t_win;
+
     if (tid >= 32u) return;
 
     device const float4* xr4 = (device const float4*)(x + row * 1024u);
-    const uint base_vec = simd_lane * VEC_PER_LANE;
+    const uint base_vec = tid * VEC_PER_LANE;
 
     float v[C_PER_LANE];
     #pragma unroll
@@ -47,19 +51,24 @@ kernel void top_k_f32(
 
     device float* yr = y + row * 16u;
 
-    #pragma unroll
     for (uint out_i = 0; out_i < 16u; ++out_i) {
-        float gmx = simd_max(lmax);
-        // Tie-break: among lanes where lmax==gmx, pick the lowest lane id.
-        // Encode (lmax==gmx ? lane : 32) and take simd_min.
-        uint tag = (lmax == gmx) ? simd_lane : 32u;
-        uint win_lane = simd_min(tag);
+        t_vals[tid] = lmax;
+        threadgroup_barrier(mem_flags::mem_threadgroup);
 
-        if (simd_lane == 0u) {
-            yr[out_i] = gmx;
+        if (tid == 0u) {
+            float bv = t_vals[0];
+            uint  bi = 0u;
+            for (uint j = 1; j < 32u; ++j) {
+                float vj = t_vals[j];
+                if (vj > bv) { bv = vj; bi = j; }
+            }
+            yr[out_i] = bv;
+            t_win = bi;
         }
+        threadgroup_barrier(mem_flags::mem_threadgroup);
 
-        if (simd_lane == win_lane) {
+        uint win = t_win;
+        if (tid == win) {
             v[lidx] = -INFINITY;
             float nm = v[0];
             uint  ni = 0u;
@@ -70,5 +79,6 @@ kernel void top_k_f32(
             lmax = nm;
             lidx = ni;
         }
+        threadgroup_barrier(mem_flags::mem_threadgroup);
     }
 }
