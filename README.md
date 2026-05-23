@@ -12,7 +12,7 @@ While working on inference for apple silicon, I found a agent based loop of kern
 
 ## Agent-Steel 👨‍🏭
 
-Located in `agent-steele/`, the agent harness for full e2e kernel authoring. 
+Located in `agent-steele/`, the agent harness for full kernel writing, from profiling, debugging and desinging kernels. 
 
 
 ## Kernels
