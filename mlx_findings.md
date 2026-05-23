@@ -205,3 +205,48 @@ improved matmul throughput by 2-5%.
 | Manual inner loop unrolling | Regressed |
 | `simdgroup_barrier` scheduling hints | Regressed or no change |
 | 2×4 simdgroup layout | Slightly slower than 4×2 |
+
+---
+
+## Run-to-run speedup variance — diagnosis (2026-05-22)
+
+Observed: re-running the same kernel produces speedups that swing
+2–10× between runs (e.g. `relu` on M2 oscillating 30×, 80×, 150×).
+The git history for `results/apple-m2/*.json` and `results/apple-m4/*.json`
+shows this clearly across the recent refresh waves — many results
+were re-recorded simply because *that run's MLX baseline happened to
+be slow*, not because the kernel got faster.
+
+Root causes, ranked by impact:
+
+1. **Sub-ms kernels are jitter-dominated.** A 30 µs kernel against a
+   7 ms MLX baseline produces a 233× speedup. A 30 µs kernel against
+   the same op when MLX happens to JIT-trace faster (0.5 ms) is 16×.
+   Same kernel, same hardware — the *baseline* moved.
+2. **MLX warmup of 10 iters was insufficient.** `mx.eval` per iter is
+   a correctness barrier, not a clock-stabilization barrier. Apple's
+   GPU dynamic frequency scaling needs sustained sub-ms work to reach
+   steady state. Bumped CLI default `--warmup` to 50
+   (branch `mlx-variance-fix`).
+3. **Thermal throttling on amelia.** Same kernel posts MLX baselines
+   varying 100× depending on what was just running on the mini.
+   Lexie is the cleanest (consistent), derek middle, amelia worst.
+   For results.md "best speedup" purposes we should preferentially
+   record on lexie.
+4. **Per-iter `mx.eval()` was already in place.** `time_mlx` in
+   `src/mlx_scripts/timing.py` line 57 has `mx.eval(out)` inside the
+   timed loop — so the per-iter barrier the user asked for already
+   exists. The variance came from #1–#3, not from missing barriers.
+
+### Methodology fix going forward
+
+- Bigger `--warmup` (50, done).
+- For "best on chip X" rankings, use **kernel median_ms only**
+  (chip-side GPU timestamps from `cb.GPUStartTime/GPUEndTime` in
+  `src/metal_scripts/timing.mm`) — speedup vs MLX is a display
+  metric, not a ranking metric. `update_session` already ranks by
+  kernel median_ms (`src/mlx_scripts/harness.py` line ~199) so this
+  is already partly correct; ensure the website's "best" column
+  follows the same rule and doesn't surface speedup as canonical.
+- Don't re-record results just because speedup got bigger — only
+  when kernel median_ms drops.
