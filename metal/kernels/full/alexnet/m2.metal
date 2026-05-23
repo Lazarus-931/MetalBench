@@ -1,0 +1,208 @@
+// alexnet-mini M2: half storage for a2 to cut tg-mem traffic.
+#include <metal_stdlib>
+using namespace metal;
+
+constant constexpr uint A1H = 14, A1W = 14, A1C = 32;
+constant constexpr uint A2H = 6,  A2W = 6,  A2C = 64;
+constant constexpr uint A3H = 2,  A3W = 2,  A3C = 128;
+constant constexpr uint FC1 = 256;
+
+[[max_total_threads_per_threadgroup(1024)]]
+kernel void alexnet_f32(
+    device const float* x      [[buffer(0)]],
+    device const float* Wc1    [[buffer(1)]],
+    device const float* Wc2    [[buffer(2)]],
+    device const float* Wc3    [[buffer(3)]],
+    device const float* Wfc1   [[buffer(4)]],
+    device const float* Wfc2   [[buffer(5)]],
+    device       float* y      [[buffer(6)]],
+    uint  tid       [[thread_position_in_threadgroup]],
+    uint  sgid      [[simdgroup_index_in_threadgroup]],
+    uint  lane      [[thread_index_in_simdgroup]])
+{
+    threadgroup half  a1[A1H * A1W * A1C];        // 12.5 KB
+    threadgroup half  a2[A2H * A2W * A2C];        //  4.5 KB (half)
+    threadgroup float a3[A3H * A3W * A3C];        //  2.0 KB
+    threadgroup float fc1_buf[FC1];                //  1.0 KB
+    threadgroup half Wc1c[32 * 75];                //  4.7 KB Wc1 cache (half precision)
+
+    for (uint i = tid; i < 32u * 75u; i += 1024u) {
+        Wc1c[i] = half(Wc1[i]);
+    }
+    threadgroup_barrier(mem_flags::mem_threadgroup);
+
+    for (uint spatial = sgid; spatial < A1H * A1W; spatial += 32u) {
+        uint h2_ = spatial / A1W;
+        uint w2  = spatial - h2_ * A1W;
+        uint c = lane;
+        threadgroup const half* Wf = Wc1c + c * 75u;
+        uint hO0 = h2_ * 2u;
+        uint wO0 = w2 * 2u;
+        float pool0 = 0.0f, pool1 = 0.0f, pool2 = 0.0f, pool3 = 0.0f;
+        #pragma unroll
+        for (uint kh = 0; kh < 5u; ++kh) {
+            #pragma unroll
+            for (uint kw = 0; kw < 5u; ++kw) {
+                uint wi = (kh * 5u + kw) * 3u;
+                float w0 = float(Wf[wi+0]), w1 = float(Wf[wi+1]), w2v = float(Wf[wi+2]);
+                uint xi00 = ((hO0 + 0 + kh) * 32u + (wO0 + 0 + kw)) * 3u;
+                uint xi01 = ((hO0 + 0 + kh) * 32u + (wO0 + 1 + kw)) * 3u;
+                uint xi10 = ((hO0 + 1 + kh) * 32u + (wO0 + 0 + kw)) * 3u;
+                uint xi11 = ((hO0 + 1 + kh) * 32u + (wO0 + 1 + kw)) * 3u;
+                pool0 = fma(x[xi00+0], w0, fma(x[xi00+1], w1, fma(x[xi00+2], w2v, pool0)));
+                pool1 = fma(x[xi01+0], w0, fma(x[xi01+1], w1, fma(x[xi01+2], w2v, pool1)));
+                pool2 = fma(x[xi10+0], w0, fma(x[xi10+1], w1, fma(x[xi10+2], w2v, pool2)));
+                pool3 = fma(x[xi11+0], w0, fma(x[xi11+1], w1, fma(x[xi11+2], w2v, pool3)));
+            }
+        }
+        float m = fmax(fmax(pool0, pool1), fmax(pool2, pool3));
+        a1[(h2_ * A1W + w2) * A1C + c] = half(fmax(m, 0.0f));
+    }
+    threadgroup_barrier(mem_flags::mem_threadgroup);
+
+    for (uint task = sgid; task < 72u; task += 32u) {
+        uint c_half = task & 1u;
+        uint spatial = task >> 1;
+        uint h2_ = spatial / A2W;
+        uint w2  = spatial - h2_ * A2W;
+        uint c = c_half * 32u + lane;
+        uint hO0 = h2_ * 2u;
+        uint wO0 = w2 * 2u;
+        float pool0 = 0.0f, pool1 = 0.0f, pool2 = 0.0f, pool3 = 0.0f;
+        #pragma unroll
+        for (uint kh = 0; kh < 3u; ++kh) {
+            #pragma unroll
+            for (uint kw = 0; kw < 3u; ++kw) {
+                uint w_base = ((c * 3u + kh) * 3u + kw) * 32u;
+                uint a_base00 = ((hO0 + 0 + kh) * A1W + (wO0 + 0 + kw)) * A1C;
+                uint a_base01 = ((hO0 + 0 + kh) * A1W + (wO0 + 1 + kw)) * A1C;
+                uint a_base10 = ((hO0 + 1 + kh) * A1W + (wO0 + 0 + kw)) * A1C;
+                uint a_base11 = ((hO0 + 1 + kh) * A1W + (wO0 + 1 + kw)) * A1C;
+                device const float4* Wc2v = (device const float4*)(Wc2 + w_base);
+                threadgroup const half4* a1v00 = (threadgroup const half4*)(a1 + a_base00);
+                threadgroup const half4* a1v01 = (threadgroup const half4*)(a1 + a_base01);
+                threadgroup const half4* a1v10 = (threadgroup const half4*)(a1 + a_base10);
+                threadgroup const half4* a1v11 = (threadgroup const half4*)(a1 + a_base11);
+                #pragma unroll
+                for (uint cv = 0; cv < 8u; ++cv) {
+                    float4 wv = Wc2v[cv];
+                    pool0 += dot(float4(a1v00[cv]), wv);
+                    pool1 += dot(float4(a1v01[cv]), wv);
+                    pool2 += dot(float4(a1v10[cv]), wv);
+                    pool3 += dot(float4(a1v11[cv]), wv);
+                }
+            }
+        }
+        float m = fmax(fmax(pool0, pool1), fmax(pool2, pool3));
+        a2[(h2_ * A2W + w2) * A2C + c] = half(fmax(m, 0.0f));
+    }
+    threadgroup_barrier(mem_flags::mem_threadgroup);
+
+    // conv3: 4 spatial × 8 c_eighth (lane covers 16 channels via lane and lane+16? No, just split c into 8 parts).
+    // Actually: 4 spatial × 8 c_eighth = 32 tasks, one per simdgroup; each lane covers 1 channel of 16-wide slice.
+    // But A3C=128 = 4 quarters of 32. Use 4 spatial × 8 (c_eighth) = 32 with each lane handling 1 of 16 c.
+    // Simpler: keep 16 task layout but spread to all 32 sgs by also splitting kh*kw work? Too complex.
+    // Stick with current: 16 sgs busy.
+    if (sgid < 16u) {
+        uint c_quarter = sgid & 3u;
+        uint spatial   = sgid >> 2;
+        uint h2_ = spatial / A3W;
+        uint w2  = spatial - h2_ * A3W;
+        uint c = c_quarter * 32u + lane;
+        uint hO0 = h2_ * 2u;
+        uint wO0 = w2 * 2u;
+        float pool0 = 0.0f, pool1 = 0.0f, pool2 = 0.0f, pool3 = 0.0f;
+        #pragma unroll
+        for (uint kh = 0; kh < 3u; ++kh) {
+            #pragma unroll
+            for (uint kw = 0; kw < 3u; ++kw) {
+                uint w_base = ((c * 3u + kh) * 3u + kw) * 64u;
+                uint a_base00 = ((hO0 + 0 + kh) * A2W + (wO0 + 0 + kw)) * A2C;
+                uint a_base01 = ((hO0 + 0 + kh) * A2W + (wO0 + 1 + kw)) * A2C;
+                uint a_base10 = ((hO0 + 1 + kh) * A2W + (wO0 + 0 + kw)) * A2C;
+                uint a_base11 = ((hO0 + 1 + kh) * A2W + (wO0 + 1 + kw)) * A2C;
+                device const float4* Wc3v = (device const float4*)(Wc3 + w_base);
+                threadgroup const half4* a2v00 = (threadgroup const half4*)(a2 + a_base00);
+                threadgroup const half4* a2v01 = (threadgroup const half4*)(a2 + a_base01);
+                threadgroup const half4* a2v10 = (threadgroup const half4*)(a2 + a_base10);
+                threadgroup const half4* a2v11 = (threadgroup const half4*)(a2 + a_base11);
+                #pragma unroll
+                for (uint cv = 0; cv < 16u; ++cv) {
+                    float4 wv = Wc3v[cv];
+                    float4 av00 = float4(a2v00[cv]);
+                    float4 av01 = float4(a2v01[cv]);
+                    float4 av10 = float4(a2v10[cv]);
+                    float4 av11 = float4(a2v11[cv]);
+                    pool0 += dot(av00, wv);
+                    pool1 += dot(av01, wv);
+                    pool2 += dot(av10, wv);
+                    pool3 += dot(av11, wv);
+                }
+            }
+        }
+        float m = fmax(fmax(pool0, pool1), fmax(pool2, pool3));
+        a3[(h2_ * A3W + w2) * A3C + c] = fmax(m, 0.0f);
+    }
+    threadgroup_barrier(mem_flags::mem_threadgroup);
+
+    // FC1 reads Wfc1 as half via reinterpret - if Wfc1 is stored as f32 we can't.
+    // Use vectorized float4 loads to reduce instruction count.
+    // lane = k_part*8 + o_off, 4 k_parts × 128 k, 8 lanes per k_part each handle 1 output.
+    // Group adjacent lanes (o_off 0..7) into a float4×2 load: lanes 0..3 = quad0, 4..7 = quad1.
+    // FC1: 32 sgs × 8 outputs each (256 total). Each sg's 32 lanes each cover 16 k values (16*32=512).
+    // Read Wfc1 row [k, sg*8 .. sg*8+7] as two float4s — contiguous, vectorizable.
+    {
+        uint o_base = sgid * 8u;
+        float acc0 = 0.0f, acc1 = 0.0f, acc2 = 0.0f, acc3 = 0.0f;
+        float acc4 = 0.0f, acc5 = 0.0f, acc6 = 0.0f, acc7 = 0.0f;
+        uint k0 = lane * 16u;
+        device const float4* Wrow4 = (device const float4*)(Wfc1 + o_base);
+        // row stride in float4 = 256/4 = 64
+        #pragma unroll 4
+        for (uint kk = 0; kk < 16u; ++kk) {
+            uint k = k0 + kk;
+            float a = float(a3[k]);
+            float4 w0 = Wrow4[k * 64u + 0];
+            float4 w1 = Wrow4[k * 64u + 1];
+            acc0 = fma(a, w0.x, acc0);
+            acc1 = fma(a, w0.y, acc1);
+            acc2 = fma(a, w0.z, acc2);
+            acc3 = fma(a, w0.w, acc3);
+            acc4 = fma(a, w1.x, acc4);
+            acc5 = fma(a, w1.y, acc5);
+            acc6 = fma(a, w1.z, acc6);
+            acc7 = fma(a, w1.w, acc7);
+        }
+        acc0 = simd_sum(acc0);
+        acc1 = simd_sum(acc1);
+        acc2 = simd_sum(acc2);
+        acc3 = simd_sum(acc3);
+        acc4 = simd_sum(acc4);
+        acc5 = simd_sum(acc5);
+        acc6 = simd_sum(acc6);
+        acc7 = simd_sum(acc7);
+        if (lane == 0) {
+            fc1_buf[o_base + 0] = fmax(acc0, 0.0f);
+            fc1_buf[o_base + 1] = fmax(acc1, 0.0f);
+            fc1_buf[o_base + 2] = fmax(acc2, 0.0f);
+            fc1_buf[o_base + 3] = fmax(acc3, 0.0f);
+            fc1_buf[o_base + 4] = fmax(acc4, 0.0f);
+            fc1_buf[o_base + 5] = fmax(acc5, 0.0f);
+            fc1_buf[o_base + 6] = fmax(acc6, 0.0f);
+            fc1_buf[o_base + 7] = fmax(acc7, 0.0f);
+        }
+    }
+    threadgroup_barrier(mem_flags::mem_threadgroup);
+
+    if (sgid < 10u) {
+        uint o = sgid;
+        float s = 0.0f;
+        uint k0 = lane * 8u;
+        #pragma unroll
+        for (uint kk = 0; kk < 8u; ++kk) {
+            s = fma(fc1_buf[k0 + kk], Wfc2[(k0 + kk) * 10u + o], s);
+        }
+        s = simd_sum(s);
+        if (lane == 0) y[o] = s;
+    }
+}

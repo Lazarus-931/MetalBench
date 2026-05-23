@@ -1,0 +1,26 @@
+#!/usr/bin/env bash
+set -uo pipefail
+cd "$(dirname "$0")"
+HOST="$1"; shift
+NAME="$1"; shift
+EXTRA=("$@")
+make --silent all 1>&2 || { echo "[bench_remote] local build failed" >&2; exit 1; }
+rsync -a --delete --exclude='.git' --exclude='__pycache__' --exclude='.mypy_cache' \
+  --exclude='.DS_Store' --exclude='session.json' \
+  metal/kernels/ "${HOST}:/tmp/MetalBench/metal/kernels/" 1>&2
+rsync -a build/ "${HOST}:/tmp/MetalBench/build/" 1>&2
+rsync -a mlx/ "${HOST}:/tmp/MetalBench/mlx/" 1>&2
+ssh "$HOST" "cd /tmp/MetalBench && source /Users/${HOST}/mccl-store/.venv/bin/activate && \
+  SKIP_BUILD=1 python3 mlx/scripts/harness.py '$NAME' --save ${EXTRA[*]:-}"
+# Pull back per-kernel JSON + merge session.json so the Mac repo (and the
+# website-fed results/<chip>/results.md regenerator) sees the M4 numbers.
+rsync -a "${HOST}:/tmp/MetalBench/results/" results/ 1>&2 2>/dev/null || true
+rsync -a "${HOST}:/tmp/MetalBench/session.json" /tmp/session_remote.json 2>/dev/null && \
+  python3 -c "
+import json, os
+local = json.loads(open('session.json').read()) if os.path.exists('session.json') else {}
+remote = json.loads(open('/tmp/session_remote.json').read())
+for chip, kernels in remote.items():
+    local.setdefault(chip, {}).update(kernels)
+open('session.json','w').write(json.dumps(local, indent=2, sort_keys=True))
+" 1>&2 2>/dev/null || true

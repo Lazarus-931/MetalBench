@@ -1,0 +1,73 @@
+#!/usr/bin/env bash
+# bench <name>            — build, run, save
+# bench --all             — run ALL kernels across all sets
+# bench --update-md       — regenerate best_times.md from session.json
+# bench <name> --no-save  — skip the save
+# bench <name> -- --target compute --iters 200
+set -euo pipefail
+cd "$(dirname "$0")"
+
+if [ $# -lt 1 ]; then
+  echo "usage: ./bench <name> | --all | --update-md [--no-save] [-- <harness args>]" >&2
+  exit 64
+fi
+
+# --- bench --all -----------------------------------------------------------
+if [ "$1" = "--all" ]; then
+  shift
+  save="--save"
+  extra=()
+  while [ $# -gt 0 ]; do
+    case "$1" in
+      --no-save) save=""; shift ;;
+      --) shift; extra=("$@"); break ;;
+      *)  extra+=("$1"); shift ;;
+    esac
+  done
+  [ -z "${SKIP_BUILD:-}" ] && make --silent all 1>&2
+  # Discover all kernels from registry
+  for set in common standard; do
+    reg="mlx/kernels/${set}/registry.py"
+    if [ -f "$reg" ]; then
+      for name in $(python3 -c "exec(open('$reg').read()); print(' '.join(sorted(REGISTRY.keys())))" 2>/dev/null); do
+        echo "[bench] $set/$name" >&2
+        python3 mlx/scripts/harness.py "$name" ${save:-} "${extra[@]+"${extra[@]}"}" 2>&1 | grep -E "correctness|speedup|kernel  |mlx ref" || echo "  FAILED" >&2
+      done
+    fi
+  done
+  echo "[bench] --all done" >&2
+  # Auto-update best_times.md after running all
+  python3 mlx/scripts/harness.py --_update_md 2>/dev/null
+  exit 0
+fi
+
+# --- bench --update-md -----------------------------------------------------
+if [ "$1" = "--update-md" ]; then
+  python3 mlx/scripts/harness.py --_update_md 2>/dev/null
+  echo "[bench] best_times.md updated" >&2
+  exit 0
+fi
+
+# --- bench <name> ----------------------------------------------------------
+name="$1"; shift
+save="--save"
+extra=()
+
+while [ $# -gt 0 ]; do
+  case "$1" in
+    --no-save) save=""; shift ;;
+    --mlx|--mlx-only)     extra+=("--mlx-only");   save=""; shift ;;
+    --metal|--metal-only) extra+=("--metal-only"); save=""; shift ;;
+    --xcode)              extra+=("--xcode");      save=""; shift ;;
+    --) shift; extra=("${extra[@]+"${extra[@]}"}" "$@"); break ;;
+    *)  extra+=("$1"); shift ;;
+  esac
+done
+
+[ -z "${SKIP_BUILD:-}" ] && make --silent all 1>&2
+if [ -n "$save" ]; then
+  echo "[bench] running '$name' (save=on)" >&2
+else
+  echo "[bench] running '$name' (save=off)" >&2
+fi
+exec python3 mlx/scripts/harness.py "$name" ${save:-} "${extra[@]+"${extra[@]}"}"

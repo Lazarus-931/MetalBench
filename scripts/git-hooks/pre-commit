@@ -1,0 +1,21 @@
+#!/usr/bin/env bash
+# Auto-refresh derived markdown when session.json (or any metal kernel) is staged.
+# Install once with `make install-hooks` — git will then run this on every commit.
+
+set -e
+
+# Only refresh if session.json or any kernel source changed in this commit.
+if ! git diff --cached --name-only | grep -qE '^(session\.json|metal/kernels/|mlx/kernels/.*registry\.py)'; then
+    exit 0
+fi
+
+REPO_ROOT="$(git rev-parse --show-toplevel)"
+cd "$REPO_ROOT"
+
+echo "[pre-commit] session.json or kernels staged — regenerating derived markdown"
+python3 scripts/render_chip_results.py
+python3 scripts/render_best_times.py
+python3 scripts/render_link_md.py
+
+# Stage the regenerated files so they land in the same commit.
+git add best_times.md LINK.md results/*/results.md 2>/dev/null || true
