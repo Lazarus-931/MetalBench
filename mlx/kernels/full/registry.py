@@ -78,6 +78,26 @@ REGISTRY["transformer_block"] = dict(
 )
 
 
+REGISTRY["densenet"] = dict(
+    metal_function="densenet_f32",
+    threadgroup=(256, 1, 1),
+    input_bindings=(0, 1, 2, 3, 4),
+    input_shapes=[
+        (1, 16, 16, 3),
+        (12, 3, 3, 3),
+        (12, 3, 3, 12),
+        (12, 3, 3, 24),
+        (36, 10),
+    ],
+    output_shape=(1, 10),
+    rtol=1e-2, atol=1e-2,
+    grid=(256, 1, 1),
+    scalars=[],
+    flops=2 * (12*3*3*3*16*16 + 12*3*3*12*16*16 + 12*3*3*24*16*16 + 36*10),
+    bytes=4 * (1*16*16*3 + 12*3*3*3 + 12*3*3*12 + 12*3*3*24 + 36*10 + 10),
+)
+
+
 REGISTRY["llama_decoder_layer"] = dict(
     metal_function="llama_decoder_layer_f32",
     threadgroup=(1024, 1, 1),
