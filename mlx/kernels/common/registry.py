@@ -259,7 +259,7 @@ ew("hardswish", "hardswish_f32", flops_mul=4)
 
 # 5 new element-wise kernels (stubs; replace .metal bodies to optimize)
 ew("exp",   "exp_f32",   flops_mul=1)
-ew("log",   "log_f32",   flops_mul=1)
+ew("log",   "log_f32",   flops_mul=1, grid_size=8*1024)
 ew("abs",   "abs_f32",   flops_mul=1, rtol=0, atol=0)
 ew("rsqrt", "rsqrt_f32", flops_mul=2)
 ew("clip",  "clip_f32",  flops_mul=2, rtol=0, atol=0,
@@ -304,12 +304,12 @@ REGISTRY["argmax"] = dict(
 # variance: per-row variance.
 REGISTRY["variance"] = dict(
     metal_function="variance_f32",
-    threadgroup=(1024, 1, 1),
+    threadgroup=(256, 1, 1),
     input_bindings=(0,),
     input_shapes=[(1024, 1024)],
     output_shape=(1024,),
     rtol=1e-3, atol=1e-3,
-    grid=(1024, 1024, 1),
+    grid=(256, 1024, 1),
     scalars=[dict(binding=2, dtype="u32", value=1024)],
     flops=1024 * 1024 * 3,
     bytes=1024 * 1024 * 4 + 1024 * 4,
@@ -318,12 +318,12 @@ REGISTRY["variance"] = dict(
 # BatchNorm: normalize each column over rows. (N=1024, C=256).
 REGISTRY["batch_norm"] = dict(
     metal_function="batch_norm_f32",
-    threadgroup=(1024, 1, 1),
+    threadgroup=(256, 1, 1),
     input_bindings=(0,),
     input_shapes=[(1024, 256)],
     output_shape=(1024, 256),
     rtol=1e-3, atol=1e-3,
-    grid=(1024, 256, 1),
+    grid=(256, 128, 1),
     scalars=[dict(binding=2, dtype="u32", value=1024),
              dict(binding=3, dtype="u32", value=256),
              dict(binding=4, dtype="f32", value=1e-5)],
@@ -699,11 +699,11 @@ REGISTRY["kl_div_loss"] = dict(
 
 REGISTRY["triplet_margin_loss"] = dict(
     metal_function="triplet_margin_loss_f32",
-    threadgroup=(1024, 1, 1), input_bindings=(0, 1, 2),
+    threadgroup=(64, 1, 1), input_bindings=(0, 1, 2),
     input_shapes=[(1024, 1024), (1024, 1024), (1024, 1024)],
     output_shape=(1024,),
     rtol=1e-3, atol=1e-3,
-    grid=(1024, 1024, 1),
+    grid=(64, 1024, 1),
     scalars=[dict(binding=4, dtype="u32", value=1024),
              dict(binding=5, dtype="f32", value=1.0)],
     flops=1024 * 1024 * 6,

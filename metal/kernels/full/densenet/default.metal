@@ -1,6 +1,6 @@
-// densenet-mini: stem + 2 dense layers (channel concat) + GAP + FC.
-// NHWC, padding=1, spatial=16x16, growth_rate=12, classes=10.
-// Optimization: unrolled inner channel reduction (C0=12, Cin2=24 known constants).
+// densenet-mini default variant (M2-tuned): Phase B + Phase C use the per-thread
+// "compute all C output channels at once" reorder; Phase A keeps the simple
+// per-channel mapping which on M2 was faster than the reorder.
 #include <metal_stdlib>
 using namespace metal;
 
@@ -26,19 +26,18 @@ kernel void densenet_f32(
     constexpr uint Cfinal = 36;
     constexpr float inv_HW = 1.0f / float(HW);
 
-    threadgroup float tg_h0[HW * C0];   // 12 KB
-    threadgroup float tg_c1[HW * C1];   // 12 KB
-    threadgroup float tg_Wd1[12u*3u*3u*12u];  // 5184 B
+    threadgroup float tg_h0[HW * C0];
+    threadgroup float tg_c1[HW * C1];
+    threadgroup float tg_Wd1[12u*3u*3u*12u];
     threadgroup float gap[Cfinal];
 
     if (tid < Cfinal) gap[tid] = 0.0f;
-    // Preload W_d1 into threadgroup memory (used heavily in Phase B).
     for (uint i = tid; i < 12u*3u*3u*12u; i += 256u) {
         tg_Wd1[i] = W_d1[i];
     }
     threadgroup_barrier(mem_flags::mem_threadgroup);
 
-    // Phase A: stem conv (3 -> 12) + ReLU
+    // Phase A: stem conv (3 -> 12) + ReLU — simple per-channel mapping.
     for (uint i = tid; i < HW * C0; i += 256u) {
         uint h = i / (W * C0);
         uint t = i % (W * C0);
@@ -62,8 +61,7 @@ kernel void densenet_f32(
     }
     threadgroup_barrier(mem_flags::mem_threadgroup);
 
-    // Phase B: d1 conv (12 -> 12) + ReLU. Reorder: each thread handles one (h,w) and
-    // computes all 12 output channels at once, sharing activation loads.
+    // Phase B reorder: each thread one (h,w), all 12 output channels at once.
     for (uint p = tid; p < HW; p += 256u) {
         uint h = p / W;
         uint w = p % W;
@@ -101,13 +99,8 @@ kernel void densenet_f32(
     }
     threadgroup_barrier(mem_flags::mem_threadgroup);
 
-    // Phase C: d2 conv (24 -> 12) + ReLU. Accumulate GAP[24..35] online while computing.
-    // Parallelize over (h, w, c) producing exactly one c2 value per thread-iter; use atomic add via tree reduction over the 1024-thread group is overkill.
-    // Instead: each thread accumulates a private partial for channel c, then reduce per channel.
-    // Simpler: loop c in 0..Cout2; threads collaborate on HW positions.
-    // Reordered: each thread loops over its HW positions once, accumulates 12 partials
-    // (one per output channel). This visits each tg_h0/tg_c1 activation 9 times instead of 12*9.
-    threadgroup float reduce_buf[8 * Cout2];  // 8 simdgroups × 12 channels = 96
+    // Phase C reorder: per-thread spatial, 12 output channel accumulators.
+    threadgroup float reduce_buf[8 * Cout2];
     {
         float partial[Cout2];
         #pragma clang loop unroll(full)
@@ -129,13 +122,11 @@ kernel void densenet_f32(
                     uint base_sp = (uint(hi) * W + uint(wi));
                     threadgroup const float* sh0 = &tg_h0[base_sp * C0];
                     threadgroup const float* sc1 = &tg_c1[base_sp * C1];
-                    // Load 24-vector activation once.
                     float a[Cin2];
                     #pragma clang loop unroll(full)
                     for (uint ci = 0; ci < C0; ++ci) a[ci] = sh0[ci];
                     #pragma clang loop unroll(full)
                     for (uint ci = 0; ci < C1; ++ci) a[C0 + ci] = sc1[ci];
-                    // For each output channel, accumulate 24 FMAs.
                     #pragma clang loop unroll(full)
                     for (uint c = 0; c < Cout2; ++c) {
                         uint wb = ((c * 3u + kh) * 3u + kw) * Cin2;
@@ -152,7 +143,6 @@ kernel void densenet_f32(
             for (uint c = 0; c < Cout2; ++c) partial[c] += fmax(s[c], 0.0f);
         }
 
-        // Reduce: 8 simdgroups × 32 lanes. Per-channel simd_sum then cross-simdgroup.
         #pragma clang loop unroll(full)
         for (uint c = 0; c < Cout2; ++c) {
             float lane_sum = simd_sum(partial[c]);
@@ -169,14 +159,11 @@ kernel void densenet_f32(
         threadgroup_barrier(mem_flags::mem_threadgroup);
     }
 
-    // GAP for channels 0..23 (h0 and c1). Each simdgroup handles channels via simd_sum.
-    // 8 simdgroups × 32 lanes = 256 threads; assign simdgroup to channel index.
-    // We have 24 channels, 8 simdgroups → each does 3 channels.
+    // GAP for channels 0..23.
     {
         for (uint k = 0; k < 3u; ++k) {
             uint cc = simd_gid * 3u + k;
             if (cc < C0 + C1) {
-                // 32 lanes split HW=256 → 8 spatial each
                 float ps = 0.0f;
                 #pragma clang loop unroll(full)
                 for (uint q = 0; q < 8u; ++q) {
@@ -191,7 +178,6 @@ kernel void densenet_f32(
     }
     threadgroup_barrier(mem_flags::mem_threadgroup);
 
-    // FC.
     if (tid < 10u) {
         float s = 0.0f;
         for (uint k = 0; k < Cfinal; ++k) s += gap[k] * W_fc[k * 10u + tid];

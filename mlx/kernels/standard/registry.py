@@ -269,10 +269,10 @@ REGISTRY["bias_add"] = dict(
     input_shapes=[(1024, 1024), (1024,)],
     output_shape=(1024, 1024),
     rtol=1e-5, atol=1e-6,
-    grid=(64 * 1024, 1, 1),
+    grid=(8 * 1024, 1, 1),
     scalars=[dict(binding=3, dtype="u32", value=1024 * 1024),
              dict(binding=4, dtype="u32", value=1024),
-             dict(binding=5, dtype="u32", value=64 * 1024)],
+             dict(binding=5, dtype="u32", value=8 * 1024)],
     flops=1024 * 1024,
     bytes=4 * (1024 * 1024 * 2 + 1024),
 )
