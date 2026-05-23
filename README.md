@@ -130,7 +130,7 @@ GOOD (sqr_mm):                      BAD (naive kernel):
     balanced        1.23                 balanced        0.17
 ```
 
-## Authoring a kernel(Will be moved)
+## Authoring a kernel(Will be moved into AgentSteel)
 
 For now, see [AGENTS.md](AGENTS.md) for the full contract. Working on Agent Steel which is full agent harness/system for writing 🤘 kernels. Short version:
 
