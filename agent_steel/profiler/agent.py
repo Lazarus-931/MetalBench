@@ -121,37 +121,25 @@ def _classify_roofline(bench: BenchResult, registry_entry: str) -> dict[str, Any
 # The packet that gets shipped to the LLM.
 # ---------------------------------------------------------------------------
 
-def _summarize_gputrace(trace_path: str) -> dict[str, Any]:
-    """Optional context: parse a .gputrace bundle and extract dispatch-shape info.
-
-    The trace is a command-intent recording — it tells us *what* Metal
-    dispatched, not *how fast*. Useful as a cross-check: did the kernel get
-    the grid/threadgroup the registry promised? Did it bind the expected
-    buffers? Mismatches are real bugs the live bench can miss.
+def _registry_text_to_dict(text: str) -> dict[str, Any]:
+    """Parse the relevant fields out of a `REGISTRY["<name>"] = dict(...)` block
+    into a Python dict for `gputrace_check`. Best-effort — only the fields we
+    care about are extracted, anything missing returns None.
     """
-    from .gputrace import parse as _parse_trace
-    parsed = _parse_trace(trace_path)
-    cbs = parsed.get("command_buffers", [])
-    dispatches = []
-    for cb in cbs:
-        for d in cb.get("dispatches", []):
-            dispatches.append({
-                "function": d.get("function"),
-                "grid": d.get("grid"),
-                "threadgroup": d.get("threadgroup"),
-                "buffers": [
-                    {"index": b.get("index"), "length": b.get("length"), "label": b.get("label")}
-                    for b in d.get("buffers", [])
-                ],
-            })
-    return {
-        "trace_path": parsed.get("bundle_path"),
-        "metallib_size": (parsed.get("metallib") or {}).get("size"),
-        "device": parsed.get("device", {}),
-        "n_command_buffers": len(cbs),
-        "dispatches": dispatches,
-        "unknown_record_types": parsed.get("_diagnostics", {}).get("unknown_record_types", {}),
-    }
+    out: dict[str, Any] = {}
+    for key in ("metal_function", "grid", "threadgroup", "input_shapes",
+                "flops", "bytes"):
+        m = re.search(rf"{key}\s*=\s*(.*?)(?=,\s*\n|\s*\)\s*$)", text, re.S)
+        if not m:
+            continue
+        raw = m.group(1).strip().rstrip(",")
+        # `eval` here is acceptable — we control the registry text and only
+        # accept arithmetic / list / tuple / string literals.
+        try:
+            out[key] = eval(raw)
+        except Exception:
+            out[key] = raw
+    return out
 
 
 def _build_packet(
@@ -235,35 +223,21 @@ class ProfilerReport:
 # The prompt sent to the LLM.
 # ---------------------------------------------------------------------------
 
-_SYSTEM_PROMPT = """You are a kernel-performance analyst. You receive a JSON
-packet describing one Apple Metal compute kernel and its roofline classification.
-Your single job: explain WHY the kernel is at its current Speed-of-Light
-fraction by reading the .metal source, then propose 2-4 concrete code edits
-ordered by expected impact.
+_PROMPT_PATH = REPO / "agent_steel" / "prompts" / "profiler.md"
 
-Hard rules:
-- Do NOT reclassify the bottleneck — the roofline analysis is already correct.
-- Cite specific line ranges or named code structures in metal_source.
-- Each suggested edit must include: technique (1 line), rationale (why it
-  helps given the bottleneck class), target_lines, expected_impact.
-- Be honest. If the kernel is already near-optimal (sol > 0.85), say so and
-  return zero suggestions.
-- If correctness has failed, the only suggestion is "fix correctness first".
 
-Output strictly as JSON in this shape (no markdown fences):
-{
-  "code_analysis": "2-4 sentences",
-  "confidence": 0.0-1.0,
-  "suggested_edits": [
-    {
-      "technique": "...",
-      "rationale": "...",
-      "target_lines": "...",
-      "expected_impact": "..."
-    }
-  ]
-}
-"""
+def _load_system_prompt() -> str:
+    """Read the profiler system prompt from `prompts/profiler.md`.
+
+    Falls back to a minimal inline prompt if the file is missing — that
+    prevents agent_steel from breaking if the prompts dir gets relocated.
+    """
+    if _PROMPT_PATH.is_file():
+        return _PROMPT_PATH.read_text()
+    return (
+        "You are a kernel-performance analyst. Return JSON with "
+        "code_analysis (string), confidence (0-1), and suggested_edits (array)."
+    )
 
 
 def _make_user_message(packet: dict[str, Any]) -> str:
@@ -306,12 +280,22 @@ def profile(
     )
     session_record = _session_entry(kernel, chip_id)
 
+    # gputrace cross-check — uses gputrace_check.py to produce a
+    # pre-computed dispatch/buffer correctness diagnostic. Always called when
+    # we have a bench result; the parsed-trace cross-check is added only when
+    # a trace path is supplied.
     gputrace_summary = None
-    if gputrace_path:
-        try:
-            gputrace_summary = _summarize_gputrace(gputrace_path)
-        except Exception as e:
-            gputrace_summary = {"_parse_error": str(e)}
+    try:
+        from .gputrace_check import gputrace_check
+        registry_dict = _registry_text_to_dict(registry_entry)
+        gputrace_summary = gputrace_check(
+            trace_path=gputrace_path,
+            registry_entry=registry_dict,
+            bench=bench,
+            session_record=session_record,
+        )
+    except Exception as e:
+        gputrace_summary = {"_check_error": str(e)}
 
     packet = _build_packet(
         kernel, set_name, bench, roofline,
@@ -366,7 +350,7 @@ def profile(
     # LLM pass.
     resp = provider.generate(
         [
-            Message("system", _SYSTEM_PROMPT),
+            Message("system", _load_system_prompt()),
             Message("user", _make_user_message(packet)),
         ],
         max_tokens=2048,
