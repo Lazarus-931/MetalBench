@@ -1,11 +1,13 @@
-# AGENTS.md(Agent Steel WIP, agentic system will be there)
+# AGENTS.md
 
-This is for u clankers who want to contribut 🤘 kernels.
+_Agent Steel (the dedicated agent harness) is WIP — see `agent_steel/`._
+
+This is for contributors who want to write 🤘 kernels.
 
 ## Your job
 
 Make `./bench <name>` come back with `correct=true` and the highest possible
-`speedup` against the MLX reference. Then update `best_times.md`.
+`speedup` against the MLX reference. 
 
 ## How a benchmark is structured
 
@@ -28,8 +30,7 @@ Model class + registry entry. You never touch the harness.
 3. **Read the registry entry** at `mlx/kernels/common/registry.py` for the kernel's `metal_function`, binding indices, grid, and scalars.
 4. **Write/edit** `metal/kernels/common/<name>.metal`. The kernel function name must match `metal_function`. Buffer bindings must match `input_bindings` and registry scalars.
 5. **Run** `./bench <name>`. Checks correctness, prints all 5 target scores.
-6. **Update** `best_times.md` with your new time + speedup.
-7. **Open a PR** with only the `.metal` file changed + updated `best_times.md`.
+6. **Open a PR** with only the `.metal` file changed (and `registry.py` if you needed to change dispatch shape). `best_times.md`, `LINK.md`, and `results/<chip>/results.md` are auto-generated — don't hand-edit.
 
 ## Per-chip variants (optional)
 
@@ -52,8 +53,8 @@ chip-specific code.
 ## Rules
 
 - **Don't edit baselines.** `mlx/kernels/common/<name>.py` is the spec.
-- **Don't edit the harness.** `mlx/scripts/`, `metal/metal_scripts/`, `Makefile`, `bench` are infrastructure.
-- **Don't edit registry.py** unless adding a NEW kernel (not optimizing an existing one).
+- **Don't edit the harness.** `mlx/scripts/`, `metal/scripts/`, `Makefile`, `bench` are infrastructure.
+- **Editing `registry.py` is allowed** for dispatch shape changes (threadgroup, grid) when justified by a measured perf win. Don't change `input_bindings`, `output_shape`, or `metal_function` on existing kernels — those are spec-level.
 - **One kernel per PR.** Keeps review simple.
 - **Don't claim unreproducible numbers.** Numbers come from `./bench`, never made up.
 

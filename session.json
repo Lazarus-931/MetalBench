@@ -1104,22 +1104,6 @@
       "tg_static_mem_bytes": 0,
       "updated_at": "2026-05-22T03:29:18+00:00"
     },
-    "mingpt_new_gelu": {
-      "arith_intensity": 1.0,
-      "best_time_ms": 0.030708,
-      "gbps": 68.2933437540706,
-      "gflops": 68.2933437540706,
-      "iters": 20,
-      "max_err": 2.384185791015625e-07,
-      "metal_source": "#include <metal_stdlib>\nusing namespace metal;\n\nkernel void mingpt_new_gelu_f32(\n    device const float*  x         [[buffer(0)]],\n    device       float*  y         [[buffer(1)]],\n    constant     uint&   N         [[buffer(2)]],\n    constant     uint&   grid_size [[buffer(3)]],\n    uint  tid                     [[thread_position_in_grid]])\n{\n    const float k0 = 0.7978845608f;\n    const float k1 = 0.044715f;\n    const uint n4 = N / 4;\n    for (uint i = tid; i < n4; i += grid_size) {\n        float4 v = *reinterpret_cast<const device float4*>(&x[i * 4]);\n        float4 t = k0 * (v + k1 * v * v * v);\n        *reinterpret_cast<device float4*>(&y[i * 4]) = 0.5f * v * (1.0f + precise::tanh(t));\n    }\n    for (uint i = n4 * 4 + tid; i < N; i += grid_size) {\n        float v = x[i];\n        float t = k0 * (v + k1 * v * v * v);\n        y[i] = 0.5f * v * (1.0f + precise::tanh(t));\n    }\n}\n",
-      "metal_source_path": "src/kernels/common/mingpt_new_gelu.metal",
-      "pso_max_threads_per_tg": 1024,
-      "speedup_vs_mlx": 12.438420612222828,
-      "stability": 0.9685233078912509,
-      "target": "speed",
-      "tg_static_mem_bytes": 0,
-      "updated_at": "2026-05-22T19:29:19+00:00"
-    },
     "mish": {
       "arith_intensity": 1.0,
       "best_time_ms": 0.016167,
@@ -1135,22 +1119,6 @@
       "target": "speed",
       "tg_static_mem_bytes": 0,
       "updated_at": "2026-05-22T19:51:38+00:00"
-    },
-    "mlp": {
-      "arith_intensity": 7.868727705112961,
-      "best_time_ms": 0.045667,
-      "gbps": 11.786191341669038,
-      "gflops": 92.74233034795365,
-      "iters": 5,
-      "max_err": 0.00146484375,
-      "metal_source": null,
-      "metal_source_path": null,
-      "pso_max_threads_per_tg": 1024,
-      "speedup_vs_mlx": 21.757133206203758,
-      "stability": 0.9963296703296703,
-      "target": "speed",
-      "tg_static_mem_bytes": 24576,
-      "updated_at": "2026-05-22T23:37:59+00:00"
     },
     "mse_loss": {
       "arith_intensity": 0.25,
@@ -2770,22 +2738,6 @@
       "tg_static_mem_bytes": 0,
       "updated_at": "2026-05-22T23:22:40+00:00"
     },
-    "mingpt_new_gelu": {
-      "arith_intensity": 1.0,
-      "best_time_ms": 3.007,
-      "gbps": 0.6974233455271034,
-      "gflops": 0.6974233455271034,
-      "iters": 5,
-      "max_err": 2.384185791015625e-07,
-      "metal_source": "#include <metal_stdlib>\nusing namespace metal;\n\nkernel void mingpt_new_gelu_f32(\n    device const float*  x         [[buffer(0)]],\n    device       float*  y         [[buffer(1)]],\n    constant     uint&   N         [[buffer(2)]],\n    constant     uint&   grid_size [[buffer(3)]],\n    uint  tid                     [[thread_position_in_grid]])\n{\n    const float k0 = 0.7978845608f;\n    const float k1 = 0.044715f;\n    const uint n4 = N / 4;\n    for (uint i = tid; i < n4; i += grid_size) {\n        float4 v = *reinterpret_cast<const device float4*>(&x[i * 4]);\n        float4 t = k0 * (v + k1 * v * v * v);\n        *reinterpret_cast<device float4*>(&y[i * 4]) = 0.5f * v * (1.0f + precise::tanh(t));\n    }\n    for (uint i = n4 * 4 + tid; i < N; i += grid_size) {\n        float v = x[i];\n        float t = k0 * (v + k1 * v * v * v);\n        y[i] = 0.5f * v * (1.0f + precise::tanh(t));\n    }\n}\n",
-      "metal_source_path": "src/kernels/common/mingpt_new_gelu.metal",
-      "pso_max_threads_per_tg": 1024,
-      "speedup_vs_mlx": 6.979353828736623,
-      "stability": 0.9994572285818842,
-      "target": "speed",
-      "tg_static_mem_bytes": 0,
-      "updated_at": "2026-05-22T23:27:52+00:00"
-    },
     "mish": {
       "arith_intensity": 1.0,
       "best_time_ms": 3.00925,
@@ -2801,22 +2753,6 @@
       "target": "speed",
       "tg_static_mem_bytes": 0,
       "updated_at": "2026-05-22T21:45:16+00:00"
-    },
-    "mlp": {
-      "arith_intensity": 7.868727705112961,
-      "best_time_ms": 3.019958,
-      "gbps": 0.17822764422551574,
-      "gflops": 1.4024248019343315,
-      "iters": 5,
-      "max_err": 0.00244140625,
-      "metal_source": null,
-      "metal_source_path": null,
-      "pso_max_threads_per_tg": 1024,
-      "speedup_vs_mlx": 4.955325482613417,
-      "stability": 0.9998923710265453,
-      "target": "speed",
-      "tg_static_mem_bytes": 24576,
-      "updated_at": "2026-05-22T23:16:53+00:00"
     },
     "mse_loss": {
       "arith_intensity": 0.25,

@@ -12,6 +12,7 @@
 ## Checklist
 
 - [ ] `./bench <name>` returns `correct=true`
-- [ ] Updated `best_times.md` with new best time
-- [ ] Only `.metal` file(s) and `best_times.md` changed
+- [ ] Only `.metal` file(s) (and possibly `mlx/kernels/.../registry.py` for dispatch shape changes) changed
 - [ ] Tested on my local machine
+
+> `best_times.md`, `results/<chip>/results.md`, and `LINK.md` are **auto-generated** from `session.json` by `scripts/render_chip_results.py` — do not hand-edit them in your PR.

@@ -5,8 +5,8 @@ Central registry of all MetalBench kernels. The website parses this file.
 Each row links to the Metal kernel and the MLX reference. When a kernel
 directory contains chip variants (e.g. `m4.metal`, `m4_m5.metal`), the
 link points at the directory — the dashboard resolves the right variant
-per chip at click-time. See [LINK.md](results/) for the best-known
-variant per kernel per chip.
+per chip at click-time. See [LINK.md](LINK.md) for the best-known
+variant per kernel per chip with direct repo URLs.
 
 ---
 
@@ -30,13 +30,12 @@ variant per kernel per chip.
 | `swish` | [metal](metal/kernels/common/swish.metal) | [mlx](mlx/kernels/common/swish.py) |
 | `hardswish` | [metal](metal/kernels/common/hardswish.metal) | [mlx](mlx/kernels/common/hardswish.py) |
 | `gelu` | [metal](metal/kernels/common/gelu.metal) | [mlx](mlx/kernels/common/gelu.py) |
-| `mingpt_new_gelu` | [metal](metal/kernels/common/mingpt_new_gelu.metal) | [mlx](mlx/kernels/common/mingpt_new_gelu.py) |
 | `selu` | [metal](metal/kernels/common/selu.metal) | [mlx](mlx/kernels/common/selu.py) |
 | `elu` | [metal](metal/kernels/common/elu.metal) | [mlx](mlx/kernels/common/elu.py) |
 | `mish` | [metal](metal/kernels/common/mish.metal) | [mlx](mlx/kernels/common/mish.py) |
 | `softplus` | [metal](metal/kernels/common/softplus.metal) | [mlx](mlx/kernels/common/softplus.py) |
 | `softsign` | [metal](metal/kernels/common/softsign.metal) | [mlx](mlx/kernels/common/softsign.py) |
-| `softmax` | [metal](metal/kernels/common/softmax.metal) | [mlx](mlx/kernels/common/softmax.py) |
+| `softmax` | [metal](metal/kernels/common/softmax/) | [mlx](mlx/kernels/common/softmax.py) |
 | `abs` | [metal](metal/kernels/common/abs.metal) | [mlx](mlx/kernels/common/abs.py) |
 | `exp` | [metal](metal/kernels/common/exp.metal) | [mlx](mlx/kernels/common/exp.py) |
 | `log` | [metal](metal/kernels/common/log.metal) | [mlx](mlx/kernels/common/log.py) |
@@ -95,39 +94,38 @@ variant per kernel per chip.
 
 | name | metal | mlx |
 |---|---|---|
-| `add_norm` | [metal](metal/kernels/standard/add_norm.metal) | [mlx](mlx/kernels/standard/add_norm.py) |
-| `silu_linear` | [metal](metal/kernels/standard/silu_linear.metal) | [mlx](mlx/kernels/standard/silu_linear.py) |
+| `add_norm` | [metal](metal/kernels/standard/add_norm/) | [mlx](mlx/kernels/standard/add_norm.py) |
+| `silu_linear` | [metal](metal/kernels/standard/silu_linear/) | [mlx](mlx/kernels/standard/silu_linear.py) |
 | `gelu_linear` | [metal](metal/kernels/standard/gelu_linear.metal) | [mlx](mlx/kernels/standard/gelu_linear.py) |
-| `rms_norm_linear` | [metal](metal/kernels/standard/rms_norm_linear.metal) | [mlx](mlx/kernels/standard/rms_norm_linear.py) |
+| `rms_norm_linear` | [metal](metal/kernels/standard/rms_norm_linear/) | [mlx](mlx/kernels/standard/rms_norm_linear.py) |
 | `scaled_dot_product` | [metal](metal/kernels/standard/scaled_dot_product.metal) | [mlx](mlx/kernels/standard/scaled_dot_product.py) |
 | `rope_embedding` | [metal](metal/kernels/standard/rope_embedding.metal) | [mlx](mlx/kernels/standard/rope_embedding.py) |
-| `swiglu` | [metal](metal/kernels/standard/swiglu.metal) | [mlx](mlx/kernels/standard/swiglu.py) |
-| `softmax_attention` | [metal](metal/kernels/standard/softmax_attention.metal) | [mlx](mlx/kernels/standard/softmax_attention.py) |
+| `swiglu` | [metal](metal/kernels/standard/swiglu/) | [mlx](mlx/kernels/standard/swiglu.py) |
+| `softmax_attention` | [metal](metal/kernels/standard/softmax_attention/) | [mlx](mlx/kernels/standard/softmax_attention.py) |
 | `residual_add` | [metal](metal/kernels/standard/residual_add.metal) | [mlx](mlx/kernels/standard/residual_add.py) |
 | `dropout` | [metal](metal/kernels/standard/dropout.metal) | [mlx](mlx/kernels/standard/dropout.py) |
 | `instance_norm` | [metal](metal/kernels/standard/instance_norm.metal) | [mlx](mlx/kernels/standard/instance_norm.py) |
 | `group_norm` | [metal](metal/kernels/standard/group_norm.metal) | [mlx](mlx/kernels/standard/group_norm.py) |
 | `cross_entropy_loss` | [metal](metal/kernels/standard/cross_entropy_loss.metal) | [mlx](mlx/kernels/standard/cross_entropy_loss.py) |
-| `log_softmax` | [metal](metal/kernels/standard/log_softmax.metal) | [mlx](mlx/kernels/standard/log_softmax.py) |
-| `masked_softmax` | [metal](metal/kernels/standard/masked_softmax.metal) | [mlx](mlx/kernels/standard/masked_softmax.py) |
+| `log_softmax` | [metal](metal/kernels/standard/log_softmax/) | [mlx](mlx/kernels/standard/log_softmax.py) |
+| `masked_softmax` | [metal](metal/kernels/standard/masked_softmax/) | [mlx](mlx/kernels/standard/masked_softmax.py) |
 | `bias_add` | [metal](metal/kernels/standard/bias_add.metal) | [mlx](mlx/kernels/standard/bias_add.py) |
 | `bias_gelu` | [metal](metal/kernels/standard/bias_gelu.metal) | [mlx](mlx/kernels/standard/bias_gelu.py) |
 | `fused_add_rms_norm` | [metal](metal/kernels/standard/fused_add_rms_norm.metal) | [mlx](mlx/kernels/standard/fused_add_rms_norm.py) |
 | `linear_bias` | [metal](metal/kernels/standard/linear_bias.metal) | [mlx](mlx/kernels/standard/linear_bias.py) |
-| `fused_qkv_projection` | [metal](metal/kernels/standard/fused_qkv_projection.metal) | [mlx](mlx/kernels/standard/fused_qkv_projection.py) |
+| `fused_qkv_projection` | [metal](metal/kernels/standard/fused_qkv_projection/) | [mlx](mlx/kernels/standard/fused_qkv_projection.py) |
 | `attention_scores` | [metal](metal/kernels/standard/attention_scores.metal) | [mlx](mlx/kernels/standard/attention_scores.py) |
 | `nll_loss` | [metal](metal/kernels/standard/nll_loss.metal) | [mlx](mlx/kernels/standard/nll_loss.py) |
 | `log_softmax_cross_entropy` | [metal](metal/kernels/standard/log_softmax_cross_entropy.metal) | [mlx](mlx/kernels/standard/log_softmax_cross_entropy.py) |
 | `llama_attention` | [metal](metal/kernels/standard/llama_attention.metal) | [mlx](mlx/kernels/standard/llama_attention.py) |
 | `matmul_gelu_softmax` | [metal](metal/kernels/standard/matmul_gelu_softmax.metal) | [mlx](mlx/kernels/standard/matmul_gelu_softmax.py) |
 
-## Full Set (6)
+## Full Set (5)
 
 | name | metal | mlx |
 |---|---|---|
-| `alexnet` | [metal](metal/kernels/full/alexnet.metal) | [mlx](mlx/kernels/full/alexnet.py) |
-| `mlp` | [metal](metal/kernels/full/mlp.metal) | [mlx](mlx/kernels/full/mlp.py) |
-| `resnet` | [metal](metal/kernels/full/resnet.metal) | [mlx](mlx/kernels/full/resnet.py) |
-| `llama_decoder_layer` | [metal](metal/kernels/full/llama_decoder_layer.metal) | [mlx](mlx/kernels/full/llama_decoder_layer.py) |
-| `transformer_block` | [metal](metal/kernels/full/transformer_block.metal) | [mlx](mlx/kernels/full/transformer_block.py) |
-| `densenet` | _scaffold pending_ | _scaffold pending_ |
+| `alexnet` | [metal](metal/kernels/full/alexnet/) | [mlx](mlx/kernels/full/alexnet.py) |
+| `resnet` | [metal](metal/kernels/full/resnet/) | [mlx](mlx/kernels/full/resnet.py) |
+| `llama_decoder_layer` | [metal](metal/kernels/full/llama_decoder_layer/) | [mlx](mlx/kernels/full/llama_decoder_layer.py) |
+| `transformer_block` | [metal](metal/kernels/full/transformer_block/) | [mlx](mlx/kernels/full/transformer_block.py) |
+| `densenet` | [metal](metal/kernels/full/densenet/) | [mlx](mlx/kernels/full/densenet.py) |

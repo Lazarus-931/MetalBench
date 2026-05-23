@@ -2,22 +2,6 @@
 
 REGISTRY = {}
 
-# mlp: 2-hidden-layer MLP. Input (16, 128), 3 weights, output (16, 10).
-REGISTRY["mlp"] = dict(
-    metal_function="mlp_f32",
-    threadgroup=(1024, 1, 1),
-    input_bindings=(0, 1, 2, 3),
-    input_shapes=[(16, 128), (128, 512), (512, 128), (128, 10)],
-    output_shape=(16, 10),
-    rtol=1e-2, atol=1e-2,
-    grid=(1024, 1, 1),
-    scalars=[dict(binding=5, dtype="u32", value=16),
-             dict(binding=6, dtype="u32", value=128),
-             dict(binding=7, dtype="u32", value=512),
-             dict(binding=8, dtype="u32", value=10)],
-    flops=16 * (128 * 512 * 2 + 512 * 128 * 2 + 128 * 10 * 2),
-    bytes=4 * (16 * 128 + 128 * 512 + 512 * 128 + 128 * 10 + 16 * 10),
-)
 
 # alexnet-mini: 3 conv + 2 fc. Input (1, 32, 32, 3) → (1, 10).
 REGISTRY["alexnet"] = dict(
