@@ -6,6 +6,7 @@
 
 Benchmarking Apple Metal GPU kernels against [MLX](https://github.com/ml-explore/mlx) reference implementations. Modeled on [KernelBench](https://github.com/ScalingIntelligence/KernelBench), swapping CUDA → Metal and PyTorch → MLX.
 
+
 While working on inference for Apple Silicon, I found an agent-based loop of kernel writing & testing against a perf/accuracy test helped a lot along the way. This repo contains the harness and code used to benchmark against baseline MLX versions. Kernels don't differ much — mostly in how threadgroups are utilized. One of the main differences was performance across the newer M-series chips. I soon realized this was a we-have-kernel-bench-at-home version, so I polished it and am releasing it as a benchmark + agent harness for Metal kernel authoring (Agent Steel). Much of this repo is organized after / inspired by KernelBench, so props to them!
 
 
