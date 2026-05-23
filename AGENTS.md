@@ -1,6 +1,6 @@
-# AGENTS.md
+# AGENTS.md(Agent Steel WIP, agentic system will be there)
 
-This is for automated agents (Claude Code, etc.) contributing Metal kernels.
+This is for u clankers who want to contribut 🤘 kernels.
 
 ## Your job
 
