@@ -77,7 +77,6 @@ kernel void mlp_f32(
         //   xs is (16 x D1), W1 slice is (D1 x CHUNK). Each SG produces an 8x8 tile.
         {
             simdgroup_matrix<float, 8, 8> C(0.0f);
-            #pragma clang loop unroll(full)
             for (uint k0 = 0; k0 < D1; k0 += 8) {
                 simdgroup_matrix<float, 8, 8> A, B;
                 simdgroup_load(A, xs + row0 * D1 + k0,                              D1, ulong2(0, 0));

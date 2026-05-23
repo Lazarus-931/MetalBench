@@ -32,9 +32,9 @@ kernel void densenet_f32(
     threadgroup float gap[Cfinal];
 
     if (tid < Cfinal) gap[tid] = 0.0f;
-    // Preload W_d1 into threadgroup memory (used heavily in Phase B).
-    for (uint i = tid; i < 12u*3u*3u*12u; i += 256u) {
-        tg_Wd1[i] = W_d1[i];
+    // Preload W_d2 into threadgroup memory (used heavily in Phase C, 12 channels).
+    for (uint i = tid; i < 12u*3u*3u*24u; i += 256u) {
+        tg_Wd2[i] = W_d2[i];
     }
     threadgroup_barrier(mem_flags::mem_threadgroup);
 
@@ -79,7 +79,7 @@ kernel void densenet_f32(
                 uint wb = ((c * 3u + kh) * 3u + kw) * C0;
                 #pragma clang loop unroll(full)
                 for (uint ci = 0; ci < C0; ++ci) {
-                    s += tg_h0[sb + ci] * tg_Wd1[wb + ci];
+                    s += tg_h0[sb + ci] * W_d1[wb + ci];
                 }
             }
         }
@@ -110,11 +110,11 @@ kernel void densenet_f32(
                     threadgroup const float* sc1 = &tg_c1[base_sp * C1];
                     #pragma clang loop unroll(full)
                     for (uint ci = 0; ci < C0; ++ci) {
-                        s += sh0[ci] * W_d2[wb + ci];
+                        s += sh0[ci] * tg_Wd2[wb + ci];
                     }
                     #pragma clang loop unroll(full)
                     for (uint ci = 0; ci < C1; ++ci) {
-                        s += sc1[ci] * W_d2[wb + C0 + ci];
+                        s += sc1[ci] * tg_Wd2[wb + C0 + ci];
                     }
                 }
             }
