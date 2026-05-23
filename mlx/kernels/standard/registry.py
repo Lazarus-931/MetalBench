@@ -381,14 +381,13 @@ REGISTRY["log_softmax_cross_entropy"] = dict(
 # scaled_dot_product: softmax(Q@K^T / sqrt(d)) @ V
 REGISTRY["scaled_dot_product"] = dict(
     metal_function="scaled_dot_product_f32",
-    threadgroup=(256, 1, 1),
+    threadgroup=(128, 1, 1),
     input_bindings=(0, 1, 2),
     input_shapes=[(128, 128), (128, 128), (128, 128)],
     output_shape=(128, 128),
     rtol=1e-3, atol=1e-3,
-    grid=((128 // 64) * 256, 128 // 64, 1),
+    grid=(128 * 128, 1, 1),
     scalars=[
-        dict(binding=3, dtype="u32", value=128),
         dict(binding=4, dtype="u32", value=128),
         dict(binding=5, dtype="u32", value=128),
     ],

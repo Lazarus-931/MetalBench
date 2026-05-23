@@ -17,10 +17,13 @@
 | clip | 0.010 | 20.03× | 50 | 202 |
 | conv1d | 0.416 | 10.70× | 134 | 2 |
 | conv2d | 280.973 | 0.01× | 16 | 0 |
+| conv2d_mish_mish | 5.782 | 1.08× | 787 | 4 |
 | conv3d | 15.807 | 0.45× | 753 | 2 |
+| conv3d_softmax_pool | 6.636 | 1.32× | 1458 | 2 |
 | conv_transpose2d | 150.406 | 0.02× | 30 | 0 |
 | conv_transpose2d_clamp_scale_div | 0.000 | 673846.89× | 60361098 | 237327 |
-| conv_transpose2d_sub_tanh | 0.000 | 20200.67× | 20022579 | 78790 |
+| conv_transpose2d_sub_tanh | 11.386 | 0.64× | 398 | 1 |
+| conv_transpose3d_norm_pool_gelu | 0.560 | 0.87× | 1 | 0 |
 | cosine_similarity | 0.085 | 74.02× | 48 | 77 |
 | cross_entropy_loss | 0.139 | 3.35× | 44 | 59 |
 | cumprod | 0.087 | 63.78× | 8 | 66 |
@@ -43,6 +46,7 @@
 | hardsigmoid | 0.020 | 13.57× | 39 | 105 |
 | hardswish | 0.020 | 13.64× | 50 | 101 |
 | hardtanh | 0.020 | 11.41× | 13 | 105 |
+| hinge_loss | 0.036 | 186.26× | 18 | 73 |
 | huber_loss | 0.162 | 12.06× | 31 | 76 |
 | instance_norm | 0.043 | 9.29× | 96 | 96 |
 | kl_div_loss | 0.185 | 42.08× | 16 | 66 |
@@ -82,6 +86,7 @@
 | rms_norm_linear | 1.392 | 1.47× | 1494 | 8 |
 | rope_embedding | 0.003 | 27.95× | 2 | 7 |
 | rsqrt | 0.010 | 9.99× | 27 | 111 |
+| scaled_dot_product | 0.296 | 12.62× | 17 | 0 |
 | selu | 0.019 | 12.40× | 64 | 103 |
 | sigmoid | 0.020 | 11.71× | 52 | 105 |
 | silu_linear | 1.155 | 1.52× | 1816 | 10 |
@@ -100,5 +105,5 @@
 | variance | 0.047 | 10.52× | 65 | 87 |
 | where | 0.190 | 2.19× | 5 | 85 |
 
-_97 kernels._
+_102 kernels._
 
