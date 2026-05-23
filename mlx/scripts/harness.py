@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """MetalBench harness: dispatch a kernel, time it, grade it.
 
-    python src/mlx_scripts/harness.py <name> [--target speed|compute|memory|stable|balanced]
+    python mlx/scripts/harness.py <name> [--target speed|compute|memory|stable|balanced]
                                               [--iters 100] [--warmup 10] [--seed 0]
                                               [--save] [--cold-start] [--dry-run]
                                               [--capture out.gputrace]

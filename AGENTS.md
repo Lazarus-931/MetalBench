@@ -15,8 +15,8 @@ Each kernel has three files, paired by name:
 |---|---|---|
 | `mlx/kernels/common/<name>.py` | project owner | **Model class only** — the MLX reference implementation |
 | `mlx/kernels/common/registry.py` | project owner | dispatch metadata (metal_function, threadgroup, grid, scalars, flops, bytes) |
-| `src/kernels/common/<name>.metal` | **you** | the Metal kernel you're optimizing |
-| `src/kernels/common/<name>/<chip>.metal` | **you** | chip-specific variant (optional); `<chip>` ∈ {`default`, `m1`, `m2`, `m3`, `m4`, `m5`} |
+| `metal/kernels/common/<name>.metal` | **you** | the Metal kernel you're optimizing |
+| `metal/kernels/common/<name>/<chip>.metal` | **you** | chip-specific variant (optional); `<chip>` ∈ {`default`, `m1`, `m2`, `m3`, `m4`, `m5`} |
 
 The harness auto-generates `get_inputs`, `make_inputs`, `reference` from the
 Model class + registry entry. You never touch the harness.
@@ -26,19 +26,19 @@ Model class + registry entry. You never touch the harness.
 1. **First time:** `python3 setup.py` — installs Metal toolchain + Python deps + builds host.
 2. **Read the baseline** at `mlx/kernels/common/<name>.py`. Just the `Model.forward()` tells you the operation.
 3. **Read the registry entry** at `mlx/kernels/common/registry.py` for the kernel's `metal_function`, binding indices, grid, and scalars.
-4. **Write/edit** `src/kernels/common/<name>.metal`. The kernel function name must match `metal_function`. Buffer bindings must match `input_bindings` and registry scalars.
+4. **Write/edit** `metal/kernels/common/<name>.metal`. The kernel function name must match `metal_function`. Buffer bindings must match `input_bindings` and registry scalars.
 5. **Run** `./bench <name>`. Checks correctness, prints all 5 target scores.
 6. **Update** `best_times.md` with your new time + speedup.
 7. **Open a PR** with only the `.metal` file changed + updated `best_times.md`.
 
 ## Per-chip variants (optional)
 
-Most kernels ship as a single `src/kernels/<set>/<name>.metal` used on every
+Most kernels ship as a single `metal/kernels/<set>/<name>.metal` used on every
 M-series chip. When a kernel genuinely needs different impls per generation
 (e.g. M4 tensor cores, M5 new SIMD ops), promote it to a directory:
 
 ```
-src/kernels/common/sqr_mm/
+metal/kernels/common/sqr_mm/
     default.metal    # fallback for any chip without its own file
     m4.metal         # M4-specific impl
     m5.metal         # M5-specific impl
@@ -52,7 +52,7 @@ chip-specific code.
 ## Rules
 
 - **Don't edit baselines.** `mlx/kernels/common/<name>.py` is the spec.
-- **Don't edit the harness.** `src/mlx_scripts/`, `src/metal_scripts/`, `Makefile`, `bench` are infrastructure.
+- **Don't edit the harness.** `mlx/scripts/`, `metal/metal_scripts/`, `Makefile`, `bench` are infrastructure.
 - **Don't edit registry.py** unless adding a NEW kernel (not optimizing an existing one).
 - **One kernel per PR.** Keeps review simple.
 - **Don't claim unreproducible numbers.** Numbers come from `./bench`, never made up.

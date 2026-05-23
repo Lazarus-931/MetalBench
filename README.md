@@ -136,7 +136,7 @@ GOOD (sqr_mm):                      BAD (naive kernel):
 For now, see [AGENTS.md](AGENTS.md) for the full contract. Working on Agent Steel which is full agent harness/system for writing 🤘 kernels. Short version:
 
 - `mlx/kernels/<set>/<name>.py` — the MLX baseline (don't edit; it defines the problem).
-- `src/kernels/<set>/<name>.metal` — your kernel.
+- `metal/kernels/<set>/<name>.metal` — your kernel.
 - Run `./bench <name>` until `correct=true`.
 - Edit only the `.metal` file. Update `best_times.md` with your result. Open a PR.
 
@@ -146,7 +146,7 @@ Most kernels stay as a single flat file. When a kernel genuinely needs different
 code per M-generation, promote it to a directory:
 
 ```
-src/kernels/common/sqr_mm/
+metal/kernels/common/sqr_mm/
     default.metal    # fallback (used by chips without their own variant)
     m4.metal         # M4-specific impl
 ```

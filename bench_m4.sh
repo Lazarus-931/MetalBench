@@ -24,9 +24,9 @@ make --silent all 1>&2 || { echo "[bench_m4] local build failed" >&2; exit 1; }
 # 2. Sync just-changed pieces. Keep this fast.
 rsync -a --delete --exclude='.git' --exclude='__pycache__' --exclude='.mypy_cache' \
   --exclude='.DS_Store' --exclude='session.json' \
-  src/kernels/ lexie:/tmp/MetalBench/src/kernels/ 1>&2
+  metal/kernels/ lexie:/tmp/MetalBench/metal/kernels/ 1>&2
 rsync -a build/ lexie:/tmp/MetalBench/build/ 1>&2
 
 # 3. Run harness on lexie with SKIP_BUILD so it uses our prebuilt metallibs.
 ssh lexie "cd /tmp/MetalBench && source /Users/lexie/mccl-store/.venv/bin/activate && \
-  SKIP_BUILD=1 timeout 90 python3 src/mlx_scripts/harness.py '$NAME' --no-session ${EXTRA[*]:-}" 2>&1
+  SKIP_BUILD=1 timeout 90 python3 mlx/scripts/harness.py '$NAME' --no-session ${EXTRA[*]:-}" 2>&1

@@ -26,7 +26,7 @@ while IFS= read -r m4path; do
   # The "default" for this kernel could be:
   # - $dir/default.metal (explicit)
   # - $set_dir/$k.metal (flat that coexists with the dir)
-  flat="src/kernels/$set/$k.metal"
+  flat="metal/kernels/$set/$k.metal"
   default="$dir/default.metal"
 
   if [ -f "$default" ]; then
@@ -79,7 +79,7 @@ while IFS= read -r m4path; do
     # m4 content already in $current. Now collapse dir to flat.
     if [ "$layout" = "dir+default+m4" ]; then
       # Move "$current" (which is $dir/default.metal with m4 content) to flat
-      mv "$current" "src/kernels/$set/$k.metal"
+      mv "$current" "metal/kernels/$set/$k.metal"
       rm -f "$m4path"
       # Remove dir if empty
       rmdir "$dir" 2>/dev/null || ls "$dir"
@@ -94,13 +94,13 @@ while IFS= read -r m4path; do
     cp "$backup" "$current"
     if [ "$layout" = "flat+m4_variant" ]; then
       # Convert flat to default in dir
-      mv "src/kernels/$set/$k.metal" "$dir/default.metal"
+      mv "metal/kernels/$set/$k.metal" "$dir/default.metal"
     fi
   fi
   rm "$backup"
   make --silent all >/dev/null 2>&1
-done < <(find src/kernels -name "m4.metal" -type f)
+done < <(find metal/kernels -name "m4.metal" -type f)
 
 echo ""
 echo "=== final structure ==="
-find src/kernels -type d -mindepth 3 | sort
+find metal/kernels -type d -mindepth 3 | sort

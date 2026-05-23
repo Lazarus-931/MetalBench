@@ -1,7 +1,7 @@
 """Shared helpers for MLX baselines and the harness.
 
 Each baseline lives at `mlx/kernels/<set>/<name>.py` and pairs 1:1 with a
-kernel at `src/kernels/<set>/<name>.metal` → `build/<name>.metallib`.
+kernel at `metal/kernels/<set>/<name>.metal` → `build/<name>.metallib`.
 
 Required baseline attributes:
     metal_function : str                 — kernel symbol in the metallib
@@ -48,7 +48,7 @@ SETS = ("common", "standard", "full")
 
 
 def find_kernel_source(name: str) -> Path | None:
-    """Locate src/kernels/<set>/<name>.metal."""
+    """Locate metal/kernels/<set>/<name>.metal."""
     for s in SETS:
         p = KERNEL_ROOT / s / f"{name}.metal"
         if p.exists():
@@ -311,7 +311,7 @@ def build_manifest(b, inputs, *, input_paths, output_paths, warmup, iters,
     return manifest
 
 
-# --- chip detection (mirrors src/metal_scripts/setup.cpp) -------------------
+# --- chip detection (mirrors metal/metal_scripts/setup.cpp) -------------------
 
 _CHIP_TYPES = [
     ("M5 Ultra", "m5_ultra"), ("M5 Max", "m5_max"), ("M5 Pro", "m5_pro"), ("M5", "m5"),

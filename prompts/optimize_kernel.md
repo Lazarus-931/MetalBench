@@ -19,7 +19,7 @@ Current speedup: `{{baseline_speedup}}` vs MLX.
 ## Workflow
 1. Read `mlx/kernels/{{set}}/{{kernel_name}}.py` for the spec — DO NOT edit.
 2. Read `mlx/kernels/{{set}}/registry.py` for input bindings / shapes / scalars.
-3. Read the current `src/kernels/{{set}}/{{kernel_name}}.metal` (or `<name>/<chip>.metal` if it's a directory variant) — understand why it's slow.
+3. Read the current `metal/kernels/{{set}}/{{kernel_name}}.metal` (or `<name>/<chip>.metal` if it's a directory variant) — understand why it's slow.
 4. Bench baseline 3× via `{{bench_cmd}} {{kernel_name}}`; take median. That's your "before" number.
 5. Edit the .metal file. Bench 3×. If median improves AND `correctness : ✓ correct`, keep. Otherwise revert.
 6. Budget 2–3 attempts. If no improvement after that, leave it and move on.

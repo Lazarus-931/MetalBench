@@ -15,7 +15,7 @@ python3 setup.py        # one-time: installs Metal toolchain + Python deps
 ## Submitting a PR
 
 1. **Fork** and create a branch.
-2. **Edit** `src/kernels/<set>/<name>.metal` (or add a per-chip variant — see below).
+2. **Edit** `metal/kernels/<set>/<name>.metal` (or add a per-chip variant — see below).
    Do not touch `mlx/kernels/...` (the baselines define the spec), `registry.py`, the harness, or the Makefile.
 3. **Certify your changes:**
    ```bash
@@ -40,10 +40,10 @@ A PR is mergeable when at least one reviewer on the same chip family runs `./ver
 
 ## Per-chip variants
 
-Most kernels stay as a single flat `src/kernels/<set>/<name>.metal` used on every M-series chip. If a kernel genuinely needs different code per generation, promote it to a directory:
+Most kernels stay as a single flat `metal/kernels/<set>/<name>.metal` used on every M-series chip. If a kernel genuinely needs different code per generation, promote it to a directory:
 
 ```
-src/kernels/common/sqr_mm/
+metal/kernels/common/sqr_mm/
     default.metal    # used by any chip without its own file
     m4.metal         # used on M4 (any variant: base, Pro, Max, Ultra)
     m5.metal         # used on M5
@@ -57,7 +57,7 @@ If your PR adds a kernel that doesn't exist yet:
 
 1. Add `mlx/kernels/<set>/<name>.py` — a single `class Model(nn.Module)` with `forward()`.
 2. Add a registry entry in `mlx/kernels/<set>/registry.py` (`metal_function`, `input_shapes`, `output_shape`, `threadgroup`, `grid`, `scalars`).
-3. Write `src/kernels/<set>/<name>.metal`.
+3. Write `metal/kernels/<set>/<name>.metal`.
 4. Add a row to `KERNELS.md`.
 5. Then follow steps 3–5 above.
 
@@ -68,7 +68,7 @@ MetalBench/
 ├── bench                            # CLI: build + run + grade
 ├── certify                          # author preflight (before PR)
 ├── verify                           # reviewer check (against a PR)
-├── src/kernels/<set>/<name>.metal   # your kernel goes here
+├── metal/kernels/<set>/<name>.metal   # your kernel goes here
 ├── mlx/kernels/<set>/<name>.py      # the MLX baseline (don't edit)
 ├── mlx/kernels/<set>/registry.py    # dispatch metadata
 ├── results/<chip>/results.md        # leaderboard source of truth

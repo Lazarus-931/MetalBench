@@ -16,9 +16,9 @@
 |---|---|---|
 | **MLX reference** | `mlx/kernels/<set>/<name>.py` | `Model(nn.Module)` class only. Defines the operation. |
 | **Kernel metadata** | `<set>/registry.py` | `metal_function`, bindings, grid, scalars, flops, bytes. One dict per kernel. |
-| **Metal kernel** | `src/kernels/<set>/<name>.metal` | GPU implementation. Edited by contributors. |
-| **Harness** | `src/mlx_scripts/` | Never touched by contributors. Auto-generates get_inputs, make_inputs, reference from Model + registry. |
-| **Host binary** | `src/metal_scripts/` | C++/ObjC. Compiles metallib, dispatches, times via GPU timestamps. |
+| **Metal kernel** | `metal/kernels/<set>/<name>.metal` | GPU implementation. Edited by contributors. |
+| **Harness** | `mlx/scripts/` | Never touched by contributors. Auto-generates get_inputs, make_inputs, reference from Model + registry. |
+| **Host binary** | `metal/metal_scripts/` | C++/ObjC. Compiles metallib, dispatches, times via GPU timestamps. |
 
 ### Why registry over per-file metadata
 

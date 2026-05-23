@@ -19,8 +19,8 @@ settings:
 # `make` remains the canonical build for kernels and produces
 # build/<name>.metallib that the host loads at runtime.
 fileGroups:
-  - src/kernels
-  - src/mlx_scripts
+  - metal/kernels
+  - mlx/scripts
   - python
   - results
   - assets
@@ -40,7 +40,7 @@ targets:
     type: tool
     platform: macOS
     sources:
-      - path: src/metal_scripts
+      - path: metal/scripts
         type: group
     settings:
       base:

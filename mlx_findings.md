@@ -234,7 +234,7 @@ Root causes, ranked by impact:
    For results.md "best speedup" purposes we should preferentially
    record on lexie.
 4. **Per-iter `mx.eval()` was already in place.** `time_mlx` in
-   `src/mlx_scripts/timing.py` line 57 has `mx.eval(out)` inside the
+   `mlx/scripts/timing.py` line 57 has `mx.eval(out)` inside the
    timed loop — so the per-iter barrier the user asked for already
    exists. The variance came from #1–#3, not from missing barriers.
 
@@ -243,9 +243,9 @@ Root causes, ranked by impact:
 - Bigger `--warmup` (50, done).
 - For "best on chip X" rankings, use **kernel median_ms only**
   (chip-side GPU timestamps from `cb.GPUStartTime/GPUEndTime` in
-  `src/metal_scripts/timing.mm`) — speedup vs MLX is a display
+  `metal/metal_scripts/timing.mm`) — speedup vs MLX is a display
   metric, not a ranking metric. `update_session` already ranks by
-  kernel median_ms (`src/mlx_scripts/harness.py` line ~199) so this
+  kernel median_ms (`mlx/scripts/harness.py` line ~199) so this
   is already partly correct; ensure the website's "best" column
   follows the same rule and doesn't surface speedup as canonical.
 - Don't re-record results just because speedup got bigger — only

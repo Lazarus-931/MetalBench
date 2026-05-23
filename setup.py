@@ -164,7 +164,7 @@ def check_host_build() -> bool:
 
 def check_chip() -> bool:
     step("chip detection")
-    sys.path.insert(0, str(REPO_ROOT / "src" / "mlx_scripts"))
+    sys.path.insert(0, str(REPO_ROOT / "mlx" / "scripts"))
     try:
         import mlx_helpers as H  # type: ignore
         info = H.chip_info()
@@ -198,7 +198,7 @@ def main() -> int:
         fail(f"{len(failures)} check(s) failed: {', '.join(failures)}")
         return 1
     # Echo the chip info one more time so it's the LAST line before "complete".
-    sys.path.insert(0, str(REPO_ROOT / "src" / "mlx_scripts"))
+    sys.path.insert(0, str(REPO_ROOT / "mlx" / "scripts"))
     try:
         import mlx_helpers as H  # type: ignore
         c = H.chip_info()

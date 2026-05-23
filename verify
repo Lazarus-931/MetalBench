@@ -42,7 +42,7 @@ fi
 
 # 2. Find changed kernels ------------------------------------------------------
 cd "$WORKTREE"
-CHANGED=$(git diff --name-only main -- 'src/kernels/**/*.metal' 2>/dev/null)
+CHANGED=$(git diff --name-only main -- 'metal/kernels/**/*.metal' 2>/dev/null)
 if [ -z "$CHANGED" ]; then
   echo "[verify] no kernel changes in this PR" >&2
   cd - >/dev/null
@@ -64,7 +64,7 @@ KERNELS=($(printf '%s\n' "${KERNELS[@]}" | awk '!seen[$0]++'))
 echo "[verify] kernels changed: ${KERNELS[*]}" >&2
 
 # 3. Determine chip + read PR's claims ----------------------------------------
-CHIP=$(python3 -c "import sys; sys.path.insert(0,'src/mlx_scripts'); import mlx_helpers as H; print(H.bucket_key())")
+CHIP=$(python3 -c "import sys; sys.path.insert(0,'mlx/scripts'); import mlx_helpers as H; print(H.bucket_key())")
 PR_RESULTS="$WORKTREE/results/${CHIP}/results.md"
 if [ ! -f "$PR_RESULTS" ]; then
   echo "[verify] WARN: PR has no results/${CHIP}/results.md — claims unverifiable on this chip" >&2

@@ -21,9 +21,9 @@ if [ $# -gt 0 ]; then
   KERNELS=("$@")
 else
   # Tracked changes vs base
-  TRACKED=$(git diff --name-only "$BASE_REF" -- src/kernels/ 2>/dev/null | grep '\.metal$' || true)
+  TRACKED=$(git diff --name-only "$BASE_REF" -- metal/kernels/ 2>/dev/null | grep '\.metal$' || true)
   # Untracked new .metal files
-  UNTRACKED=$(git ls-files --others --exclude-standard src/kernels/ | grep '\.metal$' || true)
+  UNTRACKED=$(git ls-files --others --exclude-standard metal/kernels/ | grep '\.metal$' || true)
   CHANGED=$(printf '%s\n%s\n' "$TRACKED" "$UNTRACKED" | grep -v '^$' || true)
   KERNELS=()
   for f in $CHANGED; do
@@ -49,7 +49,7 @@ fi
 echo "[certify] kernels: ${KERNELS[*]}" >&2
 
 # 2. Determine chip bucket -----------------------------------------------------
-CHIP=$(python3 -c "import sys; sys.path.insert(0,'src/mlx_scripts'); import mlx_helpers as H; print(H.bucket_key())")
+CHIP=$(python3 -c "import sys; sys.path.insert(0,'mlx/scripts'); import mlx_helpers as H; print(H.bucket_key())")
 RESULTS_MD="results/${CHIP}/results.md"
 mkdir -p "results/${CHIP}"
 
