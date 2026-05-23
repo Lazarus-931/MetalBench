@@ -1,9 +1,11 @@
 #!/usr/bin/env python3
-"""Regenerate results/<chip>/results.md from per-kernel JSON files.
+"""Regenerate results/<chip>/results.md from session.json (single source of truth).
 
 The website (Lazarus-931.github.io/leaderboard.html) fetches
 `results/<chip>/results.md` over raw.githubusercontent.com, so this file must
-stay current after agent-driven kernel updates.
+stay current after agent-driven kernel updates. Per-kernel `*.json` files
+under `results/<chip>/` are run artifacts; session.json holds the canonical
+"best time per (chip, kernel)" record and is what we render from.
 """
 from __future__ import annotations
 import json
@@ -12,33 +14,29 @@ from pathlib import Path
 
 REPO = Path(__file__).resolve().parents[1]
 RESULTS = REPO / "results"
+SESSION = REPO / "session.json"
 
 
-def render(chip_dir: Path) -> str:
+def render(chip_id: str, entries: dict) -> str:
     rows = []
-    for jf in sorted(chip_dir.glob("*.json")):
-        try:
-            d = json.loads(jf.read_text())
-        except Exception:
+    for name, e in entries.items():
+        if not isinstance(e, dict):
             continue
-        if d.get("task") is None:
-            continue
-        m = d.get("metrics", {}) or {}
-        speedup = d.get("speedup") or m.get("speedup_vs_mlx")
-        ms = m.get("metal_ms_min") or m.get("metal_ms") or d.get("kernel_timing", {}).get("min_ms")
-        gflops = m.get("gflops")
-        gbps = m.get("gbps") or m.get("bandwidth_gbps")
+        ms = e.get("best_time_ms")
+        sp = e.get("speedup_vs_mlx")
+        gflops = e.get("gflops")
+        gbps = e.get("gbps")
         if ms is None:
             continue
         rows.append({
-            "name": d["task"],
+            "name": name,
             "ms": float(ms),
-            "speedup": float(speedup) if speedup else 0.0,
+            "speedup": float(sp) if sp else 0.0,
             "gflops": float(gflops) if gflops else 0.0,
             "gbps": float(gbps) if gbps else 0.0,
         })
     rows.sort(key=lambda r: r["name"])
-    out = [f"# {chip_dir.name} Results", ""]
+    out = [f"# {chip_id} Results", ""]
     out += ["| kernel | time (ms) | speedup | GFLOPS | GB/s |", "|---|---|---|---|---|"]
     for r in rows:
         out.append(
@@ -49,14 +47,21 @@ def render(chip_dir: Path) -> str:
 
 
 def main() -> int:
+    if not SESSION.exists():
+        sys.exit(f"missing {SESSION}")
     if not RESULTS.exists():
         sys.exit(f"missing {RESULTS}")
+
+    s = json.loads(SESSION.read_text())
+    # Render one results.md per chip dir under results/. Chips without session
+    # data still get an empty results.md (header + zero rows).
     for chip_dir in sorted(RESULTS.iterdir()):
         if not chip_dir.is_dir() or not chip_dir.name.startswith("apple-"):
             continue
         out = chip_dir / "results.md"
-        out.write_text(render(chip_dir))
-        print(f"[render] wrote {out} ({sum(1 for _ in chip_dir.glob('*.json'))} kernels)")
+        out.write_text(render(chip_dir.name, s.get(chip_dir.name, {})))
+        n = len(s.get(chip_dir.name, {}))
+        print(f"[render] wrote {out} ({n} kernels)")
     return 0
 
 
