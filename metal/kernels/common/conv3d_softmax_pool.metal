@@ -1,19 +1,4 @@
 // Fused conv3d -> softmax(C) -> maxpool2x2x2 -> maxpool2x2x2.
-// One threadgroup per output block (n, d4, h4, w4) in (4,7,7,7) = 1372 blocks.
-//
-// GEMM: M=64 (voxels in 4x4x4), N=64 (K_out channels), K=R^3*C = 864.
-// Tile BM=64, BN=64, BK=32. 8 simdgroups (SIMDS_M=2, SIMDS_N=4); 256 threads/TG.
-// Per simd: SM=32, SN=16 → MMA_M=4, MMA_N=2 = 8 MMAs × 4 inner kc steps = 32 MMAs / K-tile.
-//
-// Key optimizations vs previous version:
-//   * Hoist 3D index decomposition out of inner load loop — since BK == C == 32 and
-//     k0 % 32 == 0, (rd, rh, rw) are constant per kt iter, and c == a_col.
-//   * float4 vector loads from device → threadgroup for both x and w.
-//   * Simdgroup-shuffle reduction for the 4-way partial-max merge after softmax.
-//   * Reciprocal of row-sum stored once so per-cell uses multiply not divide.
-//   * fast::exp for the softmax.
-//   * Reduced threadgroup memory by overlapping GEMM scratch (As/Bs) with post-GEMM Cs.
-
 #include <metal_stdlib>
 #include <metal_simdgroup>
 #include <metal_simdgroup_matrix>

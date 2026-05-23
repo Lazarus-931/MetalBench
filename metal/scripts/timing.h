@@ -1,23 +1,4 @@
-// Metal-side timing + profiling helpers for the MetalBench host.
-//
-// `runTimedDispatches` owns the warmup + timed dispatch loop and returns
-// per-iteration GPU time in milliseconds (computed from
-// MTLCommandBuffer.GPUEndTime - GPUStartTime, which is GPU-side, not
-// wall-clock).
-//
-// `enumerateCounterSets` lists available MTLCounterSets on the device.
-// Returned at no dispatch overhead; always included in the output JSON.
-//
-// When ProfilingConfig::enabled is true, the final timed iteration attaches
-// an MTLCounterSampleBuffer targeting MTLCommonCounterSetStatistic (or the
-// best available set) to the compute encoder. The resolved counter values
-// are emitted in TimingResult::counter_samples.
-//
-// `captureDispatch` records a single dispatch to a .gputrace file via
-// MTLCaptureManager. Works on unsigned dev builds without entitlements.
-//
-// `purgeMetalCaches` marks buffers purgeable so the OS may drop backing
-// storage. Re-create buffers before redispatching after this call.
+// Metal-side timing + profiling helpers for MetalBench host binary.
 #pragma once
 
 #import  <Metal/Metal.h>

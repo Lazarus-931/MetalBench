@@ -1,24 +1,4 @@
-// conv1d implicit im2col GEMM with simdgroup_matrix MMA (M4-tuned v2).
-//
-// Logical GEMM: M_g=2032, K_g=192, N_g=128.
-// Tiling: BM=64, BN=64, BK=32 → 6 K-tiles; 1024 threads/TG = 32 simdgroups.
-// SM=16, SN=8 → MMA_M=2, MMA_N=1, register C accumulation.
-//
-// Notes for M4 (10 GPU cores):
-//   * Workload is tiny — total FLOPs ≈ 100M. With registry-fixed
-//     threadgroup=(1024,1,1) we get only 64 TGs (grid 65536/1024).
-//     Each TG = 32 simdgroups; M4 cores fit ~1-2 such heavy TGs each →
-//     ~10-20 TGs concurrent → kernel is launch/occupancy-bound at this size.
-//   * Tile-shrink for occupancy is blocked by registry threadgroup=1024
-//     (the SM allocates per-TG, so reducing per-tile threads still consumes
-//     the same TG slot). Re-tested register-pipelined prefetch (v3) – it
-//     regressed (48 ms). Sticking with v2 PAD=0 + full-lane loads.
-//
-// Wins:
-//   * PAD=0 saves SMEM (As: 64*32, Bs: 32*64).
-//   * Wider A/B loads using ALL 1024 threads (no idle lanes).
-//   * Direct simdgroup_store to global for full m-tiles.
-
+// conv1d M4: implicit im2col GEMM with simdgroup_matrix MMA.
 #include <metal_stdlib>
 #include <metal_simdgroup>
 #include <metal_simdgroup_matrix>

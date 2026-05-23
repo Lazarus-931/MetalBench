@@ -1,16 +1,4 @@
-// conv3d implicit im2col GEMM with simdgroup_matrix MMA — M2 tuned.
-//
-// Wins vs default.metal:
-//   - Precompute per-row (n,d,h,w) once per output tile (stored in tgmem),
-//     avoiding redundant integer division/modulo in every k-tile iter.
-//   - Cache di_base, hi_base, wi_base per row (i.e. d_idx*stride, h_idx*stride,
-//     w_idx*stride) so the inner staging only does 3 adds + bounds check.
-//   - Precompute k-axis decomposition (rd, rh, rw, c) once per kt into tgmem.
-//   - Slightly leaner B staging (cooperative, contiguous).
-//   - Same BM=64 BN=64 BK=16 tile, same threadgroup=1024, same grid.
-//
-// Grid-agnostic: outer `for (tile = tg_id; tile < total_tiles; tile += n_tg)`.
-// Compatible with M4 conceptually (no M2-only intrinsics).
+// conv3d M2: implicit im2col GEMM with simdgroup_matrix MMA.
 #include <metal_stdlib>
 #include <metal_simdgroup>
 #include <metal_simdgroup_matrix>

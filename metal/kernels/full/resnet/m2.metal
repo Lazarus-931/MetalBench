@@ -50,9 +50,11 @@ kernel void resnet_f32(
         uint w_ = rem / C1;
         uint c  = rem % C1;
         float s = 0.0f;
+        #pragma clang loop unroll(full)
         for (int kh = -1; kh <= 1; ++kh) {
             int hh = int(h_) + kh;
             if (hh < 0 || hh >= 32) continue;
+            #pragma clang loop unroll(full)
             for (int kw = -1; kw <= 1; ++kw) {
                 int ww = int(w_) + kw;
                 if (ww < 0 || ww >= 32) continue;
@@ -158,6 +160,7 @@ kernel void resnet_f32(
             uint slot2 = uint(hh2 & 31) & (YA_RING-1);
             // kw=-1,0,1 ; padding via WP (cols 0 and 33 are zero-init).
             threadgroup const half4* wpb = (threadgroup const half4*)&W_b_tg[c * 9u * C1];
+            #pragma clang loop unroll(full)
             for (int kw = -1; kw <= 1; ++kw) {
                 uint w_off = (w_ + 1u + uint(kw)) * C1;
                 if (h0ok) {
@@ -197,6 +200,7 @@ kernel void resnet_f32(
                 uint slot2 = uint(hh2 & 31) % H0_RING;
                 threadgroup const half4* wpb = (threadgroup const half4*)&W_a_tg[c * 9u * C1];
                 half4 acc4 = half4(0.0h);
+                #pragma clang loop unroll(full)
                 for (int kw = -1; kw <= 1; ++kw) {
                     uint w_off = (w_ + 1u + uint(kw)) * C1;
                     if (h0ok) {

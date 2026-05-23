@@ -1,5 +1,6 @@
 // transformer_block — pre-LN BERT/ViT block, M2 redesign
 #include <metal_stdlib>
+#include <metal_simdgroup_matrix>
 using namespace metal;
 
 #define S 64
@@ -23,7 +24,8 @@ kernel void transformer_block_f32(
     constant uint& H_  [[buffer(8)]],
     constant uint& FF_ [[buffer(9)]],
     constant float& eps [[buffer(10)]],
-    uint3 tid [[thread_position_in_threadgroup]])
+    uint3 tid [[thread_position_in_threadgroup]],
+    uint sgid [[simdgroup_index_in_threadgroup]])
 {
     const uint t = tid.x;
     threadgroup float pool[8192];                  // 32 KB

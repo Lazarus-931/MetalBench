@@ -215,13 +215,18 @@ kernel void llama_decoder_layer_f32(
         const float inv_sqrt_dh = rsqrt(float(DH));
         float scores[8][2];  // 8 rows × 64 kt = too many. Store 64 kt: per lane, 64/32 = 2 kt values.
 
-        for (uint r = 0; r < 8; ++r) {
-            for (uint kt = 0; kt < S; ++kt) {
-                float kv_val = act[kt * 128 + kv * DH + dh_lane];
+        // Loop kt outer so K is loaded once per kt, reused across 8 rows.
+        #pragma clang loop unroll(disable)
+        for (uint kt = 0; kt < S; ++kt) {
+            float kv_val = act[kt * 128 + kv * DH + dh_lane];
+            uint sel_lane = kt >> 1;
+            uint sel_idx  = kt & 1u;
+            #pragma clang loop unroll(full)
+            for (uint r = 0; r < 8; ++r) {
                 float prod = q_local[r] * kv_val;
                 float dot = simd_sum(prod) * inv_sqrt_dh;
-                if (lid_in_sg == (kt >> 1)) {
-                    scores[r][kt & 1u] = dot;
+                if (lid_in_sg == sel_lane) {
+                    scores[r][sel_idx] = dot;
                 }
             }
         }
@@ -244,19 +249,20 @@ kernel void llama_decoder_layer_f32(
             scores[r][1] = e1 * inv;
         }
 
-        for (uint r = 0; r < 8; ++r) {
-            float ao = 0.0f;
-            for (uint kt = 0; kt < S; ++kt) {
-                float p = (kt & 1u) == 0u ? scores[r][0] : scores[r][1];
-                float p_bcast = simd_shuffle(p, kt >> 1);
-                float vval = act[kt * 128 + 64u + kv * DH + dh_lane];
-                ao = fma(p_bcast, vval, ao);
+        float attn_local[8] = {0,0,0,0,0,0,0,0};
+        #pragma clang loop unroll(disable)
+        for (uint kt = 0; kt < S; ++kt) {
+            float vval = act[kt * 128 + 64u + kv * DH + dh_lane];
+            uint src_lane = kt >> 1;
+            uint sel_idx  = kt & 1u;
+            #pragma clang loop unroll(full)
+            for (uint r = 0; r < 8; ++r) {
+                float p = (sel_idx == 0u) ? scores[r][0] : scores[r][1];
+                float p_bcast = simd_shuffle(p, src_lane);
+                attn_local[r] = fma(p_bcast, vval, attn_local[r]);
             }
-            scores[r][0] = ao;   // hijack scores[] storage. lane lid_in_sg holds attn_out for dh=lane.
-            (void)dh_lane;
         }
-        float attn_local[8];
-        for (uint r = 0; r < 8; ++r) attn_local[r] = scores[r][0];
+        (void)dh_lane;
 
         threadgroup_barrier(mem_flags::mem_threadgroup);  // all simdgroups finish using K,V.
 
@@ -382,25 +388,26 @@ kernel void llama_decoder_layer_f32(
             WGU_K(0) WGU_K(1) WGU_K(2) WGU_K(3) WGU_K(4) WGU_K(5) WGU_K(6) WGU_K(7)
             WGU_K(8) WGU_K(9) WGU_K(10) WGU_K(11) WGU_K(12) WGU_K(13) WGU_K(14) WGU_K(15)
             #undef WGU_K
-            simdgroup_store(C0, &y[row0 * 128 + col0 + 0],  128);
-            simdgroup_store(C1, &y[row0 * 128 + col0 + 8],  128);
-            simdgroup_store(C2, &y[row0 * 128 + col0 + 16], 128);
-            simdgroup_store(C3, &y[row0 * 128 + col0 + 24], 128);
+            // Stage gate||up in act (threadgroup) instead of y (device).
+            simdgroup_store(C0, &act[row0 * 128 + col0 + 0],  128);
+            simdgroup_store(C1, &act[row0 * 128 + col0 + 8],  128);
+            simdgroup_store(C2, &act[row0 * 128 + col0 + 16], 128);
+            simdgroup_store(C3, &act[row0 * 128 + col0 + 24], 128);
         }
-        threadgroup_barrier(mem_flags::mem_threadgroup | mem_flags::mem_device);
+        threadgroup_barrier(mem_flags::mem_threadgroup);
 
         {
             for (uint i = 0; i < 4; ++i) {
                 uint cell = t * 4 + i;
                 uint s = cell >> 6;
                 uint fb = cell & 63u;
-                float g = y[s * 128 + fb];
-                float u = y[s * 128 + 64 + fb];
+                float g = act[s * 128 + fb];
+                float u = act[s * 128 + 64 + fb];
                 float sg = g / (1.0f + fast::exp(-g));
-                y[s * 128 + fb] = sg * u;
+                act[s * 128 + fb] = sg * u;
             }
         }
-        threadgroup_barrier(mem_flags::mem_threadgroup | mem_flags::mem_device);
+        threadgroup_barrier(mem_flags::mem_threadgroup);
 
         {
             const uint row0 = row0_p;
@@ -408,7 +415,7 @@ kernel void llama_decoder_layer_f32(
             for (uint kc = 0; kc < FFC; kc += 8) {
                 simdgroup_matrix<float, 8, 8> A_blk;
                 simdgroup_matrix<float, 8, 8> B0, B1, B2, B3;
-                simdgroup_load(A_blk, &y[row0 * 128 + kc], 128);
+                simdgroup_load(A_blk, &act[row0 * 128 + kc], 128);
                 simdgroup_load(B0, &W_down[(fc + kc) * D + col0 + 0],  D);
                 simdgroup_load(B1, &W_down[(fc + kc) * D + col0 + 8],  D);
                 simdgroup_load(B2, &W_down[(fc + kc) * D + col0 + 16], D);
@@ -419,7 +426,7 @@ kernel void llama_decoder_layer_f32(
                 simdgroup_multiply_accumulate(Cff3, A_blk, B3, Cff3);
             }
         }
-        threadgroup_barrier(mem_flags::mem_threadgroup | mem_flags::mem_device);
+        threadgroup_barrier(mem_flags::mem_threadgroup);
     }
 
     {

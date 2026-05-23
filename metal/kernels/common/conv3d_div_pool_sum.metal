@@ -1,20 +1,4 @@
-// Single-threadgroup design (1024 threads = 32 simdgroups).
-// Each SG handles k=sg and k=sg+32 over all (n,d2,h2,w2) tiles.
-// Per tile: each lane reads its 27 patch elements DIRECTLY from device (no tg load),
-// computes 27 FMAs against pre-cached weights, simd_sum, max(k0,k1), then
-// cross-SG max via tg mem.
-//
-// Key optimizations vs prior version:
-//   - Eliminated threadgroup patch staging (no patch[864] tg buffer, no patch-load barrier).
-//   - Each lane streams its strided slice of the input patch directly into regs.
-//   - Input layout: x[n,d,h,w,c], lane reads c=lane%32, j indexes (rd,rh,rw,cvec) in
-//     the order matching the prior patch[lane + 32*j] mapping:
-//       index i = lane + 32*j, with j∈[0,27)
-//       spatial = i>>3 = (lane>>3) + 4*j  (since lane = 32 = 8*4? no: i>>3 across i)
-//   - Let me redo: i = lane + 32*j. spatial = i / 8. cvec = i & 7. So as j increments,
-//     spatial advances by 4. We need per-lane: list of (rd,rh,rw,cvec) for j=0..26.
-//     Lane-dependent path — precompute per-lane (rd_base,rh_base,rw_base,cvec_base) and step.
-//   - Simpler: compute (rd,rh,rw,cvec) at runtime per j (cheap).
+// conv3d -> div -> avg_pool2 -> sum. Single-threadgroup, 1024 threads = 32 simdgroups.
 #include <metal_stdlib>
 using namespace metal;
 

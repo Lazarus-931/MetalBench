@@ -78,16 +78,18 @@ REGISTRY["transformer_block"] = dict(
 )
 
 
+# densenet-mini: stem + 2 dense layers (channel concat) + GAP + FC.
+# Input (1,16,16,3) → (1,10).
 REGISTRY["densenet"] = dict(
     metal_function="densenet_f32",
     threadgroup=(256, 1, 1),
     input_bindings=(0, 1, 2, 3, 4),
     input_shapes=[
-        (1, 16, 16, 3),
-        (12, 3, 3, 3),
-        (12, 3, 3, 12),
-        (12, 3, 3, 24),
-        (36, 10),
+        (1, 16, 16, 3),        # x
+        (12, 3, 3, 3),         # W_stem
+        (12, 3, 3, 12),        # W_d1
+        (12, 3, 3, 24),        # W_d2
+        (36, 10),              # W_fc
     ],
     output_shape=(1, 10),
     rtol=1e-2, atol=1e-2,

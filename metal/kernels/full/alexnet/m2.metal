@@ -149,26 +149,48 @@ kernel void alexnet_f32(
     // Use vectorized float4 loads to reduce instruction count.
     // lane = k_part*8 + o_off, 4 k_parts × 128 k, 8 lanes per k_part each handle 1 output.
     // Group adjacent lanes (o_off 0..7) into a float4×2 load: lanes 0..3 = quad0, 4..7 = quad1.
-    float fc1_partial = 0.0f;
-    uint o_off = lane & 7u;
-    uint fc1_k_part = lane >> 3;
-    uint fc1_o = sgid * 8u + o_off;
+    // FC1: 32 sgs × 8 outputs each (256 total). Each sg's 32 lanes each cover 16 k values (16*32=512).
+    // Read Wfc1 row [k, sg*8 .. sg*8+7] as two float4s — contiguous, vectorizable.
     {
-        uint k0 = fc1_k_part * 128u;
-        device const float* Wcol = Wfc1 + fc1_o;
-        float p0 = 0.0f, p1 = 0.0f;
+        uint o_base = sgid * 8u;
+        float acc0 = 0.0f, acc1 = 0.0f, acc2 = 0.0f, acc3 = 0.0f;
+        float acc4 = 0.0f, acc5 = 0.0f, acc6 = 0.0f, acc7 = 0.0f;
+        uint k0 = lane * 16u;
+        device const float4* Wrow4 = (device const float4*)(Wfc1 + o_base);
+        // row stride in float4 = 256/4 = 64
         #pragma unroll 4
-        for (uint kk = 0; kk < 128u; kk += 2u) {
+        for (uint kk = 0; kk < 16u; ++kk) {
             uint k = k0 + kk;
-            p0 = fma(a3[k],     Wcol[k * 256u],         p0);
-            p1 = fma(a3[k + 1], Wcol[(k + 1) * 256u],   p1);
+            float a = float(a3[k]);
+            float4 w0 = Wrow4[k * 64u + 0];
+            float4 w1 = Wrow4[k * 64u + 1];
+            acc0 = fma(a, w0.x, acc0);
+            acc1 = fma(a, w0.y, acc1);
+            acc2 = fma(a, w0.z, acc2);
+            acc3 = fma(a, w0.w, acc3);
+            acc4 = fma(a, w1.x, acc4);
+            acc5 = fma(a, w1.y, acc5);
+            acc6 = fma(a, w1.z, acc6);
+            acc7 = fma(a, w1.w, acc7);
         }
-        fc1_partial = p0 + p1;
-        fc1_partial += simd_shuffle_xor(fc1_partial, 8u);
-        fc1_partial += simd_shuffle_xor(fc1_partial, 16u);
-    }
-    if (fc1_k_part == 0) {
-        fc1_buf[fc1_o] = fmax(fc1_partial, 0.0f);
+        acc0 = simd_sum(acc0);
+        acc1 = simd_sum(acc1);
+        acc2 = simd_sum(acc2);
+        acc3 = simd_sum(acc3);
+        acc4 = simd_sum(acc4);
+        acc5 = simd_sum(acc5);
+        acc6 = simd_sum(acc6);
+        acc7 = simd_sum(acc7);
+        if (lane == 0) {
+            fc1_buf[o_base + 0] = fmax(acc0, 0.0f);
+            fc1_buf[o_base + 1] = fmax(acc1, 0.0f);
+            fc1_buf[o_base + 2] = fmax(acc2, 0.0f);
+            fc1_buf[o_base + 3] = fmax(acc3, 0.0f);
+            fc1_buf[o_base + 4] = fmax(acc4, 0.0f);
+            fc1_buf[o_base + 5] = fmax(acc5, 0.0f);
+            fc1_buf[o_base + 6] = fmax(acc6, 0.0f);
+            fc1_buf[o_base + 7] = fmax(acc7, 0.0f);
+        }
     }
     threadgroup_barrier(mem_flags::mem_threadgroup);
 

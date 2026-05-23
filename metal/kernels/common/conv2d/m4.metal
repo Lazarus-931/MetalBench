@@ -1,35 +1,4 @@
-// conv2d implicit-im2col GEMM with simdgroup_matrix MMA — M4 variant.
-// Adopts the M2-tuned split-issue + float4 loads. The prior M4 attempt
-// (BK=16 K-tile double-buffered) regressed catastrophically to ~30+ ms on
-// M4 hardware; this single-buffered BK=32 path with hoisted (n,h,w) im2col
-// coords and float4 A/B loads recovers and improves on the original win.
-//
-// M2 wins vs default.metal (4.21 → 3.53 ms, 0.67× → 0.81× MLX, 30% → 36% SOL):
-//   - Split-issue A/B loads: threads lid<512 do the entire A-tile (float4 along
-//     C), threads lid>=512 do the entire B-tile (two float4 K-contiguous halves
-//     of N). The two device loads issue in parallel rather than serially per
-//     thread, hiding global-load latency on M2's narrower memory subsystem.
-//   - Float4 A loads: within a BK-aligned k-tile, BK | C, so 4 consecutive
-//     a_col map to 4 consecutive C-indices in the source x tensor (single
-//     (rr, ss) cell). One float4 per A-loading thread instead of 2 scalars.
-//   - Per-row (n, h, w) coords cached in a TG slot parked beyond As/Bs and
-//     read by the A-load thread once per outer tile.
-//   - Hoist (rr_t, ss_t, cbase) and the x-row base address out of the inner
-//     K-loop body — these are uniform across all threads each k-tile because
-//     BK | C, so the per-thread arithmetic in the K-loop is one add/mul.
-//   - Drop bounds checks on K (K_g % BK == 0) and N (BN == K_out).
-//
-// Previous M4 wins (still active):
-//   - BK=32 (was 16): halves K-loop iterations and amortises the per-step
-//     threadgroup barriers (×2).
-//   - Hoist per-row (n_idx, h2, w2) im2col coords out of the K-loop. The
-//     original code recomputed them every K-step (4 integer divs/thread/step);
-//     with K=576 and BK=32 that's a worthwhile 18-iteration saving.
-//   - B-tile loaded as float4 along K (weights are K-major contiguous), then
-//     scattered into the K-row-major SMEM tile.
-//   - Output (Cs) store unchanged.
-// Threadgroup memory: As(64×36) + Bs(32×132) = 6528 floats = 26 KB; Cs aliased
-// to the same 8192-float scratch — 32 KB total, exactly at the M4 limit.
+// conv2d M4: implicit-im2col GEMM with simdgroup_matrix MMA, BK=32, float4 A/B loads.
 #include <metal_stdlib>
 #include <metal_simdgroup>
 #include <metal_simdgroup_matrix>

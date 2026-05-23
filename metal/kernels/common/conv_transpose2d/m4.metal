@@ -1,17 +1,4 @@
-// conv_transpose2d on M4: implicit-im2col GEMM with simdgroup_matrix MMA.
-// Shapes: NHWC, x(N=8, H=32, W=32, C_in=64), w(C_out=128, R=3, S=3, C_in=64), stride=2.
-// Output: (8, 65, 65, 128). M=N*H_out*W_out=33800, N=128, K=R*S*C_in=576.
-//
-// Strategy:
-//   - TG output tile (BM=128 spatial rows) x (BN=128 = full OUT_K).
-//   - 32 simdgroups (1024 threads); 16 row blocks x 2 col groups of 64 cols.
-//     Each SG owns 8 8x8 tiles spanning the full BN.
-//   - Outer loop over (rr,ss) (9 iters) with BK=32 sub-iter (2 per rr,ss).
-//   - For each step: stage Atile (128x32 im2col gather, zero-padded for
-//     stride-parity / OOB) and Btile (32x128 weight slab).
-//   - Grid-agnostic striding over m-tiles using tg_id / n_tg.
-//   - Final store: fast simdgroup_store path when all 8 rows of the SG block
-//     are in bounds, else scratch + scalar fallback.
+// conv_transpose2d M4: implicit-im2col GEMM with simdgroup_matrix MMA.
 #include <metal_stdlib>
 #include <metal_simdgroup_matrix>
 using namespace metal;

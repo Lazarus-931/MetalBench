@@ -1,108 +1,114 @@
 # MetalBench Best Times
 
-| kernel | type | apple-m2 Metal | apple-m2 speedup |
-|---||---||---||---|
-| abs | ? | 0.019ms | 9.9× |
-| add_norm | ? | 0.140ms | 3.4× |
-| alexnet | ? | 0.193ms | 1.9× |
-| argmax | ? | 0.091ms | 4.7× |
-| attention_scores | ? | 0.062ms | 3.2× |
-| avg_pool1d | ? | 0.033ms | 17.5× |
-| avg_pool2d | ? | 0.136ms | 4.0× |
-| avg_pool3d | ? | 0.223ms | 5.3× |
-| batch_mm | matmul | 2.693ms | 0.9× |
-| batch_norm | ? | 0.068ms | 7.0× |
-| bias_add | ? | 0.062ms | 4.7× |
-| bias_gelu | ? | 0.057ms | 8.1× |
-| clip | ? | 0.010ms | 20.0× |
-| conv1d | ? | 0.137ms | 2.4× |
-| conv2d | ? | 3.517ms | 0.8× |
-| conv2d_relu_bias | ? | 518.741ms | 0.0× |
-| conv3d | ? | 15.365ms | 0.5× |
-| conv3d_div_pool_sum | ? | 46.736ms | 0.2× |
-| conv3d_multi_act_bias | ? | 1460.525ms | 0.0× |
-| conv_transpose2d | ? | 8.878ms | 0.2× |
-| conv_transpose2d_clamp_scale_div | ? | 160.275ms | 0.0× |
-| cosine_similarity | reduce | 0.108ms | 74.0× |
-| cross_entropy_loss | ? | 0.141ms | 3.4× |
-| cumprod | scan | 0.118ms | 67.6× |
-| cumsum | scan | 0.122ms | 65.7× |
-| cumsum_exclusive | ? | 0.126ms | 3.5× |
-| cumsum_reverse | scan | 0.121ms | 66.2× |
-| depthwise_conv2d | ? | 0.317ms | 18.3× |
-| dot_product | reduce | 0.014ms | 15.8× |
-| dropout | ? | 0.142ms | 3.1× |
-| elu | ? | 0.020ms | 12.8× |
-| embedding | ? | 0.010ms | 18.5× |
-| exp | ? | 0.019ms | 10.2× |
-| frobenius_norm | ? | 0.076ms | 5.1× |
-| fused_add_rms_norm | ? | 0.136ms | 3.3× |
-| fused_qkv_projection | ? | 0.032ms | 6.3× |
-| gelu | elem | 0.020ms | 12.9× |
-| gelu_linear | ? | 1.148ms | 1.7× |
-| group_norm | ? | 0.057ms | 51.0× |
-| hardsigmoid | elem | 0.020ms | 14.8× |
-| hardswish | elem | 0.020ms | 15.1× |
-| hardtanh | ? | 0.011ms | 19.0× |
-| huber_loss | ? | 0.171ms | 7.0× |
-| instance_norm | ? | 0.044ms | 9.3× |
-| kl_div_loss | ? | 0.156ms | 51.4× |
-| l1_norm | reduce | 0.079ms | 101.9× |
-| l2_norm | reduce | 0.082ms | 97.8× |
-| layer_norm | reduce | 0.140ms | 57.2× |
-| leaky_relu | elem | 0.020ms | 13.6× |
-| linear_bias | ? | 0.054ms | 4.3× |
-| llama_attention | ? | 0.163ms | 2.3× |
-| llama_decoder_layer | ? | 0.379ms | 1.2× |
-| log_softmax | ? | 0.087ms | 3.7× |
-| log_softmax_cross_entropy | reduce | 0.141ms | 52.5× |
-| logsigmoid | elem | 0.021ms | 13.8× |
-| logsumexp | ? | 0.071ms | 112.7× |
-| manhattan_similarity | reduce | 0.074ms | 6.5× |
-| masked_cumsum | ? | 0.142ms | 3.3× |
-| masked_softmax | ? | 0.139ms | 3.2× |
-| matmul_gelu_softmax | ? | 0.135ms | 2.6× |
-| matmul_sub_mul_relu | ? | 0.075ms | 106.3× |
-| matrix_add | elem | 0.147ms | 2.5× |
-| matrix_scale | elem | 0.083ms | 96.2× |
-| matvec | matmul | 0.060ms | 4.1× |
-| max_pool1d | ? | 0.028ms | 284.9× |
-| max_pool2d | ? | 0.144ms | 2.8× |
-| max_pool3d | ? | 0.223ms | 4.2× |
-| mingpt_new_gelu | ? | 0.059ms | 7.2× |
-| mish | ? | 0.021ms | 13.4× |
-| mlp | ? | 0.049ms | 4.6× |
-| mse_loss | reduce | 0.234ms | 2.9× |
-| nll_loss | ? | 0.072ms | 5.5× |
-| outer_product | matmul | 0.059ms | 5.3× |
-| prelu | ? | 0.013ms | 18.1× |
-| rect_mm | matmul | 9.154ms | 0.9× |
-| relu | elem | 0.020ms | 10.0× |
-| residual_add | ? | 0.140ms | 2.8× |
-| resnet | ? | 0.568ms | 0.7× |
-| rms_norm | reduce | 0.123ms | 65.3× |
-| rms_norm_linear | ? | 1.364ms | 1.1× |
-| rope_embedding | ? | 0.005ms | 1600.2× |
-| rsqrt | ? | 0.019ms | 12.2× |
-| selu | elem | 0.020ms | 12.1× |
-| sigmoid | elem | 0.011ms | 21.1× |
-| silu_linear | ? | 1.156ms | 6.9× |
-| softmax | reduce | 0.071ms | 4.1× |
-| softmax_attention | ? | 0.036ms | 6.7× |
-| softplus | ? | 0.020ms | 12.4× |
-| softsign | ? | 0.019ms | 10.7× |
-| sqr_mm | matmul | 1.129ms | 1.4× |
-| swiglu | ? | 0.074ms | 4.4× |
-| swish | elem | 0.020ms | 10.8× |
-| tanh | elem | 0.020ms | 13.4× |
-| top_k | ? | 0.116ms | 8.5× |
-| transformer_block | ? | 0.628ms | 0.7× |
-| transpose_2d | ? | 0.225ms | 0.1× |
-| triplet_margin_loss | ? | 0.145ms | 6.8× |
-| variance | ? | 0.048ms | 8.7× |
-| where | ? | 0.199ms | 2.2× |
+Generated from `session.json`. Lower kernel time = better; speedup = MLX median / kernel median.
 
----
-**Chips:** apple-m2
+| kernel | set | kind | M2 (ms) | M2 × | M4 (ms) | M4 × |
+|---|---|---|---|---|---|---|
+| `abs` | common | elem | 0.018 | 454.63× | 0.018 | 380.45× |
+| `argmax` | common | reduce | 0.072 | 5.10× | 4.025 | 1.99× |
+| `avg_pool1d` | common | pool | 0.013 | 46.84× | 2.999 | 2.33× |
+| `avg_pool2d` | common | pool | 0.124 | 4.02× | 4.007 | 2.00× |
+| `avg_pool3d` | common | pool | 0.223 | 5.26× | 7.007 | 1.14× |
+| `batch_mm` | common | matmul | 2.693 | 0.91× | 128.046 | 0.08× |
+| `batch_norm` | common | reduce | 0.068 | 7.00× | 5.011 | 2.20× |
+| `clip` | common | elem | 0.010 | 20.03× | 3.005 | 2.33× |
+| `conv1d` | common | conv | 0.137 | 2.40× | 5.011 | 1.39× |
+| `conv2d` | common | conv | 3.517 | 0.82× | 8.748 | 1.24× |
+| `conv2d_mish_mish` | common | misc | — | — | 11.556 | 33.23× |
+| `conv2d_relu_bias` | common | conv | 518.741 | 0.02× | 11.406 | 7.45× |
+| `conv3d` | common | conv | 15.365 | 0.46× | 118.961 | 0.20× |
+| `conv3d_div_pool_sum` | common | conv | 46.736 | 0.17× | 189.517 | 0.55× |
+| `conv3d_multi_act_bias` | common | conv | 1460.525 | 0.01× | 31.664 | 16.93× |
+| `conv3d_softmax_pool` | common | misc | — | — | 21.227 | 6.17× |
+| `conv_transpose2d` | common | conv | 8.878 | 0.16× | 13.143 | 0.61× |
+| `conv_transpose2d_clamp_scale_div` | common | conv | 160.275 | 0.04× | 11.533 | 25.92× |
+| `conv_transpose2d_sub_tanh` | common | misc | — | — | 11.537 | 9.01× |
+| `conv_transpose3d_norm_pool_gelu` | common | misc | — | — | 3.186 | 4.08× |
+| `cosine_similarity` | common | reduce | 0.108 | 74.02× | 8.038 | 4.98× |
+| `cumprod` | common | scan | 0.078 | 5.16× | 4.019 | 1.99× |
+| `cumsum` | common | scan | 0.097 | 3.07× | 10.899 | 0.73× |
+| `cumsum_exclusive` | common | scan | 0.103 | 4.91× | 11.014 | 1.82× |
+| `cumsum_reverse` | common | scan | 0.102 | 3.91× | 8.021 | 1.99× |
+| `depthwise_conv2d` | common | conv | 0.317 | 18.30× | 4.046 | 177.20× |
+| `dot_product` | common | reduce | 0.007 | 45.83× | 2.997 | 2.33× |
+| `elu` | common | elem | 0.016 | 486.43× | 3.007 | 1.99× |
+| `embedding` | common | misc | 0.010 | 18.49× | 2.999 | 2.33× |
+| `exp` | common | elem | 0.016 | 497.59× | 3.006 | 2.33× |
+| `frobenius_norm` | common | reduce | 0.076 | 5.10× | 3.059 | 8.82× |
+| `gelu` | common | elem | 0.016 | 501.31× | 3.003 | 3.67× |
+| `hardsigmoid` | common | elem | 0.016 | 487.51× | 3.002 | 5.00× |
+| `hardswish` | common | elem | 0.016 | 485.73× | 3.006 | 2.31× |
+| `hardtanh` | common | elem | 0.011 | 18.97× | 3.004 | 2.29× |
+| `huber_loss` | common | loss | 0.161 | 49.72× | 7.015 | 13.69× |
+| `kl_div_loss` | common | loss | 0.156 | 51.39× | 7.042 | 11.50× |
+| `l1_norm` | common | reduce | 0.064 | 6.81× | 20.964 | 1.14× |
+| `l2_norm` | common | reduce | 0.063 | 6.37× | 20.005 | 1.20× |
+| `layer_norm` | common | reduce | 0.100 | 9.94× | 6.977 | 1.57× |
+| `leaky_relu` | common | elem | 0.016 | 502.02× | 3.004 | 5.94× |
+| `log` | common | elem | 0.017 | 470.24× | 3.009 | 4.99× |
+| `logsigmoid` | common | elem | 0.018 | 453.82× | 3.007 | 3.33× |
+| `logsumexp` | common | reduce | 0.071 | 112.65× | 32.003 | 0.44× |
+| `manhattan_similarity` | common | reduce | 0.074 | 6.52× | 29.958 | 1.07× |
+| `masked_cumsum` | common | scan | 0.142 | 3.30× | 25.012 | 1.28× |
+| `matmul_sub_mul_relu` | common | misc | 0.075 | 106.32× | 0.000 | inf× |
+| `matrix_add` | common | misc | 0.147 | 2.50× | 5.134 | 4.67× |
+| `matrix_scale` | common | misc | 0.083 | 96.22× | 3.048 | 5.25× |
+| `matvec` | common | matmul | 0.059 | 4.11× | 10.005 | 0.50× |
+| `max_pool1d` | common | pool | 0.012 | 47.30× | 3.999 | 5.99× |
+| `max_pool2d` | common | pool | 0.129 | 3.64× | 6.995 | 1.14× |
+| `max_pool3d` | common | pool | 0.223 | 4.17× | 7.022 | 1.14× |
+| `mingpt_new_gelu` | common | elem | 0.031 | 12.44× | 3.007 | 6.98× |
+| `mish` | common | elem | 0.016 | 495.15× | 3.009 | 6.67× |
+| `mse_loss` | common | reduce | 0.234 | 2.87× | 3.176 | 17.63× |
+| `outer_product` | common | matmul | 0.059 | 5.34× | 7.013 | 1.14× |
+| `prelu` | common | elem | 0.013 | 18.05× | 3.005 | 5.32× |
+| `rect_mm` | common | matmul | 9.154 | 0.87× | 45.334 | 0.53× |
+| `relu` | common | elem | 0.017 | 462.06× | 3.002 | 2.67× |
+| `rms_norm` | common | reduce | 0.101 | 78.77× | 3.038 | 3.62× |
+| `rsqrt` | common | elem | 0.017 | 470.55× | 3.010 | 3.66× |
+| `selu` | common | elem | 0.016 | 485.17× | 3.003 | 2.33× |
+| `sigmoid` | common | elem | 0.011 | 21.11× | 3.003 | 2.32× |
+| `softmax` | common | elem | 0.071 | 4.11× | 29.968 | 0.53× |
+| `softplus` | common | elem | 0.017 | 481.13× | 3.003 | 4.00× |
+| `softsign` | common | elem | 0.017 | 475.95× | 3.002 | 5.00× |
+| `sqr_mm` | common | matmul | 1.129 | 1.42× | 21.026 | 0.38× |
+| `swish` | common | elem | 0.018 | 441.36× | 3.003 | 2.00× |
+| `tanh` | common | elem | 0.017 | 448.92× | 3.010 | 2.66× |
+| `top_k` | common | reduce | 0.116 | 8.47× | 12.015 | 3.99× |
+| `transpose_2d` | common | misc | 0.201 | 0.09× | 17.043 | 0.00× |
+| `triplet_margin_loss` | common | loss | 0.145 | 6.82× | 32.011 | 2.87× |
+| `variance` | common | reduce | 0.048 | 8.70× | 20.963 | 1.14× |
+| `where` | common | elem | 0.199 | 2.17× | 6.946 | 3.45× |
+| `add_norm` | standard | misc | 0.140 | 3.36× | 12.016 | 2.00× |
+| `attention_scores` | standard | misc | 0.022 | 12.79× | 6.996 | 1.57× |
+| `bias_add` | standard | misc | 0.062 | 4.67× | 6.949 | 3.45× |
+| `bias_gelu` | standard | misc | 0.057 | 8.09× | 7.009 | 5.85× |
+| `cross_entropy_loss` | standard | loss | 0.113 | 4.72× | 23.954 | 2.00× |
+| `dropout` | standard | misc | 0.142 | 3.13× | 7.016 | 3.42× |
+| `fused_add_rms_norm` | standard | misc | 0.136 | 3.28× | 13.971 | 2.07× |
+| `fused_qkv_projection` | standard | misc | 0.032 | 6.34× | 3.010 | 2.65× |
+| `gelu_linear` | standard | misc | 1.148 | 1.74× | 18.029 | 1.33× |
+| `group_norm` | standard | misc | 0.041 | 193.64× | 7.015 | 6.56× |
+| `instance_norm` | standard | misc | 0.044 | 9.29× | 18.006 | 2.61× |
+| `linear_bias` | standard | misc | 0.036 | 26.90× | 3.016 | 4.97× |
+| `llama_attention` | standard | misc | 0.163 | 2.33× | 3.110 | 12.54× |
+| `log_softmax` | standard | misc | 0.087 | 3.73× | 31.016 | 0.87× |
+| `log_softmax_cross_entropy` | standard | misc | 0.140 | 3.29× | 42.007 | 0.98× |
+| `masked_softmax` | standard | misc | 0.139 | 3.21× | 33.997 | 0.85× |
+| `matmul_gelu_softmax` | standard | misc | 0.046 | 6.02× | 3.014 | 4.67× |
+| `nll_loss` | standard | loss | 0.072 | 5.50× | 28.993 | 0.83× |
+| `residual_add` | standard | misc | 0.140 | 2.80× | 6.998 | 3.43× |
+| `rms_norm_linear` | standard | misc | 1.364 | 1.13× | 21.008 | 1.90× |
+| `rope_embedding` | standard | misc | 0.005 | 1600.17× | 2.997 | 5.00× |
+| `silu_linear` | standard | misc | 1.156 | 6.92× | 20.066 | 1.20× |
+| `softmax_attention` | standard | misc | 0.033 | 11.20× | 12.002 | 1.49× |
+| `swiglu` | standard | misc | 0.059 | 34.37× | 9.993 | 1.70× |
+| `alexnet` | full | misc | 0.193 | 1.86× | 3.146 | 7.63× |
+| `llama_decoder_layer` | full | misc | 0.379 | 1.19× | 3.284 | 10.35× |
+| `mlp` | full | misc | 0.046 | 21.76× | 3.020 | 4.96× |
+| `resnet` | full | misc | 0.168 | 1.62× | 4.127 | 2.91× |
+| `transformer_block` | full | misc | 0.428 | 0.98× | 3.367 | 8.89× |
 
-To submit: fork, edit `.metal`, `./bench <name>`, update PR.
+_104 kernels, chips covered: apple-m2 (100), apple-m4 (104)._
+
+Regenerate with `python3 scripts/regenerate_best_times.py` (TODO).

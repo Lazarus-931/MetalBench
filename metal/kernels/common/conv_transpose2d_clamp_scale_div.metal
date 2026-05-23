@@ -1,16 +1,4 @@
-// conv_transpose2d_clamp_scale_div: fused 3x3 transposed conv (NHWC, stride=2)
-// + bias + clamp[-1,1] * scale + clamp[-1,1] / div.
-// Implicit-im2col GEMM via simdgroup_matrix MMA. Each TG processes 2 consecutive
-// m-tiles, sharing per-kt B (weight) load → halves B bandwidth.
-// Grid-agnostic: each TG strides over its share of m-tile groups via tg_id.
-//
-// Shapes: x (N=8, H=32, W=32, C=64) ; w (K_out=128, R=3, S=3, C=64) ;
-//         y (N, H_out=65, W_out=65, K_out=128) ; stride=2.
-//
-// GEMM mapping: M = N*H_out*W_out = 33800 ; N_dim = K_out = 128 ; K = R*S*C = 576.
-// x[m, k] := x[n, h_in, w_in, c] if (h_out-r) and (w_out-s) are both even and
-//            the input coord is in-range; else 0.
-// w[k, k_out] := w[k_out, r, s, c] (already stored in (K_out, R, S, C)).
+// conv_transpose2d_clamp_scale_div: fused 3x3 transposed conv + clamp + scale + div.
 #include <metal_stdlib>
 #include <metal_simdgroup>
 #include <metal_simdgroup_matrix>

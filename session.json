@@ -33,20 +33,20 @@
       "updated_at": "2026-05-22T03:31:58+00:00"
     },
     "alexnet": {
+      "best_time_ms": 0.1905,
+      "speedup_vs_mlx": 1.5739265956434365,
+      "gflops": 61.40774803149606,
+      "gbps": 4.856146981627297,
       "arith_intensity": 12.645364372994802,
-      "best_time_ms": 0.19325,
-      "gbps": 4.7870426908150066,
-      "gflops": 60.53389909443725,
-      "iters": 200,
-      "max_err": 541.5625,
-      "metal_source": null,
-      "metal_source_path": null,
-      "pso_max_threads_per_tg": 1024,
-      "speedup_vs_mlx": 1.8564036012389835,
-      "stability": 0.9581060981655926,
-      "target": "speed",
+      "stability": 0.990995208889305,
       "tg_static_mem_bytes": 25024,
-      "updated_at": "2026-05-22T17:23:49+00:00"
+      "pso_max_threads_per_tg": 1024,
+      "iters": 200,
+      "target": "speed",
+      "max_err": 541.375,
+      "metal_source_path": null,
+      "metal_source": null,
+      "updated_at": "2026-05-23T04:06:31+00:00"
     },
     "argmax": {
       "arith_intensity": 0.2497560975609756,
@@ -1249,20 +1249,20 @@
       "updated_at": "2026-05-21T19:11:26+00:00"
     },
     "resnet": {
+      "best_time_ms": 0.168292,
+      "speedup_vs_mlx": 1.615002493843795,
+      "gflops": 61.33529817222446,
+      "gbps": 0.1968483350367219,
       "arith_intensity": 311.5865732914755,
-      "best_time_ms": 0.181875,
-      "gbps": 0.18214707903780067,
-      "gflops": 56.75458419243986,
-      "iters": 5,
-      "max_err": 0.2103271484375,
-      "metal_source": null,
-      "metal_source_path": null,
-      "pso_max_threads_per_tg": 1024,
-      "speedup_vs_mlx": 5.502405470794009,
-      "stability": 0.9998185896167294,
-      "target": "speed",
+      "stability": 0.8625095454568751,
       "tg_static_mem_bytes": 31168,
-      "updated_at": "2026-05-22T23:38:41+00:00"
+      "pso_max_threads_per_tg": 1024,
+      "iters": 500,
+      "target": "speed",
+      "max_err": 0.2103271484375,
+      "metal_source_path": null,
+      "metal_source": null,
+      "updated_at": "2026-05-23T03:59:33+00:00"
     },
     "rms_norm": {
       "arith_intensity": 0.625,
@@ -1521,20 +1521,20 @@
       "updated_at": "2026-05-22T18:15:24+00:00"
     },
     "transformer_block": {
+      "best_time_ms": 0.428208,
+      "speedup_vs_mlx": 0.9757735292092025,
+      "gflops": 41.628815902552034,
+      "gbps": 1.4539476142435452,
       "arith_intensity": 28.63157894736842,
-      "best_time_ms": 0.488292,
-      "gbps": 1.2750403447117709,
-      "gflops": 36.50641829069492,
-      "iters": 5,
-      "max_err": 0.009735107421875,
-      "metal_source": null,
-      "metal_source_path": null,
-      "pso_max_threads_per_tg": 1024,
-      "speedup_vs_mlx": 4.00298389369832,
-      "stability": 0.9995553961993545,
-      "target": "speed",
+      "stability": 0.9749815572090821,
       "tg_static_mem_bytes": 32768,
-      "updated_at": "2026-05-22T23:38:58+00:00"
+      "pso_max_threads_per_tg": 1024,
+      "iters": 200,
+      "target": "speed",
+      "max_err": 0.009735107421875,
+      "metal_source_path": null,
+      "metal_source": null,
+      "updated_at": "2026-05-23T03:53:20+00:00"
     },
     "transpose_2d": {
       "arith_intensity": 0.0,
@@ -1599,6 +1599,22 @@
       "target": "speed",
       "tg_static_mem_bytes": 0,
       "updated_at": "2026-05-22T03:31:29+00:00"
+    },
+    "densenet": {
+      "best_time_ms": 0.0755,
+      "speedup_vs_mlx": 4.0568473027241945,
+      "gflops": 28.57303311258278,
+      "gbps": 0.28344370860927154,
+      "arith_intensity": 100.80672897196261,
+      "stability": 0.7920438928695068,
+      "tg_static_mem_bytes": 30288,
+      "pso_max_threads_per_tg": 448,
+      "iters": 200,
+      "target": "speed",
+      "max_err": 0.0001220703125,
+      "metal_source_path": null,
+      "metal_source": null,
+      "updated_at": "2026-05-23T04:10:31+00:00"
     }
   },
   "apple-m4": {

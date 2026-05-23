@@ -1,14 +1,4 @@
-// silu_linear: y = silu(x @ W). M4 variant. M=N=K=1024, 64x64 output tile.
-// Strategy: BK=32 single-buffered, PAD=0, software-pipelined device prefetch.
-//   - PAD=0 keeps shared at 16 KB (BM*BK + BK*BN = 4096 f) — high TG occupancy.
-//     Empirically, PAD>0 hurt 20% on M4 (extra shared + lower residency outweighs
-//     any bank-conflict benefit on Apple's TG memory).
-//   - Each iter prefetches the NEXT K-tile (4 float4s/thread) into registers
-//     while the current MMA runs; commit-to-shared after the consumer barrier.
-//     One A/B in flight at all times, no extra shared budget.
-//   - 2x4 simdgroup grid (SM=32, SN=16) → 4*2 = 8 MMA tiles per simdgroup.
-//   - fast::exp in the fused SiLU epilogue.
-// Grid + threadgroup + output_shape unchanged.
+// silu_linear M4: y = silu(x @ W), 1024x1024 with 64x64 simdgroup_matrix tiles.
 #include <metal_stdlib>
 #include <metal_simdgroup>
 #include <metal_simdgroup_matrix>
