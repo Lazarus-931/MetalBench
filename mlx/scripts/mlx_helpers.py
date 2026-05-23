@@ -311,7 +311,7 @@ def build_manifest(b, inputs, *, input_paths, output_paths, warmup, iters,
     return manifest
 
 
-# --- chip detection (mirrors metal/metal_scripts/setup.cpp) -------------------
+# --- chip detection (mirrors metal/scripts/setup.cpp) -------------------
 
 _CHIP_TYPES = [
     ("M5 Ultra", "m5_ultra"), ("M5 Max", "m5_max"), ("M5 Pro", "m5_pro"), ("M5", "m5"),

@@ -1,5 +1,5 @@
 {
-  "task": "mlp",
+  "task": "conv_transpose2d_clamp_scale_div",
   "chip": {
     "type": "m2",
     "name": "Apple M2",
@@ -9,17 +9,17 @@
     "ram_bytes": 8589934592
   },
   "metal_device": "Apple M2",
-  "tg_static_mem_bytes": 24576,
-  "pso_max_threads_per_tg": 1024,
-  "correct": true,
+  "tg_static_mem_bytes": 32768,
+  "pso_max_threads_per_tg": 896,
+  "correct": false,
   "metrics": {
-    "speedup": 2.5561129141058174,
-    "gflops": 34.15535483870968,
-    "gbps": 4.340645161290323,
-    "arith_intensity": 7.868727705112961,
-    "stability": 0.9943309462210362
+    "speedup": 673846.8914865011,
+    "gflops": 60361098.79518072,
+    "gbps": 237327.42168674697,
+    "arith_intensity": 254.33680763132585,
+    "stability": 0.9021739130434783
   },
-  "speedup": 2.5561129141058174,
+  "speedup": 673846.8914865011,
   "kernel_timing": {
     "chip": {
       "type": "m2",
@@ -30,12 +30,12 @@
       "ram_bytes": 8589934592
     },
     "metal_device": "Apple M2",
-    "tg_static_mem_bytes": 24576,
-    "pso_max_threads_per_tg": 1024,
-    "min_ms": 0.119375,
-    "median_ms": 0.124,
-    "mean_ms": 0.123301,
-    "iters": 200,
+    "tg_static_mem_bytes": 32768,
+    "pso_max_threads_per_tg": 896,
+    "min_ms": 4.2e-05,
+    "median_ms": 8.3e-05,
+    "mean_ms": 9.2e-05,
+    "iters": 5,
     "available_counter_sets": [
       "timestamp"
     ],
@@ -44,16 +44,16 @@
     }
   },
   "reference_timing": {
-    "min_ms": 0.25933398865163326,
-    "median_ms": 0.31695800134912133,
-    "mean_ms": 0.3109632563428022,
-    "iters": 200,
-    "peak_memory_bytes": 763420
+    "min_ms": 55.85879099089652,
+    "median_ms": 55.92929199337959,
+    "mean_ms": 55.93305820366368,
+    "iters": 5,
+    "peak_memory_bytes": 54346296
   },
   "outputs": [
     {
-      "ok": true,
-      "max_err": 0.00146484375
+      "ok": false,
+      "max_err": 0.5
     }
   ],
   "available_counter_sets": [
@@ -63,5 +63,5 @@
     "counters_available": false
   },
   "target": "speed",
-  "score": 2.5561129141058174
+  "score": 673846.8914865011
 }

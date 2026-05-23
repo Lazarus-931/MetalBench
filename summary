@@ -15,7 +15,7 @@ python3 - "$BASELINE" <<'PY'
 import json, sys
 base = json.load(open(sys.argv[1]))
 cur  = json.load(open('session.json'))
-for chip in ['apple-m2', 'apple-m4']:
+for chip in sorted(cur.keys()):
     b = base.get(chip, {})
     c = cur.get(chip, {})
     rows = []

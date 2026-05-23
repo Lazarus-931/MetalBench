@@ -1,8 +1,5 @@
 // kl_div_loss M2 variant.
-// y[i] = t * (log(t) - lp) where t = |target[i]|+1e-6, lp = -|log_pred[i]|.
-// Memory-bound pointwise. Grid=64K threads, N=1M. Process via float4 with a
-// grid-stride loop; vectorized loads/stores + fast::log keep us close to
-// peak bandwidth. atol=1e-3 lets us use fast::log safely.
+
 #include <metal_stdlib>
 using namespace metal;
 

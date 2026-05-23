@@ -4,26 +4,25 @@
 
 # MetalBench
 
- benchmarking Apple Metal GPU kernels against [MLX](https://github.com/ml-explore/mlx) reference implementations. Modeled on [KernelBench](https://github.com/ScalingIntelligence/KernelBench), swapping CUDA → Metal and PyTorch → MLX.
+Benchmarking Apple Metal GPU kernels against [MLX](https://github.com/ml-explore/mlx) reference implementations. Modeled on [KernelBench](https://github.com/ScalingIntelligence/KernelBench), swapping CUDA → Metal and PyTorch → MLX.
 
-
-While working on inference for apple silicon, I found a agent based loop of kernel writing & testing against a written test for perf/acc helped alot along the way. This contains harneseses and code used to benchmark against baseline mlx versions. Kernels don't differ much, just how threadgroups are utilized. One of the main differences was performance across a array of newer m series chips. I soon realized this was a we-have-kernel-bench-at-home version I made, so I polished some stuff and releasing this as a benchmark + agent harness for metal kernel authoring(agent steel). Much of this repo is orgaized/inspired by KernelBench, so props for them!
+While working on inference for Apple Silicon, I found an agent-based loop of kernel writing & testing against a perf/accuracy test helped a lot along the way. This repo contains the harness and code used to benchmark against baseline MLX versions. Kernels don't differ much — mostly in how threadgroups are utilized. One of the main differences was performance across the newer M-series chips. I soon realized this was a we-have-kernel-bench-at-home version, so I polished it and am releasing it as a benchmark + agent harness for Metal kernel authoring (Agent Steel). Much of this repo is organized after / inspired by KernelBench, so props to them!
 
 
 ## Agent-Steel 👨‍🏭
 
-Located in `agent-steele/`, the agent harness for full kernel writing, from profiling, debugging and desinging kernels. 
+Located in `agent_steel/`, the agent harness for full kernel writing — profiling, debugging, and designing kernels.
 
 
 ## Kernels
 
 Three sets, increasing in size/complexity:
 
-| set | what | target | live now |
-|---|---|---|---|
-| **Common** | basic ops — activations, matmuls, norms, convs, scans | 100 | 67 |
-| **Standard** | fused 2+ op kernels — attention, SwiGLU, RMSNorm + linear | 25 | 24 |
-| **Full** | end-to-end model blocks — transformer block, mbconv, llama_layer | 12 | 5 |
+| set | what |
+|---|---|
+| **Common** | basic ops — activations, matmuls, norms, convs, scans |
+| **Standard** | fused 2+ op kernels — attention, SwiGLU, RMSNorm + linear |
+| **Full** | end-to-end model blocks — transformer block, AlexNet, ResNet, LLaMA decoder, DenseNet |
 
 See `KERNELS.md` for the full registry.
 
@@ -59,7 +58,7 @@ If any step fails it tells you exactly what to run.
 ./bench <name>                              # default: both MLX + Metal, paired
 ./bench <name> --mlx                        # MLX only
 ./bench <name> --metal                      # Metal only
-./bench <name> --no-save                    # don't write results/<chip>/<name>.json
+./bench <name> --no-session                  # don't write results/<chip>/<name>.json
 ./bench <name> -- --target compute --iters 500
 ./bench <name> -- --cold-start              # measure first-launch latency
 ./bench --all                               # run every kernel in the registry
@@ -138,7 +137,7 @@ For now, see [AGENTS.md](AGENTS.md) for the full contract. Working on Agent Stee
 - `mlx/kernels/<set>/<name>.py` — the MLX baseline (don't edit; it defines the problem).
 - `metal/kernels/<set>/<name>.metal` — your kernel.
 - Run `./bench <name>` until `correct=true`.
-- Edit only the `.metal` file. Update `best_times.md` with your result. Open a PR.
+- Edit only the `.metal` file. Open a PR. `best_times.md`, `LINK.md`, and `results/<chip>/results.md` are auto-generated.
 
 ### Per-chip variants
 

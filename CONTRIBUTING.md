@@ -22,7 +22,7 @@ python3 setup.py        # one-time: installs Metal toolchain + Python deps
    ./certify              # benches every kernel you changed
    ```
    This runs `./bench <name>` for each modified kernel, confirms `correctness : ✓ correct`, captures the median time, and writes the row(s) into `results/<chip>/results.md` for you. It also prints a copy-pasteable block for your PR description.
-4. **Commit** the changed `.metal` file(s) **and** the updated `results/<chip>/results.md`.
+4. **Commit** the changed `.metal` file(s) and `registry.py` if you needed a dispatch-shape change. `results/<chip>/results.md`, `best_times.md`, and `LINK.md` are regenerated automatically — don't hand-edit them.
 5. **Open the PR.** Title format suggestion: `<kernel>: <old>× → <new>× on <chip>` (or list multiple if the PR is broader).
 
 ## What a reviewer does

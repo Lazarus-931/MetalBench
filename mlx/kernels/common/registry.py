@@ -645,7 +645,6 @@ REGISTRY["avg_pool3d"] = dict(
 
 # ---- KernelBench Level-1 backfills (88-100) ----
 
-ew("mingpt_new_gelu", "mingpt_new_gelu_f32", flops_mul=8)
 ew("hinge_loss", "hinge_loss_f32", flops_mul=3,
    extra_scalars=[])
 

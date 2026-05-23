@@ -58,3 +58,18 @@ $(HOST_BIN): $(HOST_SRCS) $(HOST_HDRS) | $(BUILD_DIR)
 
 clean:
 	rm -rf $(BUILD_DIR)
+
+# Regenerate derived markdown (best_times.md, LINK.md, results/<chip>/results.md) from session.json.
+# Run after kernel changes that touched session.json; also wired into the pre-commit hook.
+refresh:
+	python3 scripts/render_chip_results.py
+	python3 scripts/render_best_times.py
+	python3 scripts/render_link_md.py
+
+# Install the pre-commit hook that auto-refreshes derived markdown when session.json is staged.
+install-hooks:
+	@git config core.hooksPath scripts/git-hooks
+	@chmod +x scripts/git-hooks/pre-commit
+	@echo "[hooks] installed — scripts/git-hooks/pre-commit will run on every commit"
+
+.PHONY: kernels clean refresh install-hooks
