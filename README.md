@@ -131,9 +131,9 @@ GOOD (sqr_mm):                      BAD (naive kernel):
     balanced        1.23                 balanced        0.17
 ```
 
-## Authoring a kernel
+## Authoring a kernel(Will be moved)
 
-See [AGENTS.md](AGENTS.md) for the full contract. Short version:
+For now, see [AGENTS.md](AGENTS.md) for the full contract. Working on Agent Steel which is full agent harness/system for writing 🤘 kernels. Short version:
 
 - `mlx/kernels/<set>/<name>.py` — the MLX baseline (don't edit; it defines the problem).
 - `src/kernels/<set>/<name>.metal` — your kernel.
