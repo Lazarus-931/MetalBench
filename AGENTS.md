@@ -30,7 +30,7 @@ Model class + registry entry. You never touch the harness.
 3. **Read the registry entry** at `mlx/kernels/common/registry.py` for the kernel's `metal_function`, binding indices, grid, and scalars.
 4. **Write/edit** `metal/kernels/common/<name>.metal`. The kernel function name must match `metal_function`. Buffer bindings must match `input_bindings` and registry scalars.
 5. **Run** `./bench <name>`. Checks correctness, prints all 5 target scores.
-6. **Open a PR** with only the `.metal` file changed (and `registry.py` if you needed to change dispatch shape). `best_times.md`, `LINK.md`, and `results/<chip>/results.md` are auto-generated — don't hand-edit.
+6. **Open a PR** with only the `.metal` file changed (and `registry.py` if you needed to change dispatch shape). `best_times.md` and `LINK.md` are auto-generated from `session.json` — don't hand-edit.
 
 ## Per-chip variants (optional)
 

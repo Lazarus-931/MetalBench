@@ -23,33 +23,30 @@ class AttemptEntry:
     tried and what worked.
     """
 
-    # Identity / lineage
     id: str = field(default_factory=_gen_id)
     timestamp: str = field(default_factory=_now)
     kernel: str = ""
-    chip: str = ""                          # e.g. "apple-m2"
-    parent_id: str | None = None            # the attempt whose .metal this diff was applied to
-    generation: int = 0                     # depth in the lineage chain
+    chip: str = ""
+    parent_id: str | None = None
+    generation: int = 0
 
-    # What we tried
-    technique: str = ""                     # human label, e.g. "loop reorder Phase A"
-    diff: str = ""                          # the unified diff (kept compact when possible)
+    technique: str = ""
+    diff: str = ""
     files_touched: list[str] = field(default_factory=list)
+    source_snapshot: str = ""
+    gputrace_metrics: dict[str, Any] = field(default_factory=dict)
 
-    # Outcome
     correctness_passed: bool = False
     max_err: float | None = None
     before_ms: float | None = None
     after_ms: float | None = None
-    improvement_pct: float | None = None    # ((before - after) / before) * 100
-    runs_ms: list[float] = field(default_factory=list)  # individual run medians (for stability check)
-    stability_cv: float | None = None       # coefficient of variation across runs
+    improvement_pct: float | None = None
+    runs_ms: list[float] = field(default_factory=list)
+    stability_cv: float | None = None
 
-    # Decision
-    kept: bool = False                      # did the Verifier accept the change?
-    rollback_reason: str = ""               # if not kept, why ("<5%", "correctness", "compile_fail", "noise")
+    kept: bool = False
+    rollback_reason: str = ""
 
-    # Free-form notes the agent or human added
     notes: str = ""
 
     def to_dict(self) -> dict[str, Any]:

@@ -13,9 +13,8 @@ REPO_ROOT="$(git rev-parse --show-toplevel)"
 cd "$REPO_ROOT"
 
 echo "[pre-commit] session.json or kernels staged — regenerating derived markdown"
-python3 scripts/render_chip_results.py
 python3 scripts/render_best_times.py
 python3 scripts/render_link_md.py
 
 # Stage the regenerated files so they land in the same commit.
-git add best_times.md LINK.md results/*/results.md 2>/dev/null || true
+git add best_times.md LINK.md 2>/dev/null || true

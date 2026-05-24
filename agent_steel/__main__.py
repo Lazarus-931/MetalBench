@@ -38,13 +38,10 @@ import argparse
 import json
 import sys
 from concurrent.futures import ThreadPoolExecutor, as_completed
-from dataclasses import asdict
-
 from .providers import Provider, get_provider
-from .profiler import profile, ProfilerReport
+from .profiler import profile
 
 
-# Provider name → (factory short-name, default base_url, default model)
 _PROVIDER_PRESETS = {
     "openai":     {"backend": "openai",    "base_url": None, "model": "gpt-4o-mini"},
     "anthropic":  {"backend": "anthropic", "base_url": None, "model": "claude-sonnet-4-6"},
@@ -68,47 +65,35 @@ def _make_provider(name: str, model_override: str | None) -> Provider:
     )
 
 
-def _print_report(r: ProfilerReport, output: str) -> None:
+def _print_report(r, output: str) -> None:
     if output == "json":
         print(json.dumps({
             "kernel": r.kernel, "chip": r.chip,
-            "bottleneck_class": r.bottleneck_class,
-            "sol": r.sol, "confidence": r.confidence,
-            "code_analysis": r.code_analysis,
-            "suggested_edits": [asdict(e) for e in r.suggested_edits],
+            "generation": r.chip_generation, "variant": r.chip_variant,
+            "narrative": r.narrative,
         }, indent=2))
         return
     print(f"\n  kernel       : {r.kernel}  ({r.chip})")
-    print(f"  bottleneck   : {r.bottleneck_class}")
-    print(f"  sol          : {r.sol*100:.0f}%")
-    print(f"  confidence   : {r.confidence:.2f}")
-    print(f"\n  analysis     : {r.code_analysis}\n")
-    if r.suggested_edits:
-        print("  suggested edits (ranked):")
-        for i, e in enumerate(r.suggested_edits, 1):
-            print(f"    {i}. {e.technique}")
-            print(f"       why: {e.rationale}")
-            print(f"       where: {e.target_lines}")
-            print(f"       impact: {e.expected_impact}\n")
-    else:
-        print("  no edits suggested\n")
+    print(f"  generation   : {r.chip_generation} ({r.chip_variant})")
+    print(f"  kernel_ms    : {r.bench.kernel_ms}")
+    print(f"  GFLOPS / BW  : {r.bench.gflops} / {r.bench.gbps} GB/s")
+    print(f"\n  narrative:\n\n{r.narrative}\n")
 
 
 def _run_one(kernel: str, args):
-    """Run the configured stages for one kernel. Returns (kernel, ProfilerReport | LoopResult | Exception)."""
+    """Run the configured stages for one kernel. Returns (kernel, ProfileResult | LoopResult | Exception)."""
     try:
-        prov = None if args.no_llm else _make_provider(args.provider, args.model)
+        if args.no_llm:
+            raise SystemExit("--no-llm is no longer supported (Profiler is LLM-only). Pass --provider <provider>.")
+        prov = _make_provider(args.provider, args.model)
         if args.loop:
             from .loop import run_loop, GreedyStrategy
-            if prov is None:
-                raise RuntimeError("--loop requires a provider (cannot run with --no-llm)")
             strategy = GreedyStrategy(
                 max_rounds=args.max_rounds,
                 max_no_improvement=args.max_no_improvement,
             )
             return kernel, run_loop(kernel, provider=prov, strategy=strategy)
-        report = profile(kernel, provider=prov, skip_llm=args.no_llm,
-                         gputrace_path=args.gputrace)
+        report = profile(kernel, provider=prov, gputrace_path=args.gputrace)
         return kernel, report
     except Exception as e:
         return kernel, e
@@ -123,7 +108,6 @@ def _print_loop_result(r) -> None:
         print(f"  improvement  : {r.overall_improvement_pct:.1f}%")
     print(f"  terminated   : {r.termination_reason}")
     if r.attempts:
-        kept = [a for a in r.attempts if a.kept]
         print(f"\n  attempts (most recent):")
         for a in r.attempts[-min(5, len(r.attempts)):]:
             status = "KEPT" if a.kept else f"rev:{a.rollback_reason}"
@@ -140,7 +124,6 @@ def main(argv: list[str] | None = None) -> int:
         prog="agent_steel",
         description="Agent Steel — agentic kernel-authoring harness for MetalBench.",
     )
-    # Mode (mutually exclusive)
     mode = ap.add_mutually_exclusive_group(required=True)
     mode.add_argument(
         "--kernel-name", dest="kernel_name",
@@ -151,7 +134,6 @@ def main(argv: list[str] | None = None) -> int:
         help="Author a NEW kernel from scratch (not yet implemented — placeholder).",
     )
 
-    # Provider
     ap.add_argument(
         "--provider", default="anthropic",
         choices=list(_PROVIDER_PRESETS),
@@ -162,29 +144,24 @@ def main(argv: list[str] | None = None) -> int:
     ap.add_argument("--no-llm", action="store_true",
                     help="Skip LLM calls — use deterministic-only roofline output.")
 
-    # Optional gputrace context (cross-check dispatched-vs-registered shape)
     ap.add_argument("--gputrace", default=None,
                     help="Path to a .gputrace bundle to enrich the diagnostic.")
 
-    # Loop mode — full Profiler→Optimizer→Implementor→Verifier cycle
     ap.add_argument("--loop", action="store_true",
-                    help="Run the full agent loop (profile → optimize → implement → verify → repeat). "
+                    help="Run the full agent loop (profile → optimize → verify → repeat). "
                          "Without this flag, only the Profiler runs.")
     ap.add_argument("--max-rounds", type=int, default=5,
                     help="Max loop rounds before termination (default 5).")
     ap.add_argument("--max-no-improvement", type=int, default=3,
                     help="Stop after this many consecutive rounds without a kept improvement.")
 
-    # Parallelism
     ap.add_argument("--parallel", type=int, default=1,
                     help="Number of worker threads when --kernel-name lists multiple.")
 
-    # Output
     ap.add_argument("--output", choices=["json", "text"], default="text")
 
     args = ap.parse_args(argv)
 
-    # --new mode: placeholder for now; emit clear notice.
     if args.new_kernel:
         print(
             f"--new {args.new_kernel}: NEW-kernel authoring agent is not yet "
@@ -212,7 +189,6 @@ def main(argv: list[str] | None = None) -> int:
                 _print_report(result, args.output)
         return 0
 
-    # Parallel — bound the pool to the smaller of (--parallel, len(kernels)).
     workers = min(args.parallel, len(kernels))
     with ThreadPoolExecutor(max_workers=workers) as pool:
         futs = {pool.submit(_run_one, k, args): k for k in kernels}

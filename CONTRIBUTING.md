@@ -21,8 +21,8 @@ python3 setup.py        # one-time: installs Metal toolchain + Python deps
    ```bash
    ./certify              # benches every kernel you changed
    ```
-   This runs `./bench <name>` for each modified kernel, confirms `correctness : ✓ correct`, captures the median time, and writes the row(s) into `results/<chip>/results.md` for you. It also prints a copy-pasteable block for your PR description.
-4. **Commit** the changed `.metal` file(s) and `registry.py` if you needed a dispatch-shape change. `results/<chip>/results.md`, `best_times.md`, and `LINK.md` are regenerated automatically — don't hand-edit them.
+   This runs `./bench <name>` for each modified kernel, confirms `correctness : ✓ correct`, captures the median time, and updates `session.json` with the new best. It also prints a copy-pasteable block for your PR description.
+4. **Commit** the changed `.metal` file(s) and `registry.py` if you needed a dispatch-shape change. `best_times.md` and `LINK.md` are regenerated automatically from `session.json` — don't hand-edit them.
 5. **Open the PR.** Title format suggestion: `<kernel>: <old>× → <new>× on <chip>` (or list multiple if the PR is broader).
 
 ## What a reviewer does
@@ -34,7 +34,7 @@ Any reviewer with an Apple Silicon Mac can verify your claims:
 ./verify user/MetalBench:branch
 ```
 
-`verify` checks out the PR, finds every `.metal` you changed, benches each in the PR's worktree 3× (median), compares against the times you claimed in `results/<chip>/results.md`, and prints a PASS/FAIL table. Tolerance is **±15%** on median time.
+`verify` checks out the PR, finds every `.metal` you changed, benches each in the PR's worktree 3× (median), compares against the times recorded in `session.json`, and prints a PASS/FAIL table. Tolerance is **±15%** on median time.
 
 A PR is mergeable when at least one reviewer on the same chip family runs `./verify` and gets all green.
 
@@ -71,8 +71,7 @@ MetalBench/
 ├── metal/kernels/<set>/<name>.metal   # your kernel goes here
 ├── mlx/kernels/<set>/<name>.py      # the MLX baseline (don't edit)
 ├── mlx/kernels/<set>/registry.py    # dispatch metadata
-├── results/<chip>/results.md        # leaderboard source of truth
-└── session.json                     # per-chip best times + winning sources
+└── session.json                     # leaderboard source of truth (per-chip best times + winning sources)
 ```
 
 ## Scoring

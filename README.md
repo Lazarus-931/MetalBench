@@ -137,7 +137,7 @@ For now, see [AGENTS.md](AGENTS.md) for the full contract. Working on Agent Stee
 - `mlx/kernels/<set>/<name>.py` — the MLX baseline (don't edit; it defines the problem).
 - `metal/kernels/<set>/<name>.metal` — your kernel.
 - Run `./bench <name>` until `correct=true`.
-- Edit only the `.metal` file. Open a PR. `best_times.md`, `LINK.md`, and `results/<chip>/results.md` are auto-generated.
+- Edit only the `.metal` file. Open a PR. `best_times.md` and `LINK.md` are auto-generated from `session.json`.
 
 ### Per-chip variants
 

@@ -1,20 +1,55 @@
-"""Loop runner — orchestrates Profiler → Optimizer → Implementor → Verifier."""
+"""Loop runner — orchestrates Profiler → Optimizer → Verifier.
+
+Three agents, two LLM:
+
+    Profiler  (LLM)   : .gputrace + bench  → 2-3 paragraph narrative
+    Optimizer (LLM)   : narrative + attempt log + .metal + MLX → new .metal
+                        accuracy gate (correctness ≥ 99% via ./bench)
+    Verifier  (rules) : bench×N, perf gate, log ±Δ% to AttemptDB
+
+The Loop owns chip identification, gputrace path resolution, prior-best source
+caching for revert, and per-round greedy termination.
+"""
 from __future__ import annotations
-import json
+import fcntl
+import os
+import time
+from contextlib import contextmanager
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Any
 
 from ..history import AttemptDB, AttemptEntry
-from ..implementor import implement
-from ..optimizer import extract, Candidate
-from ..profiler import profile, ProfilerReport, SuggestedEdit
+from ..optimizer import OptimizerResult, optimize
+from ..profiler import ProfileResult, profile
 from ..providers import Provider
-from ..verifier import verify, VerifierResult
+from ..verifier import verify
 from .greedy import GreedyStrategy
 
-
 REPO = Path(__file__).resolve().parents[2]
+GPUTRACE_DIR = REPO / "results"
+_SESSION_LOCK_DIR = Path(os.environ.get(
+    "AGENT_STEEL_SESSION_LOCK_DIR",
+    str(Path.home() / ".agent-steel" / "locks"),
+))
+
+
+# Two agent-steel processes on the same kernel × chip would race on AttemptDB
+# lineage and the active .metal source. This lock serializes them.
+@contextmanager
+def _session_lock(kernel: str, chip: str):
+    _SESSION_LOCK_DIR.mkdir(parents=True, exist_ok=True)
+    safe = f"{kernel}__{chip.replace('/', '_').replace(' ', '_')}.lock"
+    path = _SESSION_LOCK_DIR / safe
+    fd = os.open(path, os.O_CREAT | os.O_RDWR, 0o644)
+    try:
+        fcntl.flock(fd, fcntl.LOCK_EX)
+        os.write(fd, f"pid={os.getpid()} t={time.time()}\n".encode())
+        yield
+    finally:
+        try:
+            fcntl.flock(fd, fcntl.LOCK_UN)
+        finally:
+            os.close(fd)
 
 
 @dataclass
@@ -30,42 +65,31 @@ class LoopResult:
     attempts: list[AttemptEntry] = field(default_factory=list)
 
 
-def _candidate_to_suggested_edit(c: Candidate) -> SuggestedEdit:
-    """Coerce a Candidate into the SuggestedEdit shape the Implementor consumes."""
-    return SuggestedEdit(
-        technique=c.technique,
-        rationale=c.rationale,
-        target_lines=c.target_lines or "see code analysis",
-        expected_impact=c.expected_impact or (
-            f"prior wins on: {', '.join(w.get('kernel','?') for w in c.wins_on)}"
-            if c.wins_on else "no prior wins recorded"
-        ),
-    )
+def _chip_id(chip_generation: str) -> str:
+    return f"apple-{chip_generation}"
 
 
-def _chip_id_from_bench(chip_str: str | None) -> str:
-    if not chip_str:
-        return "apple-m2"
-    for g in ("m5", "m4", "m3", "m2", "m1"):
-        if g.upper() in chip_str:
-            return f"apple-{g}"
-    return "apple-m2"
+def _gputrace_path(kernel: str, chip_generation: str) -> str | None:
+    """Look for a .gputrace bundle under results/<chip-gen>/."""
+    p = GPUTRACE_DIR / chip_generation / f"{kernel}.gputrace"
+    return str(p) if p.is_dir() else None
 
 
-def _set_for_kernel(kernel: str) -> str:
-    """Return common/standard/full for the kernel name (best-effort)."""
-    for s in ("common", "standard", "full"):
-        d = REPO / "metal" / "kernels" / s
-        if not d.is_dir():
-            continue
-        if (d / f"{kernel}.metal").is_file() or (d / kernel).is_dir():
-            return s
-    return "common"
+def _sol_from_profile(prof: ProfileResult) -> float:
+    m = prof.chip_aware_metrics or {}
+    sol_pct = m.get("sol_compute_pct") or m.get("device_memory_bandwidth_pct") or 0.0
+    return float(sol_pct) / 100.0
 
 
-# ---------------------------------------------------------------------------
-# Main entry.
-# ---------------------------------------------------------------------------
+def _peek_generation(chip_override: str | None) -> str:
+    """Best-effort chip-gen guess BEFORE the first bench, for gputrace lookup."""
+    if chip_override:
+        s = chip_override.lower()
+        for g in ("m5", "m4", "m3", "m1"):
+            if g in s:
+                return g
+    return "m2"
+
 
 def run_loop(
     kernel: str,
@@ -75,123 +99,101 @@ def run_loop(
     db: AttemptDB | None = None,
     chip_override: str | None = None,
 ) -> LoopResult:
-    """Run the full optimization loop on a kernel.
-
-    Each round:
-      1. Profile (re-bench, get fresh roofline + source analysis)
-      2. Extract candidates (patterns + profiler.suggested_edits + history)
-      3. Implementor builds a diff for the top untried candidate
-      4. Verifier applies, benches, gates, logs
-
-    Returns a LoopResult summarizing every attempt.
-    """
     strategy = strategy or GreedyStrategy()
     db = db or AttemptDB()
-    set_name = _set_for_kernel(kernel)
 
-    # Initial bench — establishes the chip + the baseline before_ms.
-    initial_report = profile(kernel, provider=provider, skip_llm=True)
-    chip = chip_override or _chip_id_from_bench(initial_report.chip)
-    initial_ms = (initial_report.packet.get("timing_trust") or {}).get("median_ms")
-    initial_sol = initial_report.sol
+    # Initial profile must run before the session lock — it tells us the chip id.
+    initial_profile = profile(
+        kernel, provider=provider,
+        gputrace_path=_gputrace_path(kernel, _peek_generation(chip_override)),
+    )
+    chip = chip_override or _chip_id(initial_profile.chip_generation)
 
-    history: list[AttemptEntry] = list(db.read(kernel, chip))
+    with _session_lock(kernel, chip):
+        return _run_loop_inner(
+            kernel, chip, initial_profile, provider, strategy, db,
+        )
+
+
+def _run_loop_inner(
+    kernel: str,
+    chip: str,
+    initial_profile: ProfileResult,
+    provider: Provider,
+    strategy: GreedyStrategy,
+    db: AttemptDB,
+) -> LoopResult:
+    initial_ms = initial_profile.bench.kernel_ms
     best_ms = initial_ms
-    best_parent_id: str | None = None
+
+    from ..optimizer.agent import _resolve_metal_path
+    active_metal_path, _ = _resolve_metal_path(kernel, initial_profile.chip_generation)
+    prior_best_source = active_metal_path.read_text()
+
+    existing = list(db.read(kernel, chip))
+    baseline_id: str | None = next(
+        (e.id for e in existing if e.technique == "baseline" and e.kept), None,
+    )
+    if baseline_id is None:
+        baseline = AttemptEntry(
+            kernel=kernel,
+            chip=chip,
+            technique="baseline",
+            source_snapshot=prior_best_source,
+            gputrace_metrics=initial_profile.chip_aware_metrics or {},
+            files_touched=[str(active_metal_path.relative_to(REPO))],
+            correctness_passed=initial_profile.bench.correct,
+            max_err=initial_profile.bench.max_err,
+            before_ms=None,
+            after_ms=initial_ms,
+            improvement_pct=None,
+            kept=True,
+            generation=0,
+            notes="session baseline — captured immediately after initial profile",
+        )
+        db.append(baseline)
+        baseline_id = baseline.id
+
     rounds_run = 0
     kept_count = 0
     term_reason = ""
 
+    prof = initial_profile
     for round_num in range(strategy.max_rounds):
         rounds_run = round_num + 1
 
-        # ----- 1. Profile -----
-        # Use provider on round > 0 so we get LLM suggested_edits when the
-        # pattern store is exhausted. Round 0 already happened above.
-        if round_num == 0:
-            report = initial_report
-        else:
-            report = profile(kernel, provider=provider, skip_llm=False)
+        if round_num > 0:
+            prof = profile(
+                kernel, provider=provider,
+                gputrace_path=_gputrace_path(kernel, prof.chip_generation),
+            )
 
-        # Termination check pre-extract — if SOL is already at target, stop.
+        history = list(db.read(kernel, chip))
         terminate, reason = strategy.should_terminate(
-            round_num, history, report.sol
+            round_num, history, _sol_from_profile(prof),
         )
         if terminate:
             term_reason = reason
             break
 
-        # ----- 2. Extract candidates -----
-        candidates = extract(report, chip=chip, db=db)
-        if not candidates:
-            # If the LLM was skipped on this round, `report.suggested_edits`
-            # is empty and we relied entirely on patterns.json. If patterns
-            # matched nothing either, the user has two recoverable options:
-            # seed patterns.json for this (bottleneck, kernel-kind) bucket,
-            # or re-run with the LLM enabled (omit --no-llm). Spell that
-            # out instead of an opaque "no candidates" message.
-            llm_was_off = (round_num == 0)  # round 0 always runs skip_llm=True
-            if llm_was_off and not report.suggested_edits:
-                term_reason = (
-                    "LLM was off on round 0 (skip_llm=True) AND patterns.json "
-                    f"had no matching entry for bottleneck "
-                    f"{report.bottleneck_class!r} on kernel {report.kernel!r}. "
-                    "Either seed patterns.json for this bucket or re-run "
-                    "with a provider so the profiler can generate "
-                    "kernel-specific suggested_edits."
-                )
-            else:
-                term_reason = (
-                    f"no candidates returned from optimizer "
-                    f"(patterns + profiler.suggested_edits both empty for "
-                    f"bottleneck={report.bottleneck_class!r})"
-                )
-            break
+        opt: OptimizerResult = optimize(prof, provider=provider, db=db, chip_id=chip)
+        if not opt.accuracy_passed:
+            continue
 
-        # Pick top candidate; the Implementor will further filter by prior_attempts.
-        prior_techniques = db.techniques_tried(kernel, chip)
-        top: Candidate | None = None
-        for c in candidates:
-            t = c.technique.lower()
-            if any(t in p.lower() or p.lower() in t for p in prior_techniques):
-                continue
-            top = c
-            break
-        if top is None:
-            term_reason = "all candidates already tried"
-            break
-
-        # Surface the selected candidate in the report so the Implementor uses it.
-        report.suggested_edits = [_candidate_to_suggested_edit(top)] + report.suggested_edits
-
-        # ----- 3. Implementor -----
-        impl = implement(
-            report,
-            provider=provider,
-            prior_attempts=prior_techniques,
-            set_name=set_name,
+        ver = verify(
+            kernel, chip=chip, db=db,
+            technique_summary=opt.change_summary,
+            revert_source=prior_best_source,
+            gputrace_metrics=prof.chip_aware_metrics,
         )
 
-        # ----- 4. Verifier -----
-        result = verify(
-            impl,
-            chip=chip, set_name=set_name,
-            before_ms=best_ms,
-            db=db,
-            parent_id=best_parent_id,
-            generation=round_num,
-        )
-
-        # Refresh local history slice and update best pointer.
-        history = list(db.read(kernel, chip))
-        if result.kept and result.after_ms is not None:
+        if ver.kept and ver.after_ms is not None:
             kept_count += 1
-            best_ms = result.after_ms
-            best_parent_id = result.attempt_id
+            best_ms = ver.after_ms
+            prior_best_source = active_metal_path.read_text()
 
-        # Post-round termination check.
         terminate, reason = strategy.should_terminate(
-            rounds_run, history, report.sol
+            rounds_run, list(db.read(kernel, chip)), _sol_from_profile(prof),
         )
         if terminate:
             term_reason = reason
@@ -200,15 +202,15 @@ def run_loop(
     if not term_reason:
         term_reason = f"completed {rounds_run} rounds"
 
-    overall_imp = None
+    overall = None
     if initial_ms and best_ms and initial_ms > 0:
-        overall_imp = (initial_ms - best_ms) / initial_ms * 100.0
+        overall = (initial_ms - best_ms) / initial_ms * 100.0
 
     return LoopResult(
         kernel=kernel, chip=chip,
         rounds_run=rounds_run, kept_attempts=kept_count,
         initial_ms=initial_ms, best_ms=best_ms,
-        overall_improvement_pct=overall_imp,
+        overall_improvement_pct=overall,
         termination_reason=term_reason,
-        attempts=history,
+        attempts=list(db.read(kernel, chip)),
     )

@@ -77,15 +77,22 @@ class AttemptDB:
         ]
 
     def best(self, kernel: str, chip: str) -> AttemptEntry | None:
-        """The kept attempt with the lowest after_ms.
+        top = self.top_n_by_time(kernel, chip, n=1, kept_only=True)
+        return top[0] if top else None
 
-        If nothing has been kept yet, returns None — callers should fall
-        back to `session.json` for the harness's all-time best.
+    def top_n_by_time(
+        self, kernel: str, chip: str, n: int = 5, kept_only: bool = True,
+    ) -> list[AttemptEntry]:
+        """Return up to N attempts ordered by after_ms ascending (fastest first).
+
+        Entries with no after_ms are skipped. If kept_only is True, only
+        attempts the Verifier accepted are returned.
         """
-        kept = [
+        entries = [
             e for e in self.read(kernel, chip)
-            if e.kept and isinstance(e.after_ms, (int, float))
+            if isinstance(e.after_ms, (int, float))
         ]
-        if not kept:
-            return None
-        return min(kept, key=lambda e: e.after_ms)  # type: ignore[arg-type]
+        if kept_only:
+            entries = [e for e in entries if e.kept]
+        entries.sort(key=lambda e: e.after_ms)  # type: ignore[arg-type, return-value]
+        return entries[:n]

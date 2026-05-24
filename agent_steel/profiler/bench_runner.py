@@ -14,18 +14,44 @@ The harness's stdout looks like:
     stability   : 0.98
 """
 from __future__ import annotations
+import fcntl
+import os
 import re
 import subprocess
+import time
+from contextlib import contextmanager
 from dataclasses import dataclass, field
 from pathlib import Path
 
 REPO = Path(__file__).resolve().parents[2]
+
+# GPU is a single resource — concurrent ./bench runs corrupt each other's timing.
+_LOCK_PATH = Path(os.environ.get(
+    "AGENT_STEEL_BENCH_LOCK",
+    str(Path.home() / ".agent-steel" / "bench.lock"),
+))
+
+
+@contextmanager
+def _gpu_bench_lock():
+    _LOCK_PATH.parent.mkdir(parents=True, exist_ok=True)
+    fd = os.open(_LOCK_PATH, os.O_CREAT | os.O_RDWR, 0o644)
+    try:
+        fcntl.flock(fd, fcntl.LOCK_EX)
+        os.write(fd, f"pid={os.getpid()} t={time.time()}\n".encode())
+        yield
+    finally:
+        try:
+            fcntl.flock(fd, fcntl.LOCK_UN)
+        finally:
+            os.close(fd)
 
 
 @dataclass
 class BenchResult:
     kernel: str
     chip: str
+    gpu_cores: int | None
     correct: bool
     max_err: float | None
     speedup: float | None
@@ -43,6 +69,7 @@ class BenchResult:
 
 
 _RX_DEVICE = re.compile(r"device\s+:\s*(.+?)\s*$", re.M)
+_RX_GPU_CORES = re.compile(r"(\d+)\s*GPU\s*cores?", re.I)
 _RX_OCCUPANCY = re.compile(r"occupancy\s+:\s*tg_mem=(\d+)\s*KB\s+max_thr/tg=(\d+)")
 _RX_CORRECT = re.compile(r"correctness\s+:\s*(✓\s*correct|✗\s*incorrect).*?max_err=([\d.eE+-]+)")
 _RX_SPEEDUP = re.compile(r"speedup\s+:\s*([\d.eE+-]+)×")
@@ -73,10 +100,11 @@ def run_bench(
     """Run `./bench <kernel>` and return parsed metrics. Raises on subprocess failure."""
     args = ["./bench", kernel, "--", "--iters", str(iters), "--warmup", str(warmup)]
     if not save:
-        args[1:1] = []  # ./bench saves by default; no flag needed to disable here
-    proc = subprocess.run(
-        args, cwd=cwd, capture_output=True, text=True, timeout=timeout_s
-    )
+        args[1:1] = []
+    with _gpu_bench_lock():
+        proc = subprocess.run(
+            args, cwd=cwd, capture_output=True, text=True, timeout=timeout_s
+        )
     out = proc.stdout
     if proc.returncode != 0:
         raise RuntimeError(
@@ -87,10 +115,13 @@ def run_bench(
     device_m = _RX_DEVICE.search(out)
     occupancy_m = _RX_OCCUPANCY.search(out)
     chip = device_m.group(1) if device_m else "unknown"
+    gc_m = _RX_GPU_CORES.search(chip)
+    gpu_cores = int(gc_m.group(1)) if gc_m else None
 
     return BenchResult(
         kernel=kernel,
         chip=chip,
+        gpu_cores=gpu_cores,
         correct=("correct" in correct_m.group(1)) if correct_m else False,
         max_err=float(correct_m.group(2)) if correct_m else None,
         speedup=_f(_RX_SPEEDUP, out),

@@ -1,24 +1,11 @@
-"""Optimizer — pick the next technique to try on a kernel.
+"""Optimizer — LLM agent that writes the next iteration of a kernel.
 
-Two-stage split per agent_steel design:
+    optimize(profile, provider=...) -> OptimizerResult
 
-    Profiler  → Optimizer  →  Implementor  →  Verifier  →  (Loop)
-    (diagnose) (extract)     (codegen)        (apply+gate)
-
-The Optimizer is deterministic: it queries `patterns.json`, the
-`ProfilerReport`'s LLM-driven `suggested_edits`, and the per-kernel history
-DB, then ranks. No LLM call in the extract path. The Implementor (next
-stage) is the only LLM-driven step in the loop.
-
-Public API:
-
-    from agent_steel.optimizer import OptimizerAgent, extract, Candidate
-
-    opt = OptimizerAgent()
-    candidates = opt.run(profiler_report)
-    top = candidates[0]
+Inputs: Profiler narrative + AttemptDB log + current .metal + MLX reference.
+Outputs: new .metal staged at optimizer/staging/<kernel>.metal + a 2-3 sentence
+change summary. Accuracy is gated here; performance is gated by the Verifier.
 """
-from .agent import OptimizerAgent
-from .extraction import Candidate, extract
+from .agent import OptimizerAgent, OptimizerResult, STAGING_DIR, optimize
 
-__all__ = ["OptimizerAgent", "Candidate", "extract"]
+__all__ = ["OptimizerAgent", "OptimizerResult", "STAGING_DIR", "optimize"]

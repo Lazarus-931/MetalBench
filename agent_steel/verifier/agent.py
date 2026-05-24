@@ -1,366 +1,209 @@
-"""Verifier agent — apply a diff, bench it, keep-or-revert, log the attempt.
+"""Verifier agent — deterministic perf-gate. No LLM.
 
-Gate (matches the human contributor rule we've been running):
+The Optimizer has already promoted a candidate to metal/kernels/<set>/<kernel>.metal
+and passed the accuracy gate. The Verifier:
 
-    keep if  correctness_passed AND
-             median_drop_pct >= 15% AND
-             passed across 5 runs
+1. benches the current (promoted) kernel N times,
+2. compares the median to the prior best in AttemptDB,
+3. logs the ±Δ% to AttemptDB regardless of direction,
+4. updates the "best" pointer if Δ is an improvement,
+5. on regression, restores the prior-best .metal source (if supplied).
 
-    keep with extra confirmation if  correctness_passed AND
-                                     5% <= median_drop_pct < 15% AND
-                                     ≥5% sustained across 10 follow-up runs
-
-    revert otherwise.
-
-The Verifier always writes ONE `AttemptEntry` to the history DB regardless
-of outcome — that's how the loop "remembers" what's been tried.
+No LLM. No diff application. No suggestion ranking. Just rules.
 """
 from __future__ import annotations
-import subprocess
 import statistics
 from dataclasses import dataclass, field
 from pathlib import Path
 
 from ..history import AttemptDB, AttemptEntry
-from ..implementor import ImplementorResult
 from ..profiler import run_bench
 
 REPO = Path(__file__).resolve().parents[2]
 
-# Default gating thresholds — keep loose-ish here; the loop can pass overrides.
-KEEP_THRESHOLD_AUTO = 15.0           # ≥15% median drop → auto-keep
-KEEP_THRESHOLD_CONFIRM_LOW = 5.0     # below this → revert
-CONFIRMATION_RUNS = 10               # follow-up bench count for 5-15% range
-PRIMARY_RUNS = 5                     # bench count for the initial gate
+PRIMARY_WARMUP = 30
+PRIMARY_ITERS = 100
+SUB_RES_THRESHOLD_MS = 0.001
+
+KEEP_AUTO_THRESHOLD_PCT = 5.0
+REGRESSION_THRESHOLD_PCT = 5.0
 
 
 @dataclass
 class VerifierResult:
     kernel: str
     chip: str
-    technique: str
-
-    compile_ok: bool
-    correctness_passed: bool
-    max_err: float | None
-
     before_ms: float | None
     after_ms: float | None
     improvement_pct: float | None
     runs_ms: list[float] = field(default_factory=list)
     stability_cv: float | None = None
-
     kept: bool = False
-    rollback_reason: str = ""
-    attempt_id: str = ""              # ID of the AttemptEntry we wrote
+    reverted: bool = False
+    decision_reason: str = ""
+    attempt_id: str = ""
 
 
-# ---------------------------------------------------------------------------
-# Disk operations — apply / revert / build.
-# ---------------------------------------------------------------------------
+def _bench_avg(
+    kernel: str, warmup: int, iters: int,
+) -> tuple[float | None, float | None, float | None, bool, float | None, bool]:
+    """Run a single ./bench with the configured warmup + iters; return
+    (mean_ms, median_ms, min_ms, correct, max_err, sub_resolution).
 
-def _apply_to_disk(path: Path, applied_source: str) -> str:
-    """Overwrite the file with the new source. Returns the original contents
-    so the caller can revert verbatim on failure."""
-    original = path.read_text()
-    path.write_text(applied_source)
-    return original
-
-
-def _revert(path: Path, original: str) -> None:
-    path.write_text(original)
-
-
-def _rebuild_metallibs(timeout_s: int = 60) -> tuple[bool, str]:
-    """Run `make` in the repo root. Returns (ok, stderr)."""
+    sub_resolution is True if the bench's median is at or below 1µs — those
+    measurements aren't reliable and the gate treats this as a revert reason.
+    """
     try:
-        proc = subprocess.run(
-            ["make"], cwd=REPO, capture_output=True, text=True, timeout=timeout_s
-        )
-        return proc.returncode == 0, proc.stderr
-    except subprocess.TimeoutExpired:
-        return False, "make timed out"
+        r = run_bench(kernel, warmup=warmup, iters=iters)
+    except Exception:
+        return None, None, None, False, None, False
+    correct = bool(r.correct)
+    max_err = r.max_err
+    sub_res = (r.kernel_ms is None) or (r.kernel_ms <= SUB_RES_THRESHOLD_MS)
+    return r.kernel_ms_mean, r.kernel_ms, r.kernel_ms_min, correct, max_err, sub_res
 
 
-# ---------------------------------------------------------------------------
-# Benching helpers — wrap run_bench with run-count + stability tracking.
-# ---------------------------------------------------------------------------
-
-SUB_RESOLUTION_MS = 0.001  # below this we treat the timing as unreliable
-
-
-def _bench_n(
-    kernel: str, n: int, iters: int = 200, warmup: int = 50,
-) -> tuple[list[float], bool, float, int, bool]:
-    """Run the bench N times.
-
-    Returns: (runs, all_correct, max_err_seen, sub_resolution_count, batch_failed).
-    - `runs` contains only measurements above the sub-resolution floor; the
-      length can be < n if some runs were dropped.
-    - `sub_resolution_count` is the count of those dropped sub-res runs. The
-      gate uses this to refuse-with-reason instead of poisoning the median.
-    - `batch_failed` is True when run_bench itself raised, the bench reported
-      no kernel time, or correctness flipped on any run.
-
-    Why no `float("inf")` sentinel: a legitimate kernel_ms == 0.0 (sub-
-    resolution case on M2 elementwise kernels) would have collapsed into
-    Infinity, biasing the median. Now sub-res is a separate channel.
-    """
-    runs: list[float] = []
-    sub_res_count = 0
-    all_correct = True
-    batch_failed = False
-    worst_err = 0.0
-    for _ in range(n):
-        try:
-            r = run_bench(kernel, iters=iters, warmup=warmup)
-        except Exception:
-            batch_failed = True
-            return runs, False, worst_err, sub_res_count, batch_failed
-        if r.kernel_ms is None:
-            batch_failed = True
-            return runs, False, worst_err, sub_res_count, batch_failed
-        if r.kernel_ms <= SUB_RESOLUTION_MS:
-            sub_res_count += 1
-            continue
-        runs.append(r.kernel_ms)
-        if not r.correct:
-            all_correct = False
-        if r.max_err is not None and r.max_err > worst_err:
-            worst_err = r.max_err
-    return runs, all_correct, worst_err, sub_res_count, batch_failed
-
-
-def _cv(xs: list[float]) -> float | None:
-    if len(xs) < 2:
+def _improvement_pct(before: float | None, after: float | None) -> float | None:
+    if before is None or after is None or before <= 0:
         return None
-    mean = statistics.mean(xs)
-    if mean <= 0:
+    return (before - after) / before * 100.0
+
+
+def _stability_cv(runs: list[float]) -> float | None:
+    if len(runs) < 2:
         return None
-    sd = statistics.stdev(xs)
-    return sd / mean
+    m = statistics.mean(runs)
+    if m <= 0:
+        return None
+    return statistics.stdev(runs) / m
 
 
-# ---------------------------------------------------------------------------
-# The actual gate.
-# ---------------------------------------------------------------------------
-
-SUB_RES_REJECT_THRESHOLD = 2  # ≥this many sub-res runs in the primary batch → reject
+def _prior_best_ms(db: AttemptDB, kernel: str, chip: str) -> float | None:
+    best = db.best(kernel, chip)
+    return best.after_ms if best is not None else None
 
 
-def _evaluate_gate(
-    kernel: str,
+def gate(
+    *,
     before_ms: float | None,
-    primary_runs: list[float],
-    sub_res_count: int,
-) -> tuple[bool, float | None, str, list[float]]:
-    """Return (kept, improvement_pct, reason, follow_up_runs).
+    after_ms: float | None,
+    sub_resolution: bool,
+    correctness_passed: bool,
+) -> tuple[bool, str]:
+    """Pure rules. Return (kept, reason)."""
+    if not correctness_passed:
+        return False, "correctness_failed"
+    if sub_resolution:
+        return False, "sub_resolution_unreliable"
+    if before_ms is None:
+        return True, "no_prior_baseline"
+    imp = _improvement_pct(before_ms, after_ms)
+    if imp is None:
+        return False, "bench_failed"
+    if imp >= KEEP_AUTO_THRESHOLD_PCT:
+        return True, f"kept_+{imp:.1f}%"
+    if imp <= -REGRESSION_THRESHOLD_PCT:
+        return False, f"reverted_-{abs(imp):.1f}%"
+    return True, f"kept_neutral_{imp:+.1f}%"
 
-    Refuses to keep when:
-    - Too many sub-resolution runs (timing is unreliable; would mislead the loop).
-    - No primary-run measurements survived after filtering.
-    - No baseline supplied (can't prove improvement, so don't mutate the tree).
-    """
-    if sub_res_count >= SUB_RES_REJECT_THRESHOLD:
-        return False, None, f"sub_resolution_unreliable ({sub_res_count} runs below {SUB_RESOLUTION_MS}ms)", []
-
-    if not primary_runs:
-        return False, None, "no_usable_runs", []
-
-    if before_ms is None or before_ms <= 0:
-        # No baseline → can't gate on improvement. Refuse to keep —
-        # better to surface "no baseline, can't compare" than to leave a
-        # potentially-much-slower kernel on disk without proof of gain.
-        return False, None, "no_baseline_cannot_gate", []
-
-    after_ms = statistics.median(primary_runs)
-    improvement = (before_ms - after_ms) / before_ms * 100.0
-
-    if improvement >= KEEP_THRESHOLD_AUTO:
-        return True, improvement, "auto_keep_>=15%", []
-
-    if improvement >= KEEP_THRESHOLD_CONFIRM_LOW:
-        # 5-15% — need extra confirmation. Take CONFIRMATION_RUNS more benches.
-        follow_up, _, _, follow_sub_res, follow_failed = _bench_n(
-            kernel, CONFIRMATION_RUNS, iters=200, warmup=50
-        )
-        if follow_failed or follow_sub_res >= SUB_RES_REJECT_THRESHOLD:
-            return False, improvement, "confirmation_runs_unreliable", follow_up
-        if follow_up:
-            sustained = statistics.median(follow_up)
-            sustained_improvement = (before_ms - sustained) / before_ms * 100.0
-            if sustained_improvement >= KEEP_THRESHOLD_CONFIRM_LOW:
-                return True, sustained_improvement, "kept_after_confirmation", follow_up
-            return False, improvement, "did_not_sustain", follow_up
-        return False, improvement, "confirmation_runs_failed", []
-
-    return False, improvement, "<5%", []
-
-
-# ---------------------------------------------------------------------------
-# Public API.
-# ---------------------------------------------------------------------------
 
 def verify(
-    impl: ImplementorResult,
+    kernel: str,
     *,
     chip: str,
-    set_name: str,
-    before_ms: float | None,
     db: AttemptDB | None = None,
-    parent_id: str | None = None,
-    generation: int = 0,
+    technique_summary: str = "",
+    revert_source: str | None = None,
+    gputrace_metrics: dict | None = None,
 ) -> VerifierResult:
-    """Apply impl's diff/source to disk, bench, gate, keep-or-revert, log."""
+    """Bench the promoted kernel, gate it, log to AttemptDB.
+
+    `revert_source` is the .metal content to restore if the gate decides revert.
+    The Loop passes the prior-best content here. If None and the gate decides
+    revert, the regression is logged but no automatic source revert happens.
+    """
     db = db or AttemptDB()
+    before_ms = _prior_best_ms(db, kernel, chip)
 
-    # Reject early if Implementor never produced a usable result.
-    if not impl.apply_succeeded or impl.applied_source is None:
-        entry = AttemptEntry(
-            kernel=impl.kernel, chip=chip,
-            parent_id=parent_id, generation=generation,
-            technique=impl.technique_attempted,
-            diff=impl.diff,
-            kept=False,
-            rollback_reason="diff_did_not_apply",
-            notes=impl.notes,
-        )
-        db.append(entry)
-        return VerifierResult(
-            kernel=impl.kernel, chip=chip, technique=impl.technique_attempted,
-            compile_ok=False, correctness_passed=False, max_err=None,
-            before_ms=before_ms, after_ms=None, improvement_pct=None,
-            kept=False, rollback_reason="diff_did_not_apply",
-            attempt_id=entry.id,
-        )
-
-    # Resolve the file we're writing to (Implementor uses the same logic;
-    # we recompute here to avoid coupling).
-    from ..implementor.agent import _resolve_metal_path
-    metal_path = _resolve_metal_path(impl.kernel, set_name, chip)
-    original_source = _apply_to_disk(metal_path, impl.applied_source)
-
-    # Rebuild.
-    compile_ok, compile_err = _rebuild_metallibs()
-    if not compile_ok:
-        _revert(metal_path, original_source)
-        entry = AttemptEntry(
-            kernel=impl.kernel, chip=chip,
-            parent_id=parent_id, generation=generation,
-            technique=impl.technique_attempted,
-            diff=impl.diff, files_touched=impl.files_touched,
-            kept=False, rollback_reason="compile_fail",
-            notes=compile_err[-2000:],  # cap log noise
-        )
-        db.append(entry)
-        return VerifierResult(
-            kernel=impl.kernel, chip=chip, technique=impl.technique_attempted,
-            compile_ok=False, correctness_passed=False, max_err=None,
-            before_ms=before_ms, after_ms=None, improvement_pct=None,
-            kept=False, rollback_reason="compile_fail",
-            attempt_id=entry.id,
-        )
-
-    # Bench.
-    primary, all_correct, max_err, sub_res_count, batch_failed = _bench_n(
-        impl.kernel, PRIMARY_RUNS
+    mean_ms, median_ms, min_ms, correct, max_err, sub_res = _bench_avg(
+        kernel, warmup=PRIMARY_WARMUP, iters=PRIMARY_ITERS,
     )
-    if batch_failed:
-        _revert(metal_path, original_source)
-        _rebuild_metallibs()
-        entry = AttemptEntry(
-            kernel=impl.kernel, chip=chip,
-            parent_id=parent_id, generation=generation,
-            technique=impl.technique_attempted,
-            diff=impl.diff, files_touched=impl.files_touched,
-            runs_ms=primary,
-            kept=False, rollback_reason="bench_failed",
-        )
-        db.append(entry)
-        return VerifierResult(
-            kernel=impl.kernel, chip=chip, technique=impl.technique_attempted,
-            compile_ok=True, correctness_passed=False, max_err=max_err,
-            before_ms=before_ms, after_ms=None, improvement_pct=None,
-            runs_ms=primary,
-            kept=False, rollback_reason="bench_failed",
-            attempt_id=entry.id,
-        )
-    if not all_correct:
-        _revert(metal_path, original_source)
-        _rebuild_metallibs()  # restore the metallib too
-        entry = AttemptEntry(
-            kernel=impl.kernel, chip=chip,
-            parent_id=parent_id, generation=generation,
-            technique=impl.technique_attempted,
-            diff=impl.diff, files_touched=impl.files_touched,
-            correctness_passed=False, max_err=max_err,
-            runs_ms=primary,
-            kept=False, rollback_reason="correctness",
-        )
-        db.append(entry)
-        return VerifierResult(
-            kernel=impl.kernel, chip=chip, technique=impl.technique_attempted,
-            compile_ok=True, correctness_passed=False, max_err=max_err,
-            before_ms=before_ms, after_ms=None, improvement_pct=None,
-            runs_ms=primary,
-            kept=False, rollback_reason="correctness",
-            attempt_id=entry.id,
-        )
+    after_ms = mean_ms
+    runs = [v for v in (median_ms, mean_ms, min_ms) if v is not None]
+    cv = _stability_cv(runs) if len(runs) >= 2 else None
 
-    # Gate on improvement.
-    kept, improvement, reason, follow_up = _evaluate_gate(
-        impl.kernel, before_ms, primary, sub_res_count
+    kept, reason = gate(
+        before_ms=before_ms,
+        after_ms=after_ms,
+        sub_resolution=sub_res,
+        correctness_passed=correct,
     )
-    runs_ms = primary + follow_up
-    cv = _cv(runs_ms)
-    after_ms = statistics.median(primary) if primary else None
+    reverted = (not kept) and (before_ms is not None)
+    improvement = _improvement_pct(before_ms, after_ms)
 
-    if not kept:
-        _revert(metal_path, original_source)
-        _rebuild_metallibs()
+    from ..optimizer.agent import _resolve_metal_path
+    chip_gen = chip.replace("apple-", "").split("-")[0]
+    active_path, _ = _resolve_metal_path(kernel, chip_gen)
+
+    if reverted and revert_source is not None:
+        active_path.write_text(revert_source)
+
+    source_now = active_path.read_text()
 
     entry = AttemptEntry(
-        kernel=impl.kernel, chip=chip,
-        parent_id=parent_id, generation=generation,
-        technique=impl.technique_attempted,
-        diff=impl.diff, files_touched=impl.files_touched,
-        correctness_passed=True, max_err=max_err,
-        before_ms=before_ms, after_ms=after_ms,
+        kernel=kernel,
+        chip=chip,
+        technique=technique_summary[:200] or "(no summary)",
+        source_snapshot=source_now if kept else "",
+        gputrace_metrics=gputrace_metrics or {},
+        correctness_passed=correct,
+        max_err=max_err,
+        before_ms=before_ms,
+        after_ms=after_ms,
         improvement_pct=improvement,
-        runs_ms=runs_ms, stability_cv=cv,
-        kept=kept, rollback_reason="" if kept else reason,
+        runs_ms=runs,
+        stability_cv=cv,
+        kept=kept,
+        rollback_reason="" if kept else reason,
+        notes=f"verifier: {reason}",
     )
     db.append(entry)
 
     return VerifierResult(
-        kernel=impl.kernel, chip=chip, technique=impl.technique_attempted,
-        compile_ok=True, correctness_passed=True, max_err=max_err,
-        before_ms=before_ms, after_ms=after_ms,
+        kernel=kernel,
+        chip=chip,
+        before_ms=before_ms,
+        after_ms=after_ms,
         improvement_pct=improvement,
-        runs_ms=runs_ms, stability_cv=cv,
-        kept=kept, rollback_reason="" if kept else reason,
+        runs_ms=runs,
+        stability_cv=cv,
+        kept=kept,
+        reverted=reverted,
+        decision_reason=reason,
         attempt_id=entry.id,
     )
 
 
 class VerifierAgent:
-    """OO wrapper for symmetry with the rest of the pipeline."""
+    """Deterministic verifier — non-LLM. Own dir for pipeline symmetry."""
 
     def __init__(self, db: AttemptDB | None = None):
         self.db = db or AttemptDB()
 
     def run(
         self,
-        impl: ImplementorResult,
+        kernel: str,
         *,
         chip: str,
-        set_name: str,
-        before_ms: float | None = None,
-        parent_id: str | None = None,
-        generation: int = 0,
+        technique_summary: str = "",
+        revert_source: str | None = None,
+        gputrace_metrics: dict | None = None,
     ) -> VerifierResult:
         return verify(
-            impl,
-            chip=chip, set_name=set_name, before_ms=before_ms,
-            db=self.db, parent_id=parent_id, generation=generation,
+            kernel,
+            chip=chip,
+            db=self.db,
+            technique_summary=technique_summary,
+            revert_source=revert_source,
+            gputrace_metrics=gputrace_metrics,
         )
