@@ -59,12 +59,8 @@ def _pick_strategy(
 
 def _resolve_metal_path(kernel: str, set_name: str, chip: str) -> Path:
     """Return the active .metal file path for this (kernel, chip)."""
-    chip_gen = (
-        "m4" if "m4" in chip.lower()
-        else "m3" if "m3" in chip.lower()
-        else "m1" if "m1" in chip.lower()
-        else "m2"
-    )
+    from agent_steel.chips import detect_generation
+    chip_gen = detect_generation(chip, fallback="m2")
     dir_path = REPO / "metal" / "kernels" / set_name / kernel
     flat = REPO / "metal" / "kernels" / set_name / f"{kernel}.metal"
     if dir_path.is_dir():

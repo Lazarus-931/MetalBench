@@ -44,12 +44,8 @@ def _candidate_to_suggested_edit(c: Candidate) -> SuggestedEdit:
 
 
 def _chip_id_from_bench(chip_str: str | None) -> str:
-    if not chip_str:
-        return "apple-m2"
-    for g in ("m5", "m4", "m3", "m2", "m1"):
-        if g.upper() in chip_str:
-            return f"apple-{g}"
-    return "apple-m2"
+    from agent_steel.chips import detect_generation
+    return f"apple-{detect_generation(chip_str, fallback='m2')}"
 
 
 def _set_for_kernel(kernel: str) -> str:

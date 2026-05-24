@@ -101,13 +101,8 @@ def _classify_roofline(bench: BenchResult, registry_entry: str) -> dict[str, Any
     flops = eval(flops_m.group(1)) if flops_m else 0.0
     bytes_ = eval(bytes_m.group(1)) if bytes_m else 0.0
 
-    chip_type = "m2"  # fallback
-    if bench.chip and "M4" in bench.chip:
-        chip_type = "m4"
-    elif bench.chip and "M3" in bench.chip:
-        chip_type = "m3"
-    elif bench.chip and "M1" in bench.chip:
-        chip_type = "m1"
+    from agent_steel.chips import detect_generation
+    chip_type = detect_generation(bench.chip, fallback="m2")
 
     sys.path.insert(0, str(REPO / "mlx" / "scripts"))
     try:
@@ -272,12 +267,8 @@ def profile(
     registry_entry = _find_registry_entry(kernel, set_name)
     roofline = _classify_roofline(bench, registry_entry)
 
-    chip_id = "apple-" + (
-        "m4" if "M4" in (bench.chip or "")
-        else "m3" if "M3" in (bench.chip or "")
-        else "m2" if "M2" in (bench.chip or "")
-        else "m1"
-    )
+    from agent_steel.chips import detect_generation
+    chip_id = "apple-" + detect_generation(bench.chip, fallback="m1")
     session_record = _session_entry(kernel, chip_id)
 
     # gputrace cross-check — uses gputrace_check.py to produce a

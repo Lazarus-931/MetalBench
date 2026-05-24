@@ -76,13 +76,9 @@ finally:
 
 # tg_memory_max_bytes is a conservative 32 KB cap that holds across
 # M1-M5 Apple GPUs. peak compute / bandwidth come from roofline.CHIP_PEAKS.
-_CHIP_CEILINGS = {
-    "m1": {"tg_memory_max_bytes": 32768, "peak_compute_TFLOPS": 2.6,  "peak_bandwidth_GBps": 68.25},
-    "m2": {"tg_memory_max_bytes": 32768, "peak_compute_TFLOPS": 3.6,  "peak_bandwidth_GBps": 100.0},
-    "m3": {"tg_memory_max_bytes": 32768, "peak_compute_TFLOPS": 4.1,  "peak_bandwidth_GBps": 102.4},
-    "m4": {"tg_memory_max_bytes": 32768, "peak_compute_TFLOPS": 4.5,  "peak_bandwidth_GBps": 120.0},
-    "m5": {"tg_memory_max_bytes": 32768, "peak_compute_TFLOPS": 5.5,  "peak_bandwidth_GBps": 150.0},
-}
+# Derived from chips.json — single source of truth.
+from agent_steel.chips import CHIPS as _CHIPS, ceiling as _ceiling
+_CHIP_CEILINGS = {c.gen: _ceiling(c.gen) for c in _CHIPS}
 
 # Features universal across M-family.
 _COMMON_CHIP_FEATURES = {
@@ -249,12 +245,8 @@ def _safe_float(x) -> float:
 
 
 def _chip_id(chip: str | None) -> str:
-    if not chip:
-        return "m2"
-    for g in ("M5", "M4", "M3", "M2", "M1"):
-        if g in chip:
-            return g.lower()
-    return "m2"
+    from agent_steel.chips import detect_generation
+    return detect_generation(chip, fallback="m2")
 
 
 def _first_dispatch(parsed_trace: dict) -> dict | None:

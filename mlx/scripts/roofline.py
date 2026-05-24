@@ -9,20 +9,29 @@ same generation scale linearly in compute and bandwidth, so the ratio (and
 thus the ridge point) is roughly preserved.
 """
 
-CHIP_PEAKS = {
-    "m1": dict(bw_GBps=68.25,  compute_TFLOPS=2.6),
-    "m2": dict(bw_GBps=100.0,  compute_TFLOPS=3.6),
-    "m3": dict(bw_GBps=102.4,  compute_TFLOPS=4.1),
-    "m4": dict(bw_GBps=120.0,  compute_TFLOPS=4.5),
-    "m5": dict(bw_GBps=150.0,  compute_TFLOPS=5.5),
-}
+# Derived from chips.json via agent_steel.chips — single source of truth.
+def _load_from_registry():
+    import sys as _sys
+    from pathlib import Path as _Path
+    _REPO = _Path(__file__).resolve().parents[2]
+    if str(_REPO) not in _sys.path:
+        _sys.path.insert(0, str(_REPO))
+    from agent_steel import chips as _chips
+    peaks = {c.gen: dict(bw_GBps=c.peak_bandwidth_GBps,
+                         compute_TFLOPS=c.peak_compute_TFLOPS)
+             for c in _chips.CHIPS}
+    # oldest -> newest is the original iteration order in _generation()
+    gens = tuple(reversed(_chips.list_generations()))
+    return peaks, gens, _chips.DEFAULT_FALLBACK_GEN
+
+CHIP_PEAKS, _GEN_ORDER, _FALLBACK_GEN = _load_from_registry()
 
 
 def _generation(chip_type: str) -> str:
-    for g in ("m1", "m2", "m3", "m4", "m5"):
+    for g in _GEN_ORDER:
         if chip_type.startswith(g):
             return g
-    return "m2"
+    return _FALLBACK_GEN
 
 
 def classify(chip_type: str, flops: float, bytes_: float, median_ms: float):

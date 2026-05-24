@@ -312,14 +312,19 @@ def build_manifest(b, inputs, *, input_paths, output_paths, warmup, iters,
 
 
 # --- chip detection (mirrors metal/scripts/setup.cpp) -------------------
+# Derived from chips.json via agent_steel.chips. Adding a new chip generation
+# is a one-line edit there; no edit needed here.
 
-_CHIP_TYPES = [
-    ("M5 Ultra", "m5_ultra"), ("M5 Max", "m5_max"), ("M5 Pro", "m5_pro"), ("M5", "m5"),
-    ("M4 Ultra", "m4_ultra"), ("M4 Max", "m4_max"), ("M4 Pro", "m4_pro"), ("M4", "m4"),
-    ("M3 Ultra", "m3_ultra"), ("M3 Max", "m3_max"), ("M3 Pro", "m3_pro"), ("M3", "m3"),
-    ("M2 Ultra", "m2_ultra"), ("M2 Max", "m2_max"), ("M2 Pro", "m2_pro"), ("M2", "m2"),
-    ("M1 Ultra", "m1_ultra"), ("M1 Max", "m1_max"), ("M1 Pro", "m1_pro"), ("M1", "m1"),
-]
+def _load_chip_types():
+    import sys as _sys
+    from pathlib import Path as _Path
+    _REPO = _Path(__file__).resolve().parents[2]
+    if str(_REPO) not in _sys.path:
+        _sys.path.insert(0, str(_REPO))
+    from agent_steel.chips import list_chip_types as _lct
+    return list(_lct())
+
+_CHIP_TYPES = _load_chip_types()
 
 
 def _sysctl(key):
@@ -370,8 +375,18 @@ def bucket_key():
 
 
 def chip_generation(chip_type: str) -> str:
-    """Return the bare generation tag: 'm4_max' -> 'm4', 'm3_ultra' -> 'm3'."""
-    for gen in ("m1", "m2", "m3", "m4", "m5"):
+    """Return the bare generation tag: 'm4_max' -> 'm4', 'm3_ultra' -> 'm3'.
+
+    Derived from chips.json (single source of truth). startswith() rather than
+    substring match because chip_type here is already a registry tag.
+    """
+    import sys as _sys
+    from pathlib import Path as _Path
+    _REPO = _Path(__file__).resolve().parents[2]
+    if str(_REPO) not in _sys.path:
+        _sys.path.insert(0, str(_REPO))
+    from agent_steel.chips import list_generations as _lg
+    for gen in _lg():
         if chip_type.startswith(gen):
             return gen
     return chip_type
