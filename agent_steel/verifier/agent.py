@@ -86,22 +86,49 @@ def _rebuild_metallibs(timeout_s: int = 60) -> tuple[bool, str]:
 # Benching helpers — wrap run_bench with run-count + stability tracking.
 # ---------------------------------------------------------------------------
 
-def _bench_n(kernel: str, n: int, iters: int = 200, warmup: int = 50) -> tuple[list[float], bool, float]:
-    """Run the bench N times. Returns (median_per_run, all_correct, max_err_seen)."""
+SUB_RESOLUTION_MS = 0.001  # below this we treat the timing as unreliable
+
+
+def _bench_n(
+    kernel: str, n: int, iters: int = 200, warmup: int = 50,
+) -> tuple[list[float], bool, float, int, bool]:
+    """Run the bench N times.
+
+    Returns: (runs, all_correct, max_err_seen, sub_resolution_count, batch_failed).
+    - `runs` contains only measurements above the sub-resolution floor; the
+      length can be < n if some runs were dropped.
+    - `sub_resolution_count` is the count of those dropped sub-res runs. The
+      gate uses this to refuse-with-reason instead of poisoning the median.
+    - `batch_failed` is True when run_bench itself raised, the bench reported
+      no kernel time, or correctness flipped on any run.
+
+    Why no `float("inf")` sentinel: a legitimate kernel_ms == 0.0 (sub-
+    resolution case on M2 elementwise kernels) would have collapsed into
+    Infinity, biasing the median. Now sub-res is a separate channel.
+    """
     runs: list[float] = []
+    sub_res_count = 0
     all_correct = True
+    batch_failed = False
     worst_err = 0.0
     for _ in range(n):
         try:
             r = run_bench(kernel, iters=iters, warmup=warmup)
         except Exception:
-            return runs, False, float("inf")
-        runs.append(r.kernel_ms or float("inf"))
+            batch_failed = True
+            return runs, False, worst_err, sub_res_count, batch_failed
+        if r.kernel_ms is None:
+            batch_failed = True
+            return runs, False, worst_err, sub_res_count, batch_failed
+        if r.kernel_ms <= SUB_RESOLUTION_MS:
+            sub_res_count += 1
+            continue
+        runs.append(r.kernel_ms)
         if not r.correct:
             all_correct = False
         if r.max_err is not None and r.max_err > worst_err:
             worst_err = r.max_err
-    return runs, all_correct, worst_err
+    return runs, all_correct, worst_err, sub_res_count, batch_failed
 
 
 def _cv(xs: list[float]) -> float | None:
@@ -118,20 +145,35 @@ def _cv(xs: list[float]) -> float | None:
 # The actual gate.
 # ---------------------------------------------------------------------------
 
+SUB_RES_REJECT_THRESHOLD = 2  # ≥this many sub-res runs in the primary batch → reject
+
+
 def _evaluate_gate(
     kernel: str,
     before_ms: float | None,
     primary_runs: list[float],
+    sub_res_count: int,
 ) -> tuple[bool, float | None, str, list[float]]:
-    """Return (kept, improvement_pct, reason, follow_up_runs)."""
+    """Return (kept, improvement_pct, reason, follow_up_runs).
+
+    Refuses to keep when:
+    - Too many sub-resolution runs (timing is unreliable; would mislead the loop).
+    - No primary-run measurements survived after filtering.
+    - No baseline supplied (can't prove improvement, so don't mutate the tree).
+    """
+    if sub_res_count >= SUB_RES_REJECT_THRESHOLD:
+        return False, None, f"sub_resolution_unreliable ({sub_res_count} runs below {SUB_RESOLUTION_MS}ms)", []
+
     if not primary_runs:
-        return False, None, "no_runs", []
+        return False, None, "no_usable_runs", []
+
+    if before_ms is None or before_ms <= 0:
+        # No baseline → can't gate on improvement. Refuse to keep —
+        # better to surface "no baseline, can't compare" than to leave a
+        # potentially-much-slower kernel on disk without proof of gain.
+        return False, None, "no_baseline_cannot_gate", []
 
     after_ms = statistics.median(primary_runs)
-    if before_ms is None or before_ms <= 0:
-        # No baseline → can't gate on improvement; accept correctness-only.
-        return True, None, "no_baseline_kept", []
-
     improvement = (before_ms - after_ms) / before_ms * 100.0
 
     if improvement >= KEEP_THRESHOLD_AUTO:
@@ -139,7 +181,11 @@ def _evaluate_gate(
 
     if improvement >= KEEP_THRESHOLD_CONFIRM_LOW:
         # 5-15% — need extra confirmation. Take CONFIRMATION_RUNS more benches.
-        follow_up, _, _ = _bench_n(kernel, CONFIRMATION_RUNS, iters=200, warmup=50)
+        follow_up, _, _, follow_sub_res, follow_failed = _bench_n(
+            kernel, CONFIRMATION_RUNS, iters=200, warmup=50
+        )
+        if follow_failed or follow_sub_res >= SUB_RES_REJECT_THRESHOLD:
+            return False, improvement, "confirmation_runs_unreliable", follow_up
         if follow_up:
             sustained = statistics.median(follow_up)
             sustained_improvement = (before_ms - sustained) / before_ms * 100.0
@@ -216,7 +262,29 @@ def verify(
         )
 
     # Bench.
-    primary, all_correct, max_err = _bench_n(impl.kernel, PRIMARY_RUNS)
+    primary, all_correct, max_err, sub_res_count, batch_failed = _bench_n(
+        impl.kernel, PRIMARY_RUNS
+    )
+    if batch_failed:
+        _revert(metal_path, original_source)
+        _rebuild_metallibs()
+        entry = AttemptEntry(
+            kernel=impl.kernel, chip=chip,
+            parent_id=parent_id, generation=generation,
+            technique=impl.technique_attempted,
+            diff=impl.diff, files_touched=impl.files_touched,
+            runs_ms=primary,
+            kept=False, rollback_reason="bench_failed",
+        )
+        db.append(entry)
+        return VerifierResult(
+            kernel=impl.kernel, chip=chip, technique=impl.technique_attempted,
+            compile_ok=True, correctness_passed=False, max_err=max_err,
+            before_ms=before_ms, after_ms=None, improvement_pct=None,
+            runs_ms=primary,
+            kept=False, rollback_reason="bench_failed",
+            attempt_id=entry.id,
+        )
     if not all_correct:
         _revert(metal_path, original_source)
         _rebuild_metallibs()  # restore the metallib too
@@ -240,10 +308,12 @@ def verify(
         )
 
     # Gate on improvement.
-    kept, improvement, reason, follow_up = _evaluate_gate(impl.kernel, before_ms, primary)
+    kept, improvement, reason, follow_up = _evaluate_gate(
+        impl.kernel, before_ms, primary, sub_res_count
+    )
     runs_ms = primary + follow_up
     cv = _cv(runs_ms)
-    after_ms = statistics.median(primary)
+    after_ms = statistics.median(primary) if primary else None
 
     if not kept:
         _revert(metal_path, original_source)

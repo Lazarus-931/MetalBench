@@ -124,7 +124,28 @@ def run_loop(
         # ----- 2. Extract candidates -----
         candidates = extract(report, chip=chip, db=db)
         if not candidates:
-            term_reason = "no candidates returned from optimizer"
+            # If the LLM was skipped on this round, `report.suggested_edits`
+            # is empty and we relied entirely on patterns.json. If patterns
+            # matched nothing either, the user has two recoverable options:
+            # seed patterns.json for this (bottleneck, kernel-kind) bucket,
+            # or re-run with the LLM enabled (omit --no-llm). Spell that
+            # out instead of an opaque "no candidates" message.
+            llm_was_off = (round_num == 0)  # round 0 always runs skip_llm=True
+            if llm_was_off and not report.suggested_edits:
+                term_reason = (
+                    "LLM was off on round 0 (skip_llm=True) AND patterns.json "
+                    f"had no matching entry for bottleneck "
+                    f"{report.bottleneck_class!r} on kernel {report.kernel!r}. "
+                    "Either seed patterns.json for this bucket or re-run "
+                    "with a provider so the profiler can generate "
+                    "kernel-specific suggested_edits."
+                )
+            else:
+                term_reason = (
+                    f"no candidates returned from optimizer "
+                    f"(patterns + profiler.suggested_edits both empty for "
+                    f"bottleneck={report.bottleneck_class!r})"
+                )
             break
 
         # Pick top candidate; the Implementor will further filter by prior_attempts.
