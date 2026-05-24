@@ -120,10 +120,19 @@ def derive_metrics(
             "Use scripts/validate_synthesizer.py for offline CSV comparison."
         )
 
-    # Call into the active per-chip synthesizer if available.
     mod = _load(generation.lower().lstrip("apple-").lstrip("apple_"))
     if hasattr(mod, "derive"):
-        synth = mod.derive(parsed_trace or {}, bench, variant=variant)
+        # Per-chip synth expects a flat `dispatches` list. The raw parser nests
+        # dispatches under command_buffers; flatten here so callers can pass the
+        # raw parse() output.
+        flat = parsed_trace or {}
+        if "dispatches" not in flat and flat.get("command_buffers"):
+            flat = dict(flat)
+            flat["dispatches"] = [
+                d for cb in flat["command_buffers"]
+                for d in (cb.get("dispatches") or [])
+            ]
+        synth = mod.derive(flat, bench, variant=variant)
         out["synth"] = synth
 
     return out
