@@ -175,12 +175,8 @@ def _build_user_message(
     metal_file_path: str,
     prior_attempts: list[str],
 ) -> str:
-    # Pull occupancy from the packet, falling back to alternate key names from
-    # the v2 gputrace_check output.
-    occ = report.packet.get("occupancy_estimates") or report.packet.get("occupancy") or {}
     packet = {
         "kernel": report.kernel,
-        "bottleneck_summary": report.bottleneck_summary,  # deterministic facts
         "selected_technique": {
             "technique": selected.technique,
             "rationale": selected.rationale,
@@ -192,10 +188,10 @@ def _build_user_message(
         "registry_entry": report.packet.get("registry_entry", ""),
         "constraints": {
             "pso_max_threads_per_tg": (
-                occ.get("pso_max_threads_per_tg") or occ.get("max_threads_per_tg")
+                report.packet.get("occupancy", {}).get("max_threads_per_tg")
             ),
             "tg_mem_bytes_in_use": (
-                occ.get("tg_static_mem_bytes") or occ.get("tg_mem_bytes")
+                report.packet.get("occupancy", {}).get("tg_mem_bytes")
             ),
             "rtol": 1e-2,
             "atol": 1e-2,

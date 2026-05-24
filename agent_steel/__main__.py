@@ -82,10 +82,6 @@ def _print_report(r: ProfilerReport, output: str) -> None:
     print(f"  bottleneck   : {r.bottleneck_class}")
     print(f"  sol          : {r.sol*100:.0f}%")
     print(f"  confidence   : {r.confidence:.2f}")
-    if r.bottleneck_summary:
-        print("\n--- BOTTLENECK SUMMARY (deterministic, both gputrace + MetalBench metrics) ---")
-        print(r.bottleneck_summary)
-        print("---")
     print(f"\n  analysis     : {r.code_analysis}\n")
     if r.suggested_edits:
         print("  suggested edits (ranked):")
