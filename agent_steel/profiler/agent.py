@@ -206,16 +206,144 @@ class SuggestedEdit:
     expected_impact: str    # e.g. "could lift SOL_compute from 13% to ~40%"
 
 
+def _build_bottleneck_summary(packet: dict[str, Any]) -> str:
+    """Deterministic, human-readable synthesis of all evidence in the packet.
+
+    Always built, even without an LLM. Pulls from BOTH MetalBench metrics
+    (roofline, timing trust, throughput) AND gputrace findings (dispatch
+    check, source analysis, occupancy). Downstream agents (Optimizer,
+    Implementor) read this verbatim — it's the source of truth so they
+    don't have to re-derive numbers from the raw packet.
+    """
+    rl = packet.get("roofline") or {}
+    src = packet.get("source_analysis") or {}
+    disp = packet.get("dispatch_check") or {}
+    tt = packet.get("timing_trust") or {}
+    occ = packet.get("occupancy_estimates") or {}
+    ceil = packet.get("chip_ceilings") or {}
+
+    out: list[str] = []
+
+    # --- 1. Headline classification + axis breakdown ---
+    label = rl.get("classification") or "?"
+    sol = rl.get("sol") or 0.0
+    sol_c = rl.get("sol_compute_pct") or 0.0
+    sol_m = rl.get("sol_memory_pct") or 0.0
+    head_c = rl.get("headroom_compute_pct") or 0.0
+    head_m = rl.get("headroom_memory_pct") or 0.0
+    dom = rl.get("dominant_headroom") or "?"
+    out.append(f"BOTTLENECK: {label}")
+    out.append(f"  SOL={sol*100:.1f}% (compute={sol_c:.1f}%, memory={sol_m:.1f}%); "
+               f"headroom compute={head_c:.1f}%, memory={head_m:.1f}%; "
+               f"dominant axis={dom}")
+    if rl.get("_sanity_override_reason"):
+        out.append(f"  ! sanity override applied: {rl['_sanity_override_reason']}")
+
+    # --- 2. MetalBench metrics (the hot numbers) ---
+    out.append("")
+    out.append("METALBENCH METRICS:")
+    peak_c = (ceil.get("peak_compute_TFLOPS") or 0.0) * 1000.0
+    peak_m = ceil.get("peak_bandwidth_GBps") or 0.0
+    gflops = rl.get("gflops")
+    gbps = rl.get("gbps")
+    intensity = rl.get("arith_intensity")
+    ridge = rl.get("ridge_intensity")
+    if gflops is not None and peak_c:
+        out.append(f"  achieved compute  : {gflops:>8.1f} GFLOPS  /  peak {peak_c:.0f} GFLOPS")
+    if gbps is not None and peak_m:
+        out.append(f"  achieved memory   : {gbps:>8.1f} GB/s    /  peak {peak_m:.0f} GB/s")
+    if intensity is not None and ridge is not None:
+        out.append(f"  arith intensity   : {intensity:>8.2f} FLOPs/byte (ridge at {ridge:.2f})")
+    median = tt.get("median_ms")
+    mtm = tt.get("mean_to_median_ratio")
+    if median is not None:
+        out.append(f"  median kernel time: {median:.4f} ms  "
+                   f"(mean/median = {mtm:.2f})" if mtm else f"  median kernel time: {median:.4f} ms")
+    flags = []
+    if tt.get("is_sub_resolution"):
+        flags.append("sub-resolution timing (<0.001ms — measurements unreliable)")
+    if tt.get("is_thermally_jittery"):
+        flags.append("thermal jitter (mean/median > 1.5)")
+    for f in flags:
+        out.append(f"  ! {f}")
+
+    # --- 3. GPUTRACE / DISPATCH findings ---
+    out.append("")
+    out.append("GPUTRACE / DISPATCH:")
+    tg_req = disp.get("tg_threads_requested")
+    pso_max = disp.get("pso_max_threads_per_tg")
+    if disp.get("threadgroup_within_pso_limit") is False:
+        out.append(f"  ! threadgroup {tg_req} EXCEEDS PSO max {pso_max} — silent dispatch failure risk")
+    elif tg_req and pso_max:
+        out.append(f"  threadgroup {tg_req} threads ≤ PSO max {pso_max} ✓")
+    if disp.get("grid_matches_registry") is False:
+        out.append(f"  ! dispatched grid {disp.get('trace_grid')} ≠ registry {disp.get('registry_grid')}")
+    elif disp.get("grid_matches_registry"):
+        out.append(f"  grid {disp.get('registry_grid')} matches registry ✓")
+    if disp.get("function_dispatched_matches_registry") is False:
+        out.append(f"  ! function name dispatched ({disp.get('trace_function')}) "
+                   f"≠ registry ({disp.get('registry_function')})")
+    fill = occ.get("tg_fill_ratio")
+    tg_mem = occ.get("tg_static_mem_bytes")
+    if fill is not None:
+        bar = f"{fill*100:.0f}% of PSO capacity"
+        out.append(f"  tg fill ratio    : {bar}  (lower = under-utilizing the GPU per dispatch)")
+    if tg_mem is not None:
+        budget = ceil.get("tg_memory_max_bytes") or 32768
+        out.append(f"  tg static memory : {tg_mem:>5} / {budget} bytes")
+
+    n_dispatches = packet.get("trace_n_dispatches")
+    if n_dispatches:
+        out.append(f"  trace records    : {n_dispatches} dispatch(es) captured")
+
+    # --- 4. Source analysis (what the .metal actually does) ---
+    if src:
+        out.append("")
+        out.append("SOURCE ANALYSIS:")
+        out.append(f"  kernel function   : {src.get('kernel_function_name') or '?'}")
+        out.append(f"  loops             : {src.get('loop_count')}, "
+                   f"max brace depth = {src.get('max_brace_depth')}")
+        out.append(f"  barriers          : {src.get('barrier_count')}, "
+                   f"device buffers = {src.get('device_param_count')}, "
+                   f"indexed reads = {src.get('indexed_access_count')}")
+        present = [k.replace("has_", "") for k, v in src.items()
+                   if k.startswith("has_") and v]
+        absent = [k.replace("has_", "") for k, v in src.items()
+                  if k.startswith("has_") and not v
+                  and k in ("has_simdgroup_matrix", "has_threadgroup_mem",
+                            "has_float4", "has_half4", "has_simd_reduction",
+                            "has_unroll_pragma")]
+        if present:
+            out.append(f"  uses              : {', '.join(present)}")
+        if absent:
+            out.append(f"  MISSING (consider): {', '.join(absent)}")
+
+    # --- 5. Cross-chip layout (where this .metal lives on disk) ---
+    set_name = packet.get("set")
+    if set_name:
+        out.append("")
+        out.append(f"DISK LAYOUT: metal/kernels/{set_name}/{packet.get('kernel')}.metal (or chip-variant dir)")
+
+    return "\n".join(out)
+
+
 @dataclass
 class ProfilerReport:
     kernel: str
     chip: str
-    bottleneck_class: str   # passthrough from roofline.classification
-    sol: float              # passthrough from roofline.sol
-    confidence: float       # LLM-reported, 0–1
-    code_analysis: str      # 2–4 sentences explaining the SOL given the source
-    suggested_edits: list[SuggestedEdit]
-    packet: dict[str, Any] = field(repr=False)      # full diagnostic packet
+    bottleneck_class: str       # passthrough from roofline.classification
+    sol: float                  # passthrough from roofline.sol
+    confidence: float           # LLM-reported, 0–1
+
+    # Deterministic synthesis from MetalBench metrics + gputrace findings + source
+    # analysis. Always populated (no LLM dependency). Downstream agents (Optimizer,
+    # Implementor) read THIS for grounded facts; `code_analysis` is just the LLM's
+    # interpretation on top.
+    bottleneck_summary: str = ""
+
+    code_analysis: str = ""     # 2–4 sentences LLM interpretation of the summary
+    suggested_edits: list[SuggestedEdit] = field(default_factory=list)
+    packet: dict[str, Any] = field(default_factory=dict, repr=False)
     raw_llm_response: str = field(repr=False, default="")
 
 
@@ -305,12 +433,33 @@ def profile(
         gputrace_summary=gputrace_summary,
     )
 
+    # Inline the gputrace_check fields at the packet's top level so the
+    # bottleneck-summary builder can read them uniformly. The gputrace_check
+    # version of `roofline` carries `sol_compute_pct`/`sol_memory_pct`/
+    # `headroom_*_pct`/`dominant_headroom` that the bare _classify_roofline
+    # output doesn't — so we MERGE keys rather than skip-on-collision.
+    if isinstance(gputrace_summary, dict):
+        for k in ("dispatch_check", "buffer_check", "timing_trust",
+                  "bottleneck_label", "chip_ceilings",
+                  "source_analysis", "occupancy_estimates",
+                  "trace_n_dispatches"):
+            if k in gputrace_summary:
+                packet[k] = gputrace_summary[k]
+        # Merge roofline dicts (gputrace_check version wins on overlapping keys)
+        if "roofline" in gputrace_summary:
+            base_rl = packet.get("roofline") or {}
+            packet["roofline"] = {**base_rl, **gputrace_summary["roofline"]}
+
+    # Deterministic synthesis — always built, even when the LLM is off.
+    bottleneck_summary = _build_bottleneck_summary(packet)
+
     # Deterministic fast-exit cases: don't burn LLM tokens.
     if not bench.correct:
         return ProfilerReport(
             kernel=kernel, chip=chip_id,
             bottleneck_class="correctness_failure",
             sol=0.0, confidence=1.0,
+            bottleneck_summary=bottleneck_summary,
             code_analysis=f"Kernel fails correctness (max_err={bench.max_err}). Fix correctness before any optimization work.",
             suggested_edits=[SuggestedEdit(
                 technique="fix correctness",
@@ -327,6 +476,7 @@ def profile(
             kernel=kernel, chip=chip_id,
             bottleneck_class=roofline.get("classification") or "near_optimal",
             sol=sol, confidence=0.95,
+            bottleneck_summary=bottleneck_summary,
             code_analysis=f"Kernel is at {sol*100:.0f}% of speed-of-light — near optimal for this chip on this workload. Further changes likely regress; don't optimize.",
             suggested_edits=[],
             packet=packet,
@@ -338,9 +488,10 @@ def profile(
             kernel=kernel, chip=chip_id,
             bottleneck_class=roofline.get("classification") or "unknown",
             sol=sol, confidence=0.6,
-            code_analysis=f"Roofline says {roofline.get('classification')} at sol={sol*100:.0f}%. (LLM analysis skipped.)",
+            bottleneck_summary=bottleneck_summary,
+            code_analysis=f"Roofline says {roofline.get('classification')} at sol={sol*100:.0f}%. (LLM analysis skipped — see bottleneck_summary for deterministic findings.)",
             suggested_edits=[SuggestedEdit(
-                technique=roofline.get("suggest", ""),
+                technique=roofline.get("suggest", "") or "structural change required",
                 rationale="Canned suggestion from roofline.py for this bottleneck class.",
                 target_lines="(unspecified — enable LLM for line-level pointers)",
                 expected_impact="unknown without code analysis",
@@ -348,11 +499,16 @@ def profile(
             packet=packet,
         )
 
-    # LLM pass.
+    # LLM pass — prepend the deterministic summary to the user message so the
+    # LLM reasons FROM the synthesized facts, not from raw packet fields.
     resp = provider.generate(
         [
             Message("system", _load_system_prompt()),
-            Message("user", _make_user_message(packet)),
+            Message("user",
+                    "Deterministic bottleneck summary (treat as ground truth):\n\n"
+                    + bottleneck_summary
+                    + "\n\n---\n\nFull packet:\n\n"
+                    + _make_user_message(packet)),
         ],
         max_tokens=2048,
         temperature=0.2,
@@ -364,6 +520,7 @@ def profile(
         bottleneck_class=roofline.get("classification") or "unknown",
         sol=sol,
         confidence=float(parsed.get("confidence", 0.5)),
+        bottleneck_summary=bottleneck_summary,
         code_analysis=parsed.get("code_analysis", ""),
         suggested_edits=[SuggestedEdit(**e) for e in parsed.get("suggested_edits", [])],
         packet=packet,
