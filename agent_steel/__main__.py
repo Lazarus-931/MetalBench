@@ -94,15 +94,41 @@ def _print_report(r: ProfilerReport, output: str) -> None:
         print("  no edits suggested\n")
 
 
-def _run_one(kernel: str, args) -> tuple[str, ProfilerReport | Exception]:
-    """Run the configured stages for one kernel. Returns (kernel, report-or-error)."""
+def _run_one(kernel: str, args):
+    """Run the configured stages for one kernel. Returns (kernel, ProfilerReport | LoopResult | Exception)."""
     try:
         prov = None if args.no_llm else _make_provider(args.provider, args.model)
+        if args.loop:
+            from .loop import run_loop, GreedyStrategy
+            if prov is None:
+                raise RuntimeError("--loop requires a provider (cannot run with --no-llm)")
+            strategy = GreedyStrategy(
+                max_rounds=args.max_rounds,
+                max_no_improvement=args.max_no_improvement,
+            )
+            return kernel, run_loop(kernel, provider=prov, strategy=strategy)
         report = profile(kernel, provider=prov, skip_llm=args.no_llm,
                          gputrace_path=args.gputrace)
         return kernel, report
     except Exception as e:
         return kernel, e
+
+
+def _print_loop_result(r) -> None:
+    print(f"\n  kernel       : {r.kernel}  ({r.chip})")
+    print(f"  rounds       : {r.rounds_run}  (kept: {r.kept_attempts})")
+    print(f"  initial_ms   : {r.initial_ms}")
+    print(f"  best_ms      : {r.best_ms}")
+    if r.overall_improvement_pct is not None:
+        print(f"  improvement  : {r.overall_improvement_pct:.1f}%")
+    print(f"  terminated   : {r.termination_reason}")
+    if r.attempts:
+        kept = [a for a in r.attempts if a.kept]
+        print(f"\n  attempts (most recent):")
+        for a in r.attempts[-min(5, len(r.attempts)):]:
+            status = "KEPT" if a.kept else f"rev:{a.rollback_reason}"
+            imp = f"{a.improvement_pct:+.1f}%" if a.improvement_pct is not None else "—"
+            print(f"    [{status:>15}] {imp:>8}  {a.technique[:60]}")
 
 
 def _split_kernels(raw: str) -> list[str]:
@@ -140,6 +166,15 @@ def main(argv: list[str] | None = None) -> int:
     ap.add_argument("--gputrace", default=None,
                     help="Path to a .gputrace bundle to enrich the diagnostic.")
 
+    # Loop mode — full Profiler→Optimizer→Implementor→Verifier cycle
+    ap.add_argument("--loop", action="store_true",
+                    help="Run the full agent loop (profile → optimize → implement → verify → repeat). "
+                         "Without this flag, only the Profiler runs.")
+    ap.add_argument("--max-rounds", type=int, default=5,
+                    help="Max loop rounds before termination (default 5).")
+    ap.add_argument("--max-no-improvement", type=int, default=3,
+                    help="Stop after this many consecutive rounds without a kept improvement.")
+
     # Parallelism
     ap.add_argument("--parallel", type=int, default=1,
                     help="Number of worker threads when --kernel-name lists multiple.")
@@ -171,7 +206,10 @@ def main(argv: list[str] | None = None) -> int:
             if isinstance(result, Exception):
                 print(f"\n[{name}] ERROR: {result}", file=sys.stderr)
                 continue
-            _print_report(result, args.output)
+            if args.loop:
+                _print_loop_result(result)
+            else:
+                _print_report(result, args.output)
         return 0
 
     # Parallel — bound the pool to the smaller of (--parallel, len(kernels)).
@@ -183,7 +221,10 @@ def main(argv: list[str] | None = None) -> int:
             if isinstance(result, Exception):
                 print(f"\n[{name}] ERROR: {result}", file=sys.stderr)
                 continue
-            _print_report(result, args.output)
+            if args.loop:
+                _print_loop_result(result)
+            else:
+                _print_report(result, args.output)
     return 0
 
 

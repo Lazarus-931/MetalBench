@@ -1201,20 +1201,20 @@
       "updated_at": "2026-05-22T03:23:37+00:00"
     },
     "relu": {
+      "best_time_ms": 0.0145,
+      "speedup_vs_mlx": 551.5344834340543,
+      "gflops": 18.078896551724135,
+      "gbps": 144.63117241379308,
       "arith_intensity": 0.125,
-      "best_time_ms": 0.017125,
-      "gbps": 122.46143065693428,
-      "gflops": 15.307678832116785,
-      "iters": 20,
-      "max_err": 0.0,
-      "metal_source": "// relu: out = max(x, 0). 1024 thr/tg, float4, grid-stride.\n#include <metal_stdlib>\nusing namespace metal;\n\nkernel void relu_f32(\n    device const float*  x         [[buffer(0)]],\n    device       float*  y         [[buffer(1)]],\n    constant     uint&   N         [[buffer(2)]],\n    constant     uint&   grid_size [[buffer(3)]],\n    uint  tid                     [[thread_position_in_grid]])\n{\n    const uint n4 = N / 4;\n    for (uint i = tid; i < n4; i += grid_size) {\n        float4 v = *(reinterpret_cast<const device float4*>(&x[i * 4]));\n        *(reinterpret_cast<device float4*>(&y[i * 4])) = fmax(v, 0.0f);\n    }\n    for (uint i = n4 * 4 + tid; i < N; i += grid_size) {\n        y[i] = fmax(x[i], 0.0f);\n    }\n}\n",
-      "metal_source_path": "src/kernels/common/relu.metal",
-      "pso_max_threads_per_tg": 1024,
-      "speedup_vs_mlx": 462.05594387911526,
-      "stability": 0.01765349260821203,
-      "target": "speed",
+      "stability": 0.9945812469991083,
       "tg_static_mem_bytes": 0,
-      "updated_at": "2026-05-22T19:51:41+00:00"
+      "pso_max_threads_per_tg": 1024,
+      "iters": 200,
+      "target": "speed",
+      "max_err": 0.0,
+      "metal_source_path": null,
+      "metal_source": null,
+      "updated_at": "2026-05-24T00:20:00+00:00"
     },
     "residual_add": {
       "arith_intensity": 0.16666666666666666,

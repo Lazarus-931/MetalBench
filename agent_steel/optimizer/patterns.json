@@ -1,0 +1,172 @@
+{
+  "_meta": {
+    "version": 1,
+    "description": "Hand-curated knowledge base of MetalBench kernel-optimization patterns. Indexed by bottleneck_class → kernel_kind → list of techniques. Patterns are added by hand when a Verifier-kept attempt produces >=15% improvement. The Optimizer's extract() function queries this store first, then falls back to the profiler's LLM suggestions.",
+    "last_updated": "2026-05-23"
+  },
+
+  "compute-bound": {
+    "conv": [
+      {
+        "id": "loop_reorder_per_spatial_all_channels",
+        "technique": "loop-reorder: per-spatial, all-channels",
+        "rationale": "Invert the conv loop nest so each thread processes ONE spatial position and computes ALL output channels at once. Each input activation is read 9 times (3×3 stencil) instead of 9×C_out times. Activations stay in registers, reused across output-channel FMAs.",
+        "wins_on": [
+          {"kernel": "densenet", "chip": "apple-m4", "improvement_pct": 30, "stage": "Phase C"},
+          {"kernel": "densenet", "chip": "apple-m4", "improvement_pct": 20, "stage": "Phase B"},
+          {"kernel": "densenet", "chip": "apple-m4", "improvement_pct": 19, "stage": "Phase A"}
+        ],
+        "applies_when": {
+          "loop_count_min": 2,
+          "has_threadgroup_mem": true,
+          "kernel_kind_one_of": ["conv", "fused_conv"]
+        },
+        "anti_patterns": ["loop reorder may regress M2 if register pressure goes up — cross-chip check required"]
+      },
+      {
+        "id": "pragma_unroll_half_acc_inner_reduction",
+        "technique": "#pragma unroll + half-precision accumulator on inner channel reduction",
+        "rationale": "On small-channel convs (C ≤ 16) the inner reduction is short enough to fully unroll. Half-precision accumulator keeps register pressure low while unrolling exposes ILP. Final sum cast back to fp32 before output write.",
+        "wins_on": [
+          {"kernel": "resnet", "chip": "apple-m4", "improvement_pct": 24, "stage": "C1=16 inner reduction"}
+        ],
+        "applies_when": {
+          "loop_count_min": 1,
+          "has_unroll_pragma": false,
+          "channel_count_max": 32
+        },
+        "anti_patterns": ["fp16 accumulator on attention softmax — drifts beyond rtol"]
+      }
+    ],
+
+    "matmul": [
+      {
+        "id": "simdgroup_matrix_mma",
+        "technique": "simdgroup_matrix<float,8,8> MMA tiles for the matmul step",
+        "rationale": "Replaces scalar-loop dot products with hardware 8x8 fp32 matrix multiply-accumulate units. Available on all M-series. Up to 8x faster for compute-bound matmuls.",
+        "wins_on": [],
+        "applies_when": {
+          "has_simdgroup_matrix": false,
+          "k_dim_min": 8,
+          "m_dim_min": 8,
+          "n_dim_min": 8
+        },
+        "anti_patterns": ["MMA on undersized matrices (M<8 or N<8) wastes simdgroup units"]
+      }
+    ],
+
+    "fused": [
+      {
+        "id": "fused_qkv_inner_loop_share_ln",
+        "technique": "fuse multi-output inner loop to share LN computation",
+        "rationale": "When a kernel re-computes LayerNorm inside per-head/per-output loops, hoist it to compute LN once into TG memory or registers and read it across outputs.",
+        "wins_on": [
+          {"kernel": "transformer_block", "chip": "apple-m2", "improvement_pct": 1.4, "stage": "QKV inner d-loop, 2 outputs/thread"}
+        ],
+        "applies_when": {
+          "loop_count_min": 2,
+          "kernel_kind_one_of": ["fused", "transformer_block"]
+        }
+      }
+    ]
+  },
+
+  "memory-bound": {
+    "elementwise": [
+      {
+        "id": "grid_shrink_tg_cache",
+        "technique": "shrink grid for TG-cache amortization",
+        "rationale": "Smaller grid means each TG does more work per shared/constant load. When the kernel reads a small parameter (bias, scale) repeatedly, fewer TGs means each load is amortized over more elements.",
+        "wins_on": [
+          {"kernel": "bias_add", "chip": "apple-m2", "improvement_pct": 28, "stage": "grid 64k → 8k"}
+        ],
+        "applies_when": {
+          "has_threadgroup_mem": false,
+          "kernel_kind_one_of": ["elementwise", "fused_elementwise"]
+        }
+      },
+      {
+        "id": "n_row_unroll_amortized_load",
+        "technique": "N-row unroll with amortized vector load",
+        "rationale": "Each thread processes N rows and amortizes one float4 load across all rows.",
+        "wins_on": [
+          {"kernel": "outer_product", "chip": "apple-m2", "improvement_pct": 26, "stage": "8-row unroll"}
+        ],
+        "applies_when": {
+          "has_float4": true,
+          "loop_count_min": 1
+        }
+      }
+    ],
+
+    "reduction": [
+      {
+        "id": "tg_256_float4_simd_finalize",
+        "technique": "TG=256 + float4 vectorize + simd-only 2-level finalize",
+        "rationale": "Reduce threadgroup to 256 threads to free register pressure, vectorize input loads with float4, finalize via simd_max/simd_sum without a per-thread serial pass.",
+        "wins_on": [
+          {"kernel": "softmax", "chip": "apple-m4", "improvement_pct": 7, "stage": "M4-specific m4.metal split"},
+          {"kernel": "variance", "chip": "apple-m4", "improvement_pct": 7.7, "stage": "TG=256 + float4 load"}
+        ],
+        "applies_when": {
+          "has_simd_reduction": true,
+          "loop_count_min": 1
+        }
+      }
+    ],
+
+    "matmul": [
+      {
+        "id": "fc_8output_simdgroup_simd_sum",
+        "technique": "FC-style per-simdgroup 8-output restructure with simd_sum",
+        "rationale": "Each simdgroup owns 8 contiguous output columns. Lanes split the K-dim reduction with float4 row loads (contiguous instead of strided). Replaces cross-lane simd_shuffle_xor with simd_sum.",
+        "wins_on": [
+          {"kernel": "alexnet", "chip": "apple-m2", "improvement_pct": 1, "stage": "FC1 restructure"}
+        ],
+        "applies_when": {
+          "has_simd_reduction": false,
+          "k_dim_min": 64
+        }
+      }
+    ]
+  },
+
+  "under_roofline_likely_latency_or_stall": {
+    "any": [
+      {
+        "id": "structural_only",
+        "technique": "structural change only — no micro-opts",
+        "rationale": "When SOL is sub-5% and neither ceiling is saturated, the kernel is launch/stall-bound. Micro-optimizations (unroll, float4) hit a noise floor. Look at: collapsing barriers, reducing dispatch count, batching small kernels, or restructuring the loop nest entirely. Anti-pattern: any single-line tweak.",
+        "wins_on": [],
+        "applies_when": {}
+      }
+    ]
+  },
+
+  "correctness_failure": {
+    "any": [
+      {
+        "id": "tg_within_pso_limit",
+        "technique": "shrink threadgroup to within PSO max",
+        "rationale": "Silent dispatch failure when threadgroup > PSO max (M2 caps register-heavy kernels at 896). Output stays zero; bench reports nonsense timing. Shrink the TG, smaller tile dimensions.",
+        "wins_on": [
+          {"kernel": "conv_transpose2d_sub_tanh", "chip": "apple-m2", "improvement_pct": 0, "stage": "BM=64, BN=64, 512 threads — restored correctness"}
+        ],
+        "applies_when": {
+          "threadgroup_exceeds_pso_limit": true
+        }
+      },
+      {
+        "id": "fix_registry_binding",
+        "technique": "fix registry input_bindings",
+        "rationale": "Multi-input kernels (pred + target for loss kernels) must have explicit input_bindings=(0,1...). The ew() helper assumes single-input; misalignment causes the output buffer to be written into a scalar slot → OOB → silent GPU hang.",
+        "wins_on": [
+          {"kernel": "hinge_loss", "chip": "apple-m2", "improvement_pct": 0, "stage": "registry fix"}
+        ],
+        "applies_when": {
+          "n_inputs_min": 2
+        }
+      }
+    ]
+  }
+}

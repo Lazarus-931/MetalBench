@@ -292,6 +292,7 @@ def profile(
             trace_path=gputrace_path,
             registry_entry=registry_dict,
             bench=bench,
+            metal_source=metal_source,
             session_record=session_record,
         )
     except Exception as e:

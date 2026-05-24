@@ -64,7 +64,7 @@ Auto-generated from `session.json` by `scripts/render_best_times.py`. Do not han
 | `outer_product` | common | — | 0.055 (5.66×) | — | 7.013 (1.14×) | — |
 | `prelu` | common | — | 0.013 (18.05×) | — | 3.005 (5.32×) | — |
 | `rect_mm` | common | — | 9.154 (0.87×) | — | 45.334 (0.53×) | — |
-| `relu` | common | — | 0.017 (462.06×) | — | 3.002 (2.67×) | — |
+| `relu` | common | — | 0.015 (551.53×) | — | 3.002 (2.67×) | — |
 | `rms_norm` | common | — | 0.101 (78.77×) | — | 3.038 (3.62×) | — |
 | `rsqrt` | common | — | 0.017 (470.55×) | — | 3.010 (3.66×) | — |
 | `selu` | common | — | 0.016 (485.17×) | — | 3.003 (2.33×) | — |
