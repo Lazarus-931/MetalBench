@@ -12,16 +12,21 @@
 
 #include <string>
 
+// chip_table.h is auto-generated from /chips.json by
+// scripts/generate_chip_table.py (invoked by the Makefile). To add a new
+// chip generation (M6, M7, ...) edit chips.json — never edit chip_table.h.
+#include "chip_table.h"
+
 namespace metalbench {
 
+// Build the MChipType enum from the X-macro defined in chip_table.h. Adding
+// a chip to chips.json adds new entries here automatically.
+#define METALBENCH_X_ENUM(EnumTag, Name, Needle) EnumTag,
 enum class MChipType {
     Unknown,
-    M1, M1_PRO, M1_MAX, M1_ULTRA,
-    M2, M2_PRO, M2_MAX, M2_ULTRA,
-    M3, M3_PRO, M3_MAX, M3_ULTRA,
-    M4, M4_PRO, M4_MAX, M4_ULTRA,
-    M5, M5_PRO, M5_MAX, M5_ULTRA,
+    METALBENCH_CHIP_LIST(METALBENCH_X_ENUM)
 };
+#undef METALBENCH_X_ENUM
 
 struct MChip {
     MChipType   type      = MChipType::Unknown;

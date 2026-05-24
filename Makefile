@@ -15,8 +15,16 @@ VARIANT_SRCS := $(foreach d,$(SET_DIRS),$(wildcard $(KERNEL_DIR)/$(d)/*/*.metal)
 UTILS_DIR   := $(KERNEL_DIR)/utils
 
 HOST_SRCS  := $(METAL_DIR)/main.mm $(METAL_DIR)/timing.mm $(METAL_DIR)/setup.cpp
-HOST_HDRS  := $(METAL_DIR)/timing.h $(METAL_DIR)/setup.h
+HOST_HDRS  := $(METAL_DIR)/timing.h $(METAL_DIR)/setup.h $(METAL_DIR)/chip_table.h
 HOST_BIN   := $(BUILD_DIR)/metalbench_host
+
+# chip_table.h is auto-generated from chips.json (single source of truth for
+# Apple M-series chip metadata). Adding M6 = one entry in chips.json; this
+# rule regenerates the C++ header so setup.cpp/setup.h pick it up at build.
+CHIP_REGISTRY   := chips.json
+CHIP_GEN_SCRIPT := scripts/generate_chip_table.py
+$(METAL_DIR)/chip_table.h: $(CHIP_REGISTRY) $(CHIP_GEN_SCRIPT)
+	@python3 $(CHIP_GEN_SCRIPT)
 
 METAL      := xcrun -sdk macosx metal
 METALLIB   := xcrun -sdk macosx metallib

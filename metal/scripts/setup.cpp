@@ -23,55 +23,28 @@ static long long sysctl_int(const char* key) {
     return v;
 }
 
+// type_name() and parse_type() are both generated from the same X-macro
+// (chip_table.h) so they can never drift out of sync. To add an M6, edit
+// chips.json and rebuild — nothing in this file changes.
+
 const char* type_name(MChipType t) {
     switch (t) {
-        case MChipType::M1:        return "m1";
-        case MChipType::M1_PRO:    return "m1_pro";
-        case MChipType::M1_MAX:    return "m1_max";
-        case MChipType::M1_ULTRA:  return "m1_ultra";
-        case MChipType::M2:        return "m2";
-        case MChipType::M2_PRO:    return "m2_pro";
-        case MChipType::M2_MAX:    return "m2_max";
-        case MChipType::M2_ULTRA:  return "m2_ultra";
-        case MChipType::M3:        return "m3";
-        case MChipType::M3_PRO:    return "m3_pro";
-        case MChipType::M3_MAX:    return "m3_max";
-        case MChipType::M3_ULTRA:  return "m3_ultra";
-        case MChipType::M4:        return "m4";
-        case MChipType::M4_PRO:    return "m4_pro";
-        case MChipType::M4_MAX:    return "m4_max";
-        case MChipType::M4_ULTRA:  return "m4_ultra";
-        case MChipType::M5:        return "m5";
-        case MChipType::M5_PRO:    return "m5_pro";
-        case MChipType::M5_MAX:    return "m5_max";
-        case MChipType::M5_ULTRA:  return "m5_ultra";
-        default:                   return "unknown";
+#define METALBENCH_X_CASE(EnumTag, Name, Needle) \
+        case MChipType::EnumTag: return Name;
+        METALBENCH_CHIP_LIST(METALBENCH_X_CASE)
+#undef METALBENCH_X_CASE
+        default: return "unknown";
     }
 }
 
-// Order matters: more-specific suffixes ("Max", "Pro", "Ultra") before bare model.
+// Order matters: chip_table.h emits variants most-specific-first within a
+// generation and newest-generation-first across generations, so a simple
+// top-down `find()` ladder gives correct matches.
 static MChipType parse_type(const std::string& name) {
-    auto has = [&](const char* sub) { return name.find(sub) != std::string::npos; };
-    if (has("M5 Ultra")) return MChipType::M5_ULTRA;
-    if (has("M5 Max"))   return MChipType::M5_MAX;
-    if (has("M5 Pro"))   return MChipType::M5_PRO;
-    if (has("M5"))       return MChipType::M5;
-    if (has("M4 Ultra")) return MChipType::M4_ULTRA;
-    if (has("M4 Max"))   return MChipType::M4_MAX;
-    if (has("M4 Pro"))   return MChipType::M4_PRO;
-    if (has("M4"))       return MChipType::M4;
-    if (has("M3 Ultra")) return MChipType::M3_ULTRA;
-    if (has("M3 Max"))   return MChipType::M3_MAX;
-    if (has("M3 Pro"))   return MChipType::M3_PRO;
-    if (has("M3"))       return MChipType::M3;
-    if (has("M2 Ultra")) return MChipType::M2_ULTRA;
-    if (has("M2 Max"))   return MChipType::M2_MAX;
-    if (has("M2 Pro"))   return MChipType::M2_PRO;
-    if (has("M2"))       return MChipType::M2;
-    if (has("M1 Ultra")) return MChipType::M1_ULTRA;
-    if (has("M1 Max"))   return MChipType::M1_MAX;
-    if (has("M1 Pro"))   return MChipType::M1_PRO;
-    if (has("M1"))       return MChipType::M1;
+#define METALBENCH_X_PARSE(EnumTag, Name, Needle) \
+        if (name.find(Needle) != std::string::npos) return MChipType::EnumTag;
+    METALBENCH_CHIP_LIST(METALBENCH_X_PARSE)
+#undef METALBENCH_X_PARSE
     return MChipType::Unknown;
 }
 

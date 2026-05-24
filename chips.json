@@ -1,0 +1,54 @@
+{
+  "_comment": "Single source of truth for Apple M-series chips. To add a new chip generation, append an entry below and run `make` (the C++ header chip_table.h is regenerated automatically). Python code reads this file at import time via agent_steel/chips.py. Order: newest -> oldest so detect_generation() matches the most-specific generation first.",
+  "_schema": {
+    "gen": "lowercase tag, e.g. m6 — used as the canonical chip_id",
+    "brand": "uppercase brand fragment as it appears in sysctl machdep.cpu.brand_string, e.g. M6",
+    "variants": "ordered list of suffixes from most-specific to least; '' is the bare model",
+    "peak_compute_TFLOPS": "base-chip peak GPU FP32 TFLOPS",
+    "peak_bandwidth_GBps": "base-chip peak memory bandwidth GB/s",
+    "tg_memory_max_bytes": "conservative threadgroup memory cap"
+  },
+  "chips": [
+    {
+      "gen": "m5",
+      "brand": "M5",
+      "variants": ["Ultra", "Max", "Pro", ""],
+      "peak_compute_TFLOPS": 5.5,
+      "peak_bandwidth_GBps": 150.0,
+      "tg_memory_max_bytes": 32768
+    },
+    {
+      "gen": "m4",
+      "brand": "M4",
+      "variants": ["Ultra", "Max", "Pro", ""],
+      "peak_compute_TFLOPS": 4.5,
+      "peak_bandwidth_GBps": 120.0,
+      "tg_memory_max_bytes": 32768
+    },
+    {
+      "gen": "m3",
+      "brand": "M3",
+      "variants": ["Ultra", "Max", "Pro", ""],
+      "peak_compute_TFLOPS": 4.1,
+      "peak_bandwidth_GBps": 102.4,
+      "tg_memory_max_bytes": 32768
+    },
+    {
+      "gen": "m2",
+      "brand": "M2",
+      "variants": ["Ultra", "Max", "Pro", ""],
+      "peak_compute_TFLOPS": 3.6,
+      "peak_bandwidth_GBps": 100.0,
+      "tg_memory_max_bytes": 32768
+    },
+    {
+      "gen": "m1",
+      "brand": "M1",
+      "variants": ["Ultra", "Max", "Pro", ""],
+      "peak_compute_TFLOPS": 2.6,
+      "peak_bandwidth_GBps": 68.25,
+      "tg_memory_max_bytes": 32768
+    }
+  ],
+  "default_fallback_gen": "m2"
+}
