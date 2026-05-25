@@ -3,9 +3,10 @@
     optimize(profile, provider=...) -> OptimizerResult
 
 Inputs: Profiler narrative + AttemptDB log + current .metal + MLX reference.
-Outputs: new .metal staged at optimizer/staging/<kernel>.metal + a 2-3 sentence
-change summary. Accuracy is gated here; performance is gated by the Verifier.
+Writes the new candidate IN-PLACE to metal/kernels/<set>/<kernel>.metal.
+Accuracy is gated here; performance is gated by the Verifier (against
+session.json's leaderboard, not local history).
 """
-from .agent import OptimizerAgent, OptimizerResult, STAGING_DIR, optimize
+from .agent import OptimizerAgent, OptimizerResult, optimize
 
-__all__ = ["OptimizerAgent", "OptimizerResult", "STAGING_DIR", "optimize"]
+__all__ = ["OptimizerAgent", "OptimizerResult", "optimize"]

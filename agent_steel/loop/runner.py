@@ -22,6 +22,7 @@ from ..history import AttemptDB, AttemptEntry
 from ..optimizer import OptimizerResult, optimize
 from ..profiler import ProfileResult, profile
 from ..providers import Provider
+from ..session import calibration_check, leaderboard_best_ms
 from ..verifier import verify
 from .greedy import GreedyStrategy
 
@@ -108,6 +109,26 @@ def run_loop(
         gputrace_path=_gputrace_path(kernel, _peek_generation(chip_override)),
     )
     chip = chip_override or _chip_id(initial_profile.chip_generation)
+
+    # Calibration: confirm the local box's perf regime matches the leaderboard.
+    # If the local bench of the current source is >3% off session.json's record,
+    # any "improvement" the loop reports would be against a degraded baseline
+    # — abort instead of producing misleading numbers.
+    local_ms = initial_profile.bench.kernel_ms
+    lb_ms = leaderboard_best_ms(kernel, chip)
+    ok, diff_pct, reason = calibration_check(local_ms or 0.0, lb_ms)
+    if not ok:
+        return LoopResult(
+            kernel=kernel, chip=chip,
+            rounds_run=0, kept_attempts=0,
+            initial_ms=local_ms, best_ms=local_ms,
+            overall_improvement_pct=None,
+            termination_reason=(
+                f"calibration_failed: local={local_ms:.4f}ms vs "
+                f"leaderboard={lb_ms:.4f}ms ({reason})"
+            ),
+            attempts=list(db.read(kernel, chip)),
+        )
 
     with _session_lock(kernel, chip):
         return _run_loop_inner(
