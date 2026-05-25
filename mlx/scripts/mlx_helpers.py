@@ -47,12 +47,36 @@ SESSION_PATH  = REPO_ROOT / "session.json"
 SETS = ("common", "standard", "full")
 
 
-def find_kernel_source(name: str) -> Path | None:
-    """Locate metal/kernels/<set>/<name>.metal."""
+def find_kernel_source(name: str, chip_gen: str | None = None) -> Path | None:
+    """Locate the active .metal file the harness benches.
+
+    Resolution order matches the bench-side resolver:
+      1. flat `<set>/<name>.metal`
+      2. directory `<set>/<name>/<chip>.metal` (chip-specific variant)
+      3. directory `<set>/<name>/default.metal` (shared fallback)
+      4. any other `<set>/<name>/*.metal` (legacy)
+    `chip_gen` defaults to whatever `chip_info()["type"]` returns for this box.
+    """
+    if chip_gen is None:
+        try:
+            chip_gen = chip_info()["type"]
+        except Exception:
+            chip_gen = ""
     for s in SETS:
-        p = KERNEL_ROOT / s / f"{name}.metal"
-        if p.exists():
-            return p
+        flat = KERNEL_ROOT / s / f"{name}.metal"
+        if flat.is_file():
+            return flat
+        d = KERNEL_ROOT / s / name
+        if d.is_dir():
+            cand = d / f"{chip_gen}.metal"
+            if cand.is_file():
+                return cand
+            default = d / "default.metal"
+            if default.is_file():
+                return default
+            for f in sorted(d.iterdir()):
+                if f.suffix == ".metal":
+                    return f
     return None
 
 DType = str
