@@ -40,7 +40,7 @@ Concurrent agent-steel instances are safe: a process-wide flock serializes
 `./bench` (GPU is one resource); a per-(kernel, chip) flock prevents two
 processes from racing on the same kernel's lineage.
 
-<img height=700 src="assets/figma_fix.png"/>
+<img height=700 src="assets/figma_viz.png"/>
 
 ## Kernels
 
