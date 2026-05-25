@@ -2,7 +2,7 @@
   <img src="assets/logo.png" alt="MetalBench" width="240">
 </p>
 
-# MetalBench
+# MetalBench - Metal-based kernel benchmark, library, and closed-loop agent authoring system 
 
 Benchmarking Apple Metal GPU kernels against [MLX](https://github.com/ml-explore/mlx) reference implementations. Modeled on [KernelBench](https://github.com/ScalingIntelligence/KernelBench), swapping CUDA → Metal and PyTorch → MLX.
 
