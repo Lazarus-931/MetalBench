@@ -18,6 +18,7 @@ from pathlib import Path
 
 from ..history import AttemptDB, AttemptEntry
 from ..profiler import run_bench
+from ..session import leaderboard_best_ms
 
 REPO = Path(__file__).resolve().parents[2]
 
@@ -45,16 +46,17 @@ class VerifierResult:
 
 
 def _bench_avg(
-    kernel: str, warmup: int, iters: int,
+    kernel: str, warmup: int, iters: int, save: bool = True,
 ) -> tuple[float | None, float | None, float | None, bool, float | None, bool]:
     """Run a single ./bench with the configured warmup + iters; return
     (mean_ms, median_ms, min_ms, correct, max_err, sub_resolution).
 
-    sub_resolution is True if the bench's median is at or below 1µs — those
-    measurements aren't reliable and the gate treats this as a revert reason.
+    save=True lets ./bench update session.json when the run beats the
+    recorded best — so a successful Verifier round automatically promotes
+    its kernel to the leaderboard.
     """
     try:
-        r = run_bench(kernel, warmup=warmup, iters=iters)
+        r = run_bench(kernel, warmup=warmup, iters=iters, save=save)
     except Exception:
         return None, None, None, False, None, False
     correct = bool(r.correct)
@@ -79,6 +81,12 @@ def _stability_cv(runs: list[float]) -> float | None:
 
 
 def _prior_best_ms(db: AttemptDB, kernel: str, chip: str) -> float | None:
+    """Return the session.json leaderboard best (the public record). Falls back
+    to the local AttemptDB best ONLY when the leaderboard has no entry for this
+    (kernel, chip) — first-time benching."""
+    lb = leaderboard_best_ms(kernel, chip)
+    if lb is not None:
+        return lb
     best = db.best(kernel, chip)
     return best.after_ms if best is not None else None
 

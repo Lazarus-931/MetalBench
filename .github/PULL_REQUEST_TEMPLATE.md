@@ -1,3 +1,5 @@
+Chip: <!-- m2 / m4 / etc. — which M-chip generation you measured this on. Required for `./verify` to compare on the same hardware. -->
+
 ## What
 
 <!-- Which kernel(s) did you change? What did you change? -->

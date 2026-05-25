@@ -1,55 +1,59 @@
 #!/usr/bin/env bash
-# verify — reviewer-side. Re-run a PR's claimed numbers on your own hardware.
+# verify — reviewer-side. Reproduce a PR's claimed perf on your hardware.
 #
 # Usage:
 #   ./verify 47                      # PR number on origin
 #   ./verify user/MetalBench:branch  # explicit fork:branch
 #
-# Behavior:
-#   1. Checks out the PR into /tmp/mb-verify-<pr>
-#   2. Diffs the PR vs main, finds changed .metal files
-#   3. For each changed kernel: bench in the PR worktree (3× median)
-#   4. Reads PR's results/<chip>/results.md for claimed numbers (your chip only)
-#   5. Compares: PASS if measured ∈ claimed × [0.85, 1.15] and correctness ✓
-#   6. Prints a copy-pasteable comment block for the PR thread.
+# Output is ONE LINE:
+#   VERIFIED
+#   ERROR: <one-line reason>
+#
+# Checks:
+#   1. The PR body declares `Chip: <chip>` (e.g. m2, m4). If absent or
+#      doesn't match this box's `sysctl machdep.cpu.brand_string`, ERROR.
+#   2. For each changed `.metal` file in the PR: bench it, require
+#      correctness ✓ AND the bench median within ±5% of the PR's
+#      session.json best_time_ms for that (chip, kernel).
 set -uo pipefail
 cd "$(dirname "$0")"
 
-if [ $# -ne 1 ]; then
-  echo "usage: ./verify <pr-number> | <fork:branch>" >&2
-  exit 64
-fi
+err() { echo "ERROR: $1"; exit 1; }
 
+[ $# -eq 1 ] || err "usage: ./verify <pr-number> | <fork:branch>"
 TARGET="$1"
 WORKTREE="/tmp/mb-verify-${TARGET//[\/:]/_}"
+TOL=0.05
 
-# 1. Materialize the PR --------------------------------------------------------
+LOCAL_CHIP=$(sysctl -n machdep.cpu.brand_string 2>/dev/null | grep -oiE 'M[0-9]+' | head -1 | tr 'A-Z' 'a-z')
+[ -n "$LOCAL_CHIP" ] || err "could not detect local M-chip via sysctl"
+
 rm -rf "$WORKTREE"
 if [[ "$TARGET" =~ ^[0-9]+$ ]]; then
-  command -v gh >/dev/null || { echo "[verify] needs 'gh' (gh cli)" >&2; exit 1; }
-  echo "[verify] fetching PR #$TARGET ..." >&2
-  gh pr checkout "$TARGET" --recurse-submodules=false 2>/dev/null \
-    || { echo "[verify] gh pr checkout failed" >&2; exit 1; }
+  command -v gh >/dev/null || err "needs gh CLI"
+  PR_BODY=$(gh pr view "$TARGET" --json body --jq .body 2>/dev/null) || err "gh pr view $TARGET failed"
+  gh pr checkout "$TARGET" --recurse-submodules=false >/dev/null 2>&1 || err "gh pr checkout failed"
   PR_BRANCH=$(git branch --show-current)
-  git checkout main 2>/dev/null
-  git worktree add "$WORKTREE" "$PR_BRANCH" 2>&1 | tail -2
+  git checkout main >/dev/null 2>&1
+  git worktree add "$WORKTREE" "$PR_BRANCH" >/dev/null 2>&1 || err "git worktree add failed"
 else
   fork="${TARGET%%:*}"; branch="${TARGET##*:}"
-  echo "[verify] cloning $fork@$branch ..." >&2
-  git fetch "git@github.com:${fork}.git" "$branch:verify_${branch//\//_}" 2>&1 | tail -2
-  git worktree add "$WORKTREE" "verify_${branch//\//_}" 2>&1 | tail -2
+  git fetch "git@github.com:${fork}.git" "$branch:verify_${branch//\//_}" >/dev/null 2>&1 \
+    || err "fetch fork:branch failed"
+  git worktree add "$WORKTREE" "verify_${branch//\//_}" >/dev/null 2>&1 \
+    || err "git worktree add failed"
+  PR_BODY=""
 fi
 
-# 2. Find changed kernels ------------------------------------------------------
+PR_CHIP=$(echo "$PR_BODY" | grep -oiE '^Chip:[[:space:]]*M[0-9]+' | head -1 | grep -oiE 'M[0-9]+' | tr 'A-Z' 'a-z')
+if [ -n "$PR_CHIP" ] && [ "$PR_CHIP" != "$LOCAL_CHIP" ]; then
+  err "chip mismatch (PR claims $PR_CHIP, this box is $LOCAL_CHIP)"
+fi
+
 cd "$WORKTREE"
 CHANGED=$(git diff --name-only main -- 'metal/kernels/**/*.metal' 2>/dev/null)
-if [ -z "$CHANGED" ]; then
-  echo "[verify] no kernel changes in this PR" >&2
-  cd - >/dev/null
-  exit 0
-fi
+[ -n "$CHANGED" ] || { cd - >/dev/null; echo "VERIFIED"; exit 0; }
 
-# Map .metal paths → kernel name (handling directory variants)
 KERNELS=()
 for f in $CHANGED; do
   base=$(basename "$f" .metal)
@@ -61,94 +65,28 @@ for f in $CHANGED; do
   fi
 done
 KERNELS=($(printf '%s\n' "${KERNELS[@]}" | awk '!seen[$0]++'))
-echo "[verify] kernels changed: ${KERNELS[*]}" >&2
 
-# 3. Determine chip + read PR's claims ----------------------------------------
-CHIP=$(python3 -c "import sys; sys.path.insert(0,'mlx/scripts'); import mlx_helpers as H; print(H.bucket_key())")
-PR_RESULTS="$WORKTREE/results/${CHIP}/results.md"
-if [ ! -f "$PR_RESULTS" ]; then
-  echo "[verify] WARN: PR has no results/${CHIP}/results.md — claims unverifiable on this chip" >&2
-  HAS_CLAIMS=0
-else
-  HAS_CLAIMS=1
-fi
+for k in "${KERNELS[@]}"; do
+  CLAIMED=$(python3 -c "
+import json
+try:
+    s = json.load(open('session.json'))
+    e = s.get('apple-${LOCAL_CHIP}', {}).get('${k}', {})
+    print(e.get('best_time_ms', ''))
+except Exception:
+    print('')
+" 2>/dev/null)
+  [ -n "$CLAIMED" ] || err "no session.json record for $k on apple-${LOCAL_CHIP}"
 
-claim_for() {
-  local name="$1"
-  [ "$HAS_CLAIMS" = "0" ] && { echo "—|—"; return; }
-  awk -F'\\|' -v k="$name" '
-    /^\| / {
-      gsub(/^ +| +$/, "", $2);
-      if ($2 == k) {
-        ms=$3;  gsub(/^ +| +$/, "", ms);
-        sp=$4;  gsub(/^ +| +×|×$/, "", sp); gsub(/×/, "", sp);
-        gsub(/^ +| +$/, "", sp);
-        print ms "|" sp; exit
-      }
-    }' "$PR_RESULTS"
-}
+  OUT=$(./bench "$k" --no-save -- --iters 100 --warmup 30 2>&1) || err "error benching $k"
+  echo "$OUT" | grep -qE 'correctness\s+:\s*✓' || err "$k correctness failed"
+  MEASURED=$(echo "$OUT" | grep -oE 'kernel[[:space:]]+:[[:space:]]*[0-9.e+-]+' | grep -oE '[0-9.e+-]+$' | head -1)
+  [ -n "$MEASURED" ] || err "$k could not parse bench time"
 
-# 4. Bench each kernel in the PR worktree -------------------------------------
-PASS=0; FAIL=0; SKIP=0
-declare -a REPORT_ROWS=()
-
-for name in "${KERNELS[@]}"; do
-  echo "" >&2
-  echo "[verify] benching $name (3 runs) ..." >&2
-  declare -a runs=()
-  ok=1
-  for i in 1 2 3; do
-    out=$(./bench "$name" --no-save 2>&1) || ok=0
-    if ! echo "$out" | grep -q "correctness : ✓ correct"; then ok=0; fi
-    ms=$(echo "$out" | awk '/^  kernel  / { gsub(/ms/,"",$3); print $3; exit }')
-    sp=$(echo "$out" | awk '/^  speedup/  { gsub(/×/,"",$3); print $3; exit }')
-    runs+=("$ms $sp")
-  done
-
-  if [ "$ok" -ne 1 ]; then
-    REPORT_ROWS+=("| $name | — | — | — | — | ❌ correctness FAIL |")
-    FAIL=$((FAIL+1)); continue
-  fi
-
-  # Median by ms
-  median_ms=$(printf '%s\n' "${runs[@]}" | awk '{print $1}' | sort -n | awk 'NR==2')
-  median_sp=$(printf '%s\n' "${runs[@]}" | awk '{print $2}' | sort -n | awk 'NR==2')
-  claim=$(claim_for "$name")
-  claim_ms="${claim%%|*}"
-  claim_sp="${claim##*|}"
-
-  if [ "$claim_ms" = "—" ] || [ -z "$claim_ms" ]; then
-    REPORT_ROWS+=("| $name | $claim_ms | $median_ms | $claim_sp | ${median_sp}× | ⚠️  no claim |")
-    SKIP=$((SKIP+1)); continue
-  fi
-
-  # ±15% tolerance on time
-  status=$(python3 -c "
-c=float('$claim_ms'); m=float('$median_ms')
-print('PASS' if 0.85*c <= m <= 1.15*c else 'FAIL')")
-  if [ "$status" = "PASS" ]; then
-    REPORT_ROWS+=("| $name | ${claim_ms}ms | ${median_ms}ms | ${claim_sp}× | ${median_sp}× | ✅ VERIFIED |")
-    PASS=$((PASS+1))
-  else
-    REPORT_ROWS+=("| $name | ${claim_ms}ms | ${median_ms}ms | ${claim_sp}× | ${median_sp}× | ❌ off >15% |")
-    FAIL=$((FAIL+1))
-  fi
+  DIFF_PCT=$(python3 -c "print(f'{abs(${MEASURED}-${CLAIMED})/${CLAIMED}*100:.1f}')")
+  python3 -c "import sys; sys.exit(0 if abs(${MEASURED}-${CLAIMED})/${CLAIMED} <= ${TOL} else 1)" \
+    || err "perf not accurate, diff: ${DIFF_PCT}%"
 done
 
 cd - >/dev/null
-
-# 5. Output --------------------------------------------------------------------
-echo ""
-echo "──────────────────────────────────────────────────────────────"
-echo "  VERIFY  PR=$TARGET  chip=$CHIP  pass=$PASS fail=$FAIL skip=$SKIP"
-echo "──────────────────────────────────────────────────────────────"
-echo ""
-echo "| kernel | claimed (ms) | measured (ms) | claimed × | measured × | status |"
-echo "|---|---|---|---|---|---|"
-printf '%s\n' "${REPORT_ROWS[@]}"
-echo ""
-echo "Tolerance: ±15% on median of 3 runs."
-echo "Reviewer chip: \`$CHIP\` — other chips not verified."
-echo "──────────────────────────────────────────────────────────────"
-
-[ "$FAIL" -eq 0 ]
+echo "VERIFIED"

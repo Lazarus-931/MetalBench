@@ -27,4 +27,3 @@ results/*/*.gputrace
 
 # Agent worktrees
 .claude/worktrees/
-agent_steel/optimizer/staging/*.metal

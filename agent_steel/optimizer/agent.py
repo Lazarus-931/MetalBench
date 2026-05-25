@@ -3,18 +3,17 @@
 Inputs:
 - ProfileResult.narrative (2-3 paragraph diagnosis from the Profiler)
 - AttemptDB log for (kernel, chip)
-- Current .metal source (the on-disk best)
+- Current .metal source (read from metal/kernels/<set>/<kernel>.metal)
 - MLX reference (the ground-truth spec)
 
 Outputs (OptimizerResult):
-- new .metal text written to optimizer/staging/<kernel>.metal
+- new .metal text written IN-PLACE to metal/kernels/<set>/<kernel>.metal
 - 2-3 sentence change_summary the LLM wrote
-- accuracy_passed: True iff bench(staging) returns correct=True
-- BenchResult of the staging run (perf comes from Verifier; we only gate on correctness here)
+- accuracy_passed: True iff bench returns correct=True
 
-Promotion (staging → metal/kernels/<set>/<kernel>.metal) is the Loop's
-responsibility, not the Optimizer's. The Optimizer never mutates committed
-kernel sources; it only stages.
+On accuracy fail, the active source is restored from the pre-call backup.
+On success, the candidate is left in place; the Verifier decides whether
+to keep or revert based on the perf gate (against session.json).
 """
 from __future__ import annotations
 import json
@@ -28,7 +27,6 @@ from ..profiler import ProfileResult, run_bench
 from ..providers import Message, Provider
 
 REPO = Path(__file__).resolve().parents[2]
-STAGING_DIR = REPO / "agent_steel" / "optimizer" / "staging"
 _PROMPT_PATH = REPO / "agent_steel" / "prompts" / "optimizer.md"
 
 
@@ -38,7 +36,7 @@ class OptimizerResult:
     chip: str                                       # apple-m2 / apple-m4
     new_metal_source: str = field(repr=False)       # the candidate kernel
     change_summary: str = ""                        # 2-3 sentence prose
-    staging_path: Path | None = None                # where it was staged
+    active_metal_path: Path | None = None            # the path that was edited in place
     accuracy_passed: bool = False
     accuracy_max_err: float | None = None
     accuracy_kernel_ms: float | None = None         # perf from accuracy run (informational only)
@@ -152,30 +150,23 @@ def _parse_llm_json(text: str) -> dict[str, Any]:
 
 def _accuracy_gate(
     kernel: str,
-    staging_path: Path,
     active_metal_path: Path,
+    backup: str,
 ) -> tuple[bool, float | None, float | None, str]:
-    """Swap staging into active path, run bench, decide kept-or-revert by
-    correctness only. Restore active path on failure.
+    """Bench whatever was just written to `active_metal_path`. On failure,
+    restore `backup` so the active file stays at the prior-good state.
 
     Returns (passed, max_err, kernel_ms, note).
     """
-    backup = active_metal_path.read_text()
-    candidate = staging_path.read_text()
-    active_metal_path.write_text(candidate)
     try:
-        try:
-            bench = run_bench(kernel)
-        except Exception as e:
-            active_metal_path.write_text(backup)
-            return False, None, None, f"bench failed: {e}"
-        if not bench.correct:
-            active_metal_path.write_text(backup)
-            return False, bench.max_err, bench.kernel_ms, "correctness_failed"
-        return True, bench.max_err, bench.kernel_ms, "accuracy_passed"
-    except Exception:
+        bench = run_bench(kernel)
+    except Exception as e:
         active_metal_path.write_text(backup)
-        raise
+        return False, None, None, f"bench failed: {e}"
+    if not bench.correct:
+        active_metal_path.write_text(backup)
+        return False, bench.max_err, bench.kernel_ms, "correctness_failed"
+    return True, bench.max_err, bench.kernel_ms, "accuracy_passed"
 
 
 MAX_ACCURACY_RETRIES = 4
@@ -241,12 +232,11 @@ def optimize(
             feedback = "Previous response had an empty new_metal_source. Emit the FULL kernel file."
             continue
 
-        STAGING_DIR.mkdir(parents=True, exist_ok=True)
-        staging_path = STAGING_DIR / f"{profile.kernel}.metal"
-        staging_path.write_text(new_src)
-
+        # In-place edit: write candidate directly to the active .metal file.
+        # _accuracy_gate restores `current_metal` on bench failure.
+        active_metal_path.write_text(new_src)
         passed, max_err, kernel_ms, note = _accuracy_gate(
-            profile.kernel, staging_path, active_metal_path,
+            profile.kernel, active_metal_path, backup=current_metal,
         )
 
         tech_label = summary[:200] or "(no summary)"
@@ -265,14 +255,14 @@ def optimize(
             after_ms=kernel_ms,
             kept=False,
             rollback_reason="" if passed else f"accuracy_retry_{attempt_n}: {note}",
-            notes=f"attempt {attempt_n}/{MAX_ACCURACY_RETRIES}; staged at {staging_path}; accuracy={note}",
+            notes=f"attempt {attempt_n}/{MAX_ACCURACY_RETRIES}; accuracy={note}",
         ))
 
         last_result = OptimizerResult(
             kernel=profile.kernel, chip=chip_id,
             new_metal_source=new_src,
             change_summary=summary,
-            staging_path=staging_path,
+            active_metal_path=active_metal_path,
             accuracy_passed=passed,
             accuracy_max_err=max_err,
             accuracy_kernel_ms=kernel_ms,
