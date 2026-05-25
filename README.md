@@ -18,11 +18,11 @@ until it can't improve further.
 
 Three agents:
 
-| Agent | LLM? | Job |
+| Agent | Job |
 |---|---|---|
-| **Profiler** | yes | Parses the `.gputrace` + bench output, runs the chip-aware synthesizer (`chip_metrics/m{N}.py`), emits a 2-3 paragraph diagnosis |
-| **Optimizer** | yes | Reads the diagnosis + the kernel's AttemptDB log + current `.metal` + MLX reference, writes the next `.metal` to `agent_steel/optimizer/staging/`, runs an accuracy gate (`./bench` correctness ≥ 99%) — retries up to 4 times on accuracy fail |
-| **Verifier** | no | Benches the promoted kernel (`--warmup 30 --iters 100`), compares mean vs prior best, logs ±Δ% to AttemptDB, reverts on regression |
+| **Profiler** | Parses the `.gputrace` + bench output, runs the chip-aware synthesizer (`chip_metrics/m{N}.py`), emits a 2-3 paragraph diagnosis |
+| **Optimizer** | Reads the diagnosis + the kernel's AttemptDB log + current `.metal` + MLX reference, writes the next `.metal` to `agent_steel/optimizer/staging/`, runs an accuracy gate (`./bench` correctness ≥ 99%) — retries up to 4 times on accuracy fail |
+| **Verifier** | Benches the promoted kernel (`--warmup 30 --iters 100`), compares mean vs prior best, logs ±Δ% to AttemptDB, reverts on regression |
 
 AttemptDB is one JSONL per `(kernel, chip)` at `.agent-steel/history/`. Every
 entry carries the `.metal` source snapshot + the chip-aware metrics dict from
@@ -40,10 +40,7 @@ Concurrent agent-steel instances are safe: a process-wide flock serializes
 `./bench` (GPU is one resource); a per-(kernel, chip) flock prevents two
 processes from racing on the same kernel's lineage.
 
-<iframe style="border: 1px solid rgba(0, 0, 0, 0.1);" width="800" height="450" src="https://embed.figma.com/board/uVEoc2IoaVIQoNFELKFwBa/Agent-Steel-%E2%80%94-4-Agent-Balanced?node-id=0-1&embed-host=share" allowfullscreen></iframe>
-
-> If your viewer strips iframes (GitHub does): [open the board on Figma](https://www.figma.com/board/uVEoc2IoaVIQoNFELKFwBa/Agent-Steel-%E2%80%94-4-Agent-Balanced?node-id=0-1).
-
+<img height=700 src="assets/figma_fix.png"/>
 
 ## Kernels
 
