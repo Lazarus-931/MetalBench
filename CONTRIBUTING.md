@@ -49,6 +49,17 @@ metal/kernels/common/sqr_mm/
     m5.metal         # used on M5
 ```
 
+**Resolver rule.** At bench time the harness picks `<kernel>/<chip>.metal` if it exists, else `<kernel>/default.metal`, else the flat `<kernel>.metal`. This means:
+- M1 and M2 share `default.metal` until one of them gets its own file.
+- M3 with its own `m3.metal` does not affect what M1/M2/M4 use.
+- A chip-specific file is *additive* — adding `m4.metal` never changes what runs on any other chip.
+
+**The fork rule.** Once you have a measured-win per-chip optimization:
+- If `default.metal` already exists in the directory → just add `<chip>.metal` next to it.
+- If only flat `<kernel>.metal` exists → promote: `mv <kernel>.metal <kernel>/default.metal`, then add your `<chip>.metal`.
+
+**Agent Steel does this automatically.** Running agent-steel on a chip X always writes to `<kernel>/<chip>.metal` (creating the directory structure if needed). The shared `default.metal` is preserved untouched, so other chips never silently regress from another chip's session.
+
 Don't promote unless you can measure a speedup that justifies the fork.
 
 ## Adding a brand-new kernel

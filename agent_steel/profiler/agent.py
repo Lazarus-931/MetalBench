@@ -82,6 +82,7 @@ def _build_user_message(
         "chip_aware_metrics": chip_aware,
     }
     return (
+        f"Chip: {bench.chip}\n\n"
         "Write a 2-3 paragraph profile summary for this kernel based on the "
         "measurements below. Output prose only — no headers, no bullet lists, "
         "no JSON.\n\n"
