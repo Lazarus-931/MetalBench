@@ -396,8 +396,8 @@ def main(argv=None):
                     help="record an MLX .gputrace at this path")
     ap.add_argument("--capture-host", default=None,
                     help="record a .gputrace of the host Metal dispatch at this path")
-    ap.add_argument("--xcode",      action="store_true",
-                    help="record a host .gputrace into results/<chip>/<name>.gputrace and open it in Xcode")
+    ap.add_argument("--xcode", "--gputracer", dest="xcode", action="store_true",
+                    help="record a host .gputrace into results/<chip>/<name>.gputrace and open it in Xcode (--gputracer is an alias)")
     ap.add_argument("--profile",    action="store_true",
                     help="enable GPU counter sampling via MTLCounterSet (adds one extra dispatch)")
     ap.add_argument("--cold-start", action="store_true",

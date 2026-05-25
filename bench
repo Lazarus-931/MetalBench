@@ -1,15 +1,43 @@
 #!/usr/bin/env bash
-# bench <name>            — build, run, save
-# bench --all             — run ALL kernels across all sets
-# bench --update-md       — regenerate best_times.md from session.json
-# bench <name> --no-save  — skip the save
+# bench <name>                     — build, run, save
+# bench --all                      — run ALL kernels across all sets
+# bench --update-md                — regenerate best_times.md from session.json
+# bench --gputracer <name>         — capture <name>.gputrace and open it in Xcode (alias for: bench <name> --xcode)
+# bench --gputracer --all          — capture every kernel's .gputrace and open each in Xcode (staggered)
+# bench <name> --no-save           — skip the save
 # bench <name> -- --target compute --iters 200
 set -euo pipefail
 cd "$(dirname "$0")"
 
 if [ $# -lt 1 ]; then
-  echo "usage: ./bench <name> | --all | --update-md [--no-save] [-- <harness args>]" >&2
+  echo "usage: ./bench <name> | --all | --update-md | --gputracer <name|--all> [--no-save] [-- <harness args>]" >&2
   exit 64
+fi
+
+# --- bench --gputracer { <name> | --all } ---------------------------------
+if [ "$1" = "--gputracer" ]; then
+  shift
+  if [ $# -lt 1 ]; then
+    echo "usage: ./bench --gputracer <name> | --gputracer --all" >&2
+    exit 64
+  fi
+  [ -z "${SKIP_BUILD:-}" ] && make --silent all 1>&2
+  if [ "$1" = "--all" ]; then
+    shift
+    for set in common standard; do
+      reg="mlx/kernels/${set}/registry.py"
+      [ -f "$reg" ] || continue
+      for name in $(python3 -c "exec(open('$reg').read()); print(' '.join(sorted(REGISTRY.keys())))" 2>/dev/null); do
+        echo "[gputracer] capturing $set/$name" >&2
+        python3 mlx/scripts/harness.py "$name" --xcode --metal-only "$@" 2>&1 | grep -E "trace written|ERROR|FAILED" || true
+        sleep 3  # stagger Xcode windows so they don't flood
+      done
+    done
+    echo "[gputracer] all kernels captured; check Xcode windows" >&2
+    exit 0
+  fi
+  # Single kernel: pass through to the normal single-kernel path with --xcode added.
+  exec python3 mlx/scripts/harness.py "$1" --xcode "${@:2}"
 fi
 
 # --- bench --all -----------------------------------------------------------
@@ -58,7 +86,7 @@ while [ $# -gt 0 ]; do
     --no-save) save=""; shift ;;
     --mlx|--mlx-only)     extra+=("--mlx-only");   save=""; shift ;;
     --metal|--metal-only) extra+=("--metal-only"); save=""; shift ;;
-    --xcode)              extra+=("--xcode");      save=""; shift ;;
+    --xcode|--gputracer)  extra+=("--xcode");      save=""; shift ;;
     --) shift; extra=("${extra[@]+"${extra[@]}"}" "$@"); break ;;
     *)  extra+=("$1"); shift ;;
   esac

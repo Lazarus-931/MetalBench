@@ -17,3 +17,14 @@ xcuserdata/
 *.xcworkspace/xcuserdata/
 *.xcodeproj/xcuserdata/
 *.xcodeproj/project.xcworkspace/xcuserdata/
+
+# Agent Steel runtime artifacts
+agent_steel/profiler/profiles/*.json
+.agent-steel/
+
+# Xcode GPU captures — big binary blobs, regenerable with `./bench --xcode`.
+results/*/*.gputrace
+
+# Agent worktrees
+.claude/worktrees/
+agent_steel/optimizer/staging/*.metal

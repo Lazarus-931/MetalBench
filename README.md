@@ -12,7 +12,37 @@ Feel free to contribute with kernels for other mchip types, I only had my hands 
 
 ## Agent-Steel 👨‍🏭
 
-Located in `agent_steel/`, the agent harness for full kernel writing — profiling, debugging, and designing kernels.
+`agent_steel/` is an LLM-driven closed-loop harness that profiles a kernel,
+writes a new candidate, and verifies the change against `./bench` — repeating
+until it can't improve further.
+
+Three agents:
+
+| Agent | LLM? | Job |
+|---|---|---|
+| **Profiler** | yes | Parses the `.gputrace` + bench output, runs the chip-aware synthesizer (`chip_metrics/m{N}.py`), emits a 2-3 paragraph diagnosis |
+| **Optimizer** | yes | Reads the diagnosis + the kernel's AttemptDB log + current `.metal` + MLX reference, writes the next `.metal` to `agent_steel/optimizer/staging/`, runs an accuracy gate (`./bench` correctness ≥ 99%) — retries up to 4 times on accuracy fail |
+| **Verifier** | no | Benches the promoted kernel (`--warmup 30 --iters 100`), compares mean vs prior best, logs ±Δ% to AttemptDB, reverts on regression |
+
+AttemptDB is one JSONL per `(kernel, chip)` at `.agent-steel/history/`. Every
+entry carries the `.metal` source snapshot + the chip-aware metrics dict from
+that profile. `AttemptDB.top_n_by_time(kernel, chip, n)` returns the N fastest
+kept attempts.
+
+Run it:
+
+```bash
+python -m agent_steel --kernel-name relu --loop --max-rounds 5
+python -m agent_steel --kernel-name relu,softmax --parallel 2 --loop
+```
+
+Concurrent agent-steel instances are safe: a process-wide flock serializes
+`./bench` (GPU is one resource); a per-(kernel, chip) flock prevents two
+processes from racing on the same kernel's lineage.
+
+<iframe style="border: 1px solid rgba(0, 0, 0, 0.1);" width="800" height="450" src="https://embed.figma.com/board/uVEoc2IoaVIQoNFELKFwBa/Agent-Steel-%E2%80%94-4-Agent-Balanced?node-id=0-1&embed-host=share" allowfullscreen></iframe>
+
+> If your viewer strips iframes (GitHub does): [open the board on Figma](https://www.figma.com/board/uVEoc2IoaVIQoNFELKFwBa/Agent-Steel-%E2%80%94-4-Agent-Balanced?node-id=0-1).
 
 
 ## Kernels
@@ -133,12 +163,12 @@ GOOD (sqr_mm):                      BAD (naive kernel):
 
 ## Authoring a kernel(Will be moved into AgentSteel)
 
-For now, see [AGENTS.md](AGENTS.md) for the full contract. Working on Agent Steel which is full agent harness/system for writing 🤘 kernels. Short version:
+For Agent Steel internals see [agent_steel/README.md](agent_steel/README.md). Short version for human contributors:
 
 - `mlx/kernels/<set>/<name>.py` — the MLX baseline (don't edit; it defines the problem).
 - `metal/kernels/<set>/<name>.metal` — your kernel.
 - Run `./bench <name>` until `correct=true`.
-- Edit only the `.metal` file. Open a PR. `best_times.md`, `LINK.md`, and `results/<chip>/results.md` are auto-generated.
+- Edit only the `.metal` file. Open a PR. `best_times.md` and `LINK.md` are auto-generated from `session.json`.
 
 ### Per-chip variants
 
