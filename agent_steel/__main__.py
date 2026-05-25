@@ -38,6 +38,8 @@ import argparse
 import json
 import sys
 from concurrent.futures import ThreadPoolExecutor, as_completed
+from pathlib import Path
+
 from .providers import Provider, get_provider
 from .profiler import profile
 
@@ -119,6 +121,82 @@ def _split_kernels(raw: str) -> list[str]:
     return [k.strip() for k in raw.split(",") if k.strip()]
 
 
+def _run_welder(args) -> int:
+    """Welder flow: create one or more new kernels, optionally chain into --loop,
+    then call polish on each. Returns process exit code."""
+    from .welder import create as welder_create, polish as welder_polish
+
+    kernels = _split_kernels(args.welder_kernel or "")
+    if not kernels:
+        print("--welder takes at least one kernel name.", file=sys.stderr)
+        return 2
+    if not args.description:
+        print("--welder requires --description '<what the kernel does>'.", file=sys.stderr)
+        return 2
+
+    reference_code: str | None = None
+    if args.reference:
+        rp = Path(args.reference)
+        if not rp.is_file():
+            print(f"--reference {args.reference}: file not found", file=sys.stderr)
+            return 2
+        reference_code = rp.read_text()
+
+    prov = _make_provider(args.provider, args.model)
+    failures = 0
+
+    for k in kernels:
+        print(f"\n[welder/create] {k}")
+        cr = welder_create(
+            k, provider=prov,
+            description=args.description,
+            reference_code=reference_code,
+            set_hint=args.set_hint,
+        )
+        if not cr.accuracy_passed:
+            print(f"[welder/create] {k}: FAILED — {cr.notes}", file=sys.stderr)
+            failures += 1
+            continue
+        print(f"[welder/create] {k}: ✓ accuracy passed ({cr.notes})")
+        print(f"  design: {cr.design_notes}")
+        print(f"  files:  {', '.join(str(p.relative_to(Path.cwd())) for p in cr.files_written)}")
+
+        if args.loop:
+            from .loop import run_loop, GreedyStrategy
+            strategy = GreedyStrategy(
+                max_rounds=args.max_rounds,
+                max_no_improvement=args.max_no_improvement,
+            )
+            print(f"[welder→loop] starting perf loop on {k}")
+            lr = run_loop(k, provider=prov, strategy=strategy)
+            _print_loop_result(lr)
+            loop_dict = {
+                "initial_ms": lr.initial_ms, "best_ms": lr.best_ms,
+                "overall_improvement_pct": lr.overall_improvement_pct,
+                "rounds_run": lr.rounds_run, "kept_attempts": lr.kept_attempts,
+                "termination_reason": lr.termination_reason,
+            }
+        else:
+            loop_dict = {"note": "loop skipped (no --loop)"}
+
+        print(f"\n[welder/polish] {k}")
+        pr = welder_polish(k, provider=prov, chip=f"apple-detected", loop_result=loop_dict)
+        print(f"  ready_for_pr: {pr.ready_for_pr}")
+        if pr.issues:
+            print("  issues:")
+            for i in pr.issues:
+                print(f"    - {i}")
+        if pr.cleanup_commands:
+            print("  suggested cleanup commands (review before running):")
+            for c in pr.cleanup_commands:
+                print(f"    $ {c}")
+        if pr.suggested_pr_title:
+            print(f"\n  PR title: {pr.suggested_pr_title}")
+            print(f"  PR body:\n{pr.suggested_pr_body}")
+
+    return 0 if failures == 0 else 1
+
+
 def main(argv: list[str] | None = None) -> int:
     ap = argparse.ArgumentParser(
         prog="agent_steel",
@@ -130,9 +208,19 @@ def main(argv: list[str] | None = None) -> int:
         help="Optimize one or more existing kernels (comma-separated).",
     )
     mode.add_argument(
-        "--new", dest="new_kernel",
-        help="Author a NEW kernel from scratch (not yet implemented — placeholder).",
+        "--welder", dest="welder_kernel",
+        help="Author one or more NEW kernels (comma-separated) via the Welder agent. "
+             "Writes MLX + registry + Metal files; chains into --loop afterwards if also passed.",
     )
+
+    ap.add_argument("--description", default=None,
+                    help="(--welder only) Natural-language description of what the kernel does.")
+    ap.add_argument("--reference", default=None,
+                    help="(--welder only) Path to a Python file defining `ref(*inputs)` used as "
+                         "the external accuracy oracle (Stage B). Recommended.")
+    ap.add_argument("--set", dest="set_hint", default="common",
+                    choices=["common", "standard", "full"],
+                    help="(--welder only) Which kernel set to add the new kernel to.")
 
     ap.add_argument(
         "--provider", default="anthropic",
@@ -162,15 +250,8 @@ def main(argv: list[str] | None = None) -> int:
 
     args = ap.parse_args(argv)
 
-    if args.new_kernel:
-        print(
-            f"--new {args.new_kernel}: NEW-kernel authoring agent is not yet "
-            "implemented. The full pipeline (Profiler→Designer→Implementor→"
-            "Verifier) lands in the next milestone. Track progress in "
-            "agent_steel/README.md.",
-            file=sys.stderr,
-        )
-        return 2
+    if args.welder_kernel:
+        return _run_welder(args)
 
     kernels = _split_kernels(args.kernel_name or "")
     if not kernels:
