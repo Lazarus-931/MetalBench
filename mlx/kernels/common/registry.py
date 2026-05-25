@@ -424,9 +424,9 @@ REGISTRY["conv3d_multi_act_bias"] = dict(
     bytes=4*(4*32*32*32*32+64*3*3*3*32+64+4*30*30*30*64))
 
 REGISTRY["conv_transpose2d_sub_tanh"] = dict(
-    metal_function="conv_transpose2d_sub_tanh_f32", threadgroup=(1024,1,1), input_bindings=(0,1),
+    metal_function="conv_transpose2d_sub_tanh_f32", threadgroup=(512,1,1), input_bindings=(0,1),
     input_shapes=[(8,32,32,64),(128,3,3,64)], output_shape=(8,65,65,128),
-    rtol=1e-3, atol=1e-3, grid=(64*1024,1,1),
+    rtol=1e-3, atol=1e-3, grid=(64*512,1,1),
     scalars=[dict(binding=3,dtype="u32",value=8),dict(binding=4,dtype="u32",value=64),
              dict(binding=5,dtype="u32",value=32),dict(binding=6,dtype="u32",value=32),
              dict(binding=7,dtype="u32",value=128),dict(binding=8,dtype="u32",value=3),
@@ -645,8 +645,19 @@ REGISTRY["avg_pool3d"] = dict(
 
 # ---- KernelBench Level-1 backfills (88-100) ----
 
-ew("hinge_loss", "hinge_loss_f32", flops_mul=3,
-   extra_scalars=[])
+REGISTRY["hinge_loss"] = dict(
+    metal_function="hinge_loss_f32",
+    threadgroup=(1024, 1, 1),
+    input_bindings=(0, 1),
+    input_shapes=[(16, 16384), (16, 16384)],
+    output_shape=(16, 16384),
+    rtol=1e-3, atol=1e-3,
+    grid=(64 * 1024, 1, 1),
+    scalars=[dict(binding=3, dtype="u32", value=16 * 16384),
+             dict(binding=4, dtype="u32", value=64 * 1024)],
+    flops=16 * 16384 * 3,
+    bytes=3 * 16 * 16384 * 4,
+)
 
 REGISTRY["cumsum_exclusive"] = dict(
     metal_function="cumsum_exclusive_f32",

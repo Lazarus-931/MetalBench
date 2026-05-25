@@ -1,13 +1,9 @@
-// scaled_dot_product: softmax(Q @ K^T / sqrt(d)) @ V. Fused attention core.
+// scaled_dot_product: softmax(Q @ K^T / sqrt(D)) @ V. One TG per query row.
 #include <metal_stdlib>
-#include <metal_simdgroup>
-#include <metal_simdgroup_matrix>
 using namespace metal;
 
-constant constexpr uint BM  = 64, BN  = 64, BK  = 16;
-constant constexpr uint SM  = 16, SN  = 32, SIMDS_N = BN / SN;
-constant constexpr uint MMA_M = SM / 8, MMA_N = SN / 8;
-constant constexpr uint PAD = 4, LDA = BK + PAD, LDB = BN + PAD;
+constant constexpr uint TG = 128;
+constant constexpr uint MAX_M = 128;
 
 kernel void scaled_dot_product_f32(
     device const float* Q   [[buffer(0)]],
@@ -16,70 +12,60 @@ kernel void scaled_dot_product_f32(
     device       float* O   [[buffer(3)]],
     constant     uint&  M   [[buffer(4)]],
     constant     uint&  D   [[buffer(5)]],
-    uint2 tgid              [[threadgroup_position_in_grid]],
-    uint  sgid              [[simdgroup_index_in_threadgroup]],
+    uint  tgid              [[threadgroup_position_in_grid]],
     uint  lid               [[thread_index_in_threadgroup]])
 {
-    threadgroup float As[2][BM * LDA], Bs[2][BK * LDB];
-    const uint sm = sgid / SIMDS_N, sn = sgid % SIMDS_N;
-    const uint c_row0 = tgid.y * BM, c_col0 = tgid.x * BN;
-    const uint a_row = lid / 4, a_c4 = lid % 4, b_row = lid / 16, b_c4 = lid % 16;
+    threadgroup float scores[MAX_M];
+    threadgroup float reduce_buf[TG];
 
-    simdgroup_matrix<float, 8, 8> S_acc[MMA_M][MMA_N];
-    #pragma unroll
-    for (uint i = 0; i < MMA_M; ++i)
-        #pragma unroll
-        for (uint j = 0; j < MMA_N; ++j)
-            S_acc[i][j] = simdgroup_matrix<float, 8, 8>(0.0f);
+    const uint row = tgid;
+    if (row >= M) return;
+    const float scale = rsqrt((float)D);
 
-    {
-        *reinterpret_cast<threadgroup float4*>(&As[0][a_row*LDA + a_c4*4]) =
-            *reinterpret_cast<const device float4*>(&Q[(c_row0 + a_row)*D + a_c4*4]);
-        *reinterpret_cast<threadgroup float4*>(&Bs[0][b_row*LDB + b_c4*4]) =
-            *reinterpret_cast<const device float4*>(&K[(c_col0 + b_row)*D + b_c4*4]);
+    // 1) scores[j] = (Q[row] . K[j]) * scale, for j in [0, M)
+    for (uint j = lid; j < M; j += TG) {
+        float acc = 0.0f;
+        for (uint k = 0; k < D; ++k) {
+            acc += Q[row * D + k] * K[j * D + k];
+        }
+        scores[j] = acc * scale;
     }
     threadgroup_barrier(mem_flags::mem_threadgroup);
-    const uint nkt = D / BK; uint buf = 0;
 
-    for (uint kt = 0; kt < nkt - 1; ++kt) {
-        const uint next = 1 - buf, k0 = (kt + 1) * BK;
-        *reinterpret_cast<threadgroup float4*>(&As[next][a_row*LDA + a_c4*4]) =
-            *reinterpret_cast<const device float4*>(&Q[(c_row0 + a_row)*D + k0 + a_c4*4]);
-        *reinterpret_cast<threadgroup float4*>(&Bs[next][b_row*LDB + b_c4*4]) =
-            *reinterpret_cast<const device float4*>(&K[(c_col0 + b_row)*D + k0 + b_c4*4]);
-        #pragma unroll
-        for (uint kc = 0; kc < BK; kc += 8) {
-            simdgroup_matrix<float, 8, 8> Ab[MMA_M], Bb[MMA_N];
-            #pragma unroll
-            for (uint i = 0; i < MMA_M; ++i) simdgroup_load(Ab[i], &As[buf][(sm*SM+i*8)*LDA+kc], LDA);
-            #pragma unroll
-            for (uint j = 0; j < MMA_N; ++j) simdgroup_load(Bb[j], &Bs[buf][kc*LDB+sn*SN+j*8], LDB);
-            #pragma unroll
-            for (uint i = 0; i < MMA_M; ++i)
-                #pragma unroll
-                for (uint j = 0; j < MMA_N; ++j)
-                    simdgroup_multiply_accumulate(S_acc[i][j], Ab[i], Bb[j], S_acc[i][j]);
+    // 2) max reduction
+    float local_max = -INFINITY;
+    for (uint j = lid; j < M; j += TG) local_max = max(local_max, scores[j]);
+    reduce_buf[lid] = local_max;
+    threadgroup_barrier(mem_flags::mem_threadgroup);
+    for (uint stride = TG / 2; stride > 0; stride >>= 1) {
+        if (lid < stride) reduce_buf[lid] = max(reduce_buf[lid], reduce_buf[lid + stride]);
+        threadgroup_barrier(mem_flags::mem_threadgroup);
+    }
+    float row_max = reduce_buf[0];
+
+    // 3) exponentiate and sum
+    for (uint j = lid; j < M; j += TG) {
+        scores[j] = exp(scores[j] - row_max);
+    }
+    threadgroup_barrier(mem_flags::mem_threadgroup);
+
+    float local_sum = 0.0f;
+    for (uint j = lid; j < M; j += TG) local_sum += scores[j];
+    reduce_buf[lid] = local_sum;
+    threadgroup_barrier(mem_flags::mem_threadgroup);
+    for (uint stride = TG / 2; stride > 0; stride >>= 1) {
+        if (lid < stride) reduce_buf[lid] = reduce_buf[lid] + reduce_buf[lid + stride];
+        threadgroup_barrier(mem_flags::mem_threadgroup);
+    }
+    float row_sum = reduce_buf[0];
+    float inv_sum = 1.0f / row_sum;
+
+    // 4) normalize and multiply by V: O[row, d] = sum_j scores[j] * V[j, d]
+    for (uint d = lid; d < D; d += TG) {
+        float acc = 0.0f;
+        for (uint j = 0; j < M; ++j) {
+            acc += scores[j] * V[j * D + d];
         }
-        threadgroup_barrier(mem_flags::mem_threadgroup); buf = next;
+        O[row * D + d] = acc * inv_sum;
     }
-    #pragma unroll
-    for (uint kc = 0; kc < BK; kc += 8) {
-        simdgroup_matrix<float, 8, 8> Ab[MMA_M], Bb[MMA_N];
-        #pragma unroll
-        for (uint i = 0; i < MMA_M; ++i) simdgroup_load(Ab[i], &As[buf][(sm*SM+i*8)*LDA+kc], LDA);
-        #pragma unroll
-        for (uint j = 0; j < MMA_N; ++j) simdgroup_load(Bb[j], &Bs[buf][kc*LDB+sn*SN+j*8], LDB);
-        #pragma unroll
-        for (uint i = 0; i < MMA_M; ++i)
-            #pragma unroll
-            for (uint j = 0; j < MMA_N; ++j)
-                simdgroup_multiply_accumulate(S_acc[i][j], Ab[i], Bb[j], S_acc[i][j]);
-    }
-
-    #pragma unroll
-    for (uint i = 0; i < MMA_M; ++i)
-        #pragma unroll
-        for (uint j = 0; j < MMA_N; ++j)
-            simdgroup_store(S_acc[i][j],
-                &O[(c_row0 + sm*SM + i*8) * M + (c_col0 + sn*SN + j*8)], M);
 }
