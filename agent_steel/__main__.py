@@ -44,13 +44,20 @@ from .providers import Provider, get_provider
 from .profiler import profile
 
 
+import os as _os
+
 _PROVIDER_PRESETS = {
-    "openai":     {"backend": "openai",    "base_url": None, "model": "gpt-4o-mini"},
-    "anthropic":  {"backend": "anthropic", "base_url": None, "model": "claude-sonnet-4-6"},
+    "openai":     {"backend": "openai",    "base_url": None, "model": "gpt-4o-mini",
+                   "api_key_env": "OPENAI_API_KEY"},
+    "anthropic":  {"backend": "anthropic", "base_url": None, "model": "claude-sonnet-4-6",
+                   "api_key_env": "ANTHROPIC_API_KEY"},
+    "deepseek":   {"backend": "openai",    "base_url": "https://api.deepseek.com/v1",
+                   "model": "deepseek-chat", "api_key_env": "DEEPSEEK_API_KEY"},
     "openrouter": {"backend": "openai",    "base_url": "https://openrouter.ai/api/v1",
-                   "model": "anthropic/claude-sonnet-4"},
+                   "model": "anthropic/claude-sonnet-4",
+                   "api_key_env": "OPENROUTER_API_KEY"},
     "ollama":     {"backend": "openai",    "base_url": "http://localhost:11434/v1",
-                   "model": "llama3.1:70b"},
+                   "model": "llama3.1:70b", "api_key_env": None},
 }
 
 
@@ -60,8 +67,13 @@ def _make_provider(name: str, model_override: str | None) -> Provider:
             f"unknown --provider {name!r}. Choose one of: {list(_PROVIDER_PRESETS)}"
         )
     p = _PROVIDER_PRESETS[name]
+    key_env = p.get("api_key_env")
+    api_key = _os.environ.get(key_env) if key_env else None
+    if key_env and not api_key:
+        raise SystemExit(f"--provider {name!r} requires {key_env} in the environment.")
     return get_provider(
         p["backend"],
+        api_key=api_key,
         base_url=p["base_url"],
         default_model=model_override or p["model"],
     )

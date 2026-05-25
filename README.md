@@ -14,15 +14,16 @@ Feel free to contribute with kernels for other mchip types, I only had my hands 
 
 `agent_steel/` is an LLM-driven closed-loop harness that profiles a kernel,
 writes a new candidate, and verifies the change against `./bench` — repeating
-until it can't improve further.
+until it can't improve further. New kernels are bookended by a fourth agent
+that authors the MLX/registry/Metal scaffolding and polishes the result for
+PR per `CONTRIBUTING.md`.
 
-Three agents:
-
-| Agent | Job |
-|---|---|---|
-| **Profiler** | Parses the `.gputrace` + bench output, runs the chip-aware synthesizer (`chip_metrics/m{N}.py`), emits a 2-3 paragraph diagnosis |
-| **Optimizer** | Reads the diagnosis + the kernel's AttemptDB log + current `.metal` + MLX reference, writes the next `.metal` to `agent_steel/optimizer/staging/`, runs an accuracy gate (`./bench` correctness ≥ 99%) — retries up to 4 times on accuracy fail |
-| **Verifier** | Benches the promoted kernel (`--warmup 30 --iters 100`), compares mean vs prior best, logs ±Δ% to AttemptDB, reverts on regression |
+| Agent | LLM? | Loop? | Job |
+|---|---|---|---|
+| **Welder** | yes | outside | New-kernel mode only. Authors `mlx/kernels/<set>/<name>.py` + appends the registry entry + writes the first `.metal`. Two-stage accuracy gate (Metal vs MLX, MLX vs an external PyTorch reference). Invoked again after the perf loop to polish for PR (verifies session.json + only allowed files staged + suggests PR title/body). |
+| **Profiler** | yes | inside | Parses the `.gputrace` + bench output, runs the chip-aware synthesizer (`chip_metrics/m{N}.py`), emits a 2-3 paragraph diagnosis. |
+| **Optimizer** | yes | inside | Reads the diagnosis + the kernel's AttemptDB log + current `.metal` + MLX reference, writes the next `.metal` to `agent_steel/optimizer/staging/`, runs an accuracy gate (`./bench` correctness ≥ 99%) — retries up to 4 times on accuracy fail. |
+| **Verifier** | no | inside | Benches the promoted kernel (`--warmup 30 --iters 100`), compares mean vs prior best, logs ±Δ% to AttemptDB, reverts on regression. |
 
 AttemptDB is one JSONL per `(kernel, chip)` at `.agent-steel/history/`. Every
 entry carries the `.metal` source snapshot + the chip-aware metrics dict from
@@ -32,8 +33,12 @@ kept attempts.
 Run it:
 
 ```bash
+# optimize an existing kernel
 python -m agent_steel --kernel-name relu --loop --max-rounds 5
 python -m agent_steel --kernel-name relu,softmax --parallel 2 --loop
+
+# author a brand-new kernel (Welder), then chain into the perf loop
+python -m agent_steel --welder my_kernel --description '...' --reference ref.py --loop
 ```
 
 Concurrent agent-steel instances are safe: a process-wide flock serializes
