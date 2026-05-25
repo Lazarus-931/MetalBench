@@ -44,22 +44,49 @@ class OptimizerResult:
 
 
 def _resolve_metal_path(kernel: str, chip_generation: str) -> tuple[Path, str]:
-    """Return (active_metal_path, set_name). Handles flat .metal and per-chip dirs."""
+    """Return (active_metal_path, set_name) for agent-steel writes.
+
+    Always returns a chip-specific path (`<kernel>/<chip_generation>.metal`),
+    creating the directory layout on first use:
+
+    - If `<kernel>/<chip>.metal` already exists → use it directly.
+    - Else if `<kernel>/default.metal` exists → seed `<chip>.metal` from it.
+    - Else if flat `<kernel>.metal` exists → promote: move flat to
+      `<kernel>/default.metal`, then seed `<chip>.metal`.
+
+    Once `<chip>.metal` exists, the shared source (`default.metal`) is never
+    mutated by subsequent agent-steel runs on this chip — other chips
+    continue to fall back to it via the bench-side resolver. Cross-chip
+    regressions become impossible by construction.
+    """
     for set_name in ("common", "standard", "full"):
+        kdir = REPO / "metal" / "kernels" / set_name / kernel
         flat = REPO / "metal" / "kernels" / set_name / f"{kernel}.metal"
-        if flat.is_file():
-            return flat, set_name
-        d = REPO / "metal" / "kernels" / set_name / kernel
-        if d.is_dir():
-            cand = d / f"{chip_generation}.metal"
-            if cand.is_file():
-                return cand, set_name
-            default = d / "default.metal"
+
+        if kdir.is_dir():
+            chip_path = kdir / f"{chip_generation}.metal"
+            if chip_path.is_file():
+                return chip_path, set_name
+            default = kdir / "default.metal"
             if default.is_file():
-                return default, set_name
-            for f in sorted(d.iterdir()):
+                chip_path.write_text(default.read_text())
+                return chip_path, set_name
+            # No default — seed from whatever .metal we find first.
+            for f in sorted(kdir.iterdir()):
                 if f.suffix == ".metal":
-                    return f, set_name
+                    chip_path.write_text(f.read_text())
+                    return chip_path, set_name
+            raise FileNotFoundError(f"{kernel}/ has no .metal seed")
+
+        if flat.is_file():
+            kdir.mkdir(parents=True, exist_ok=True)
+            content = flat.read_text()
+            (kdir / "default.metal").write_text(content)
+            chip_path = kdir / f"{chip_generation}.metal"
+            chip_path.write_text(content)
+            flat.unlink()
+            return chip_path, set_name
+
     raise FileNotFoundError(f"no .metal file for kernel {kernel!r}")
 
 
@@ -109,8 +136,10 @@ def _build_user_message(
     retry_block = (
         f"## Retry feedback\n\n{retry_feedback}\n\n" if retry_feedback else ""
     )
+    chip_header = f"Chip: {profile.chip} ({profile.chip_generation} {profile.chip_variant})\n\n"
     return (
         "Write the next iteration of this Metal kernel.\n\n"
+        + chip_header
         + retry_block
         + f"## Profiler narrative\n\n{profile.narrative}\n\n"
         f"## Prior attempts on this kernel × chip\n\n{attempt_log_md}\n\n"
