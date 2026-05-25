@@ -100,7 +100,7 @@ def run_bench(
     """Run `./bench <kernel>` and return parsed metrics. Raises on subprocess failure."""
     args = ["./bench", kernel, "--", "--iters", str(iters), "--warmup", str(warmup)]
     if not save:
-        args[1:1] = []
+        args.insert(2, "--no-save")
     with _gpu_bench_lock():
         proc = subprocess.run(
             args, cwd=cwd, capture_output=True, text=True, timeout=timeout_s
