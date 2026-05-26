@@ -166,7 +166,7 @@ GOOD (sqr_mm):                      BAD (naive kernel):
     balanced        1.23                 balanced        0.17
 ```
 
-## Authoring a kernel(Will be moved into AgentSteel)
+## Authoring a kernel
 
 For Agent Steel internals see [agent_steel/README.md](agent_steel/README.md). Short version for human contributors:
 
