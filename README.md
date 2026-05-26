@@ -17,12 +17,10 @@ writes a new candidate, and verifies the change against `./bench` — repeating
 until it can't improve further. New kernels are bookended by a fourth agent
 that authors the MLX/registry/Metal scaffolding and polishes the result for PR.
 
-| Agent | LLM? | Loop? | Job |
-|---|---|---|---|
-| **Welder** | yes | outside | New-kernel mode only. Authors `mlx/kernels/<set>/<name>.py` + appends the registry entry + writes the first `.metal`. Two-stage accuracy gate (Metal vs MLX, MLX vs an external PyTorch reference). Invoked again after the perf loop to polish for PR. |
-| **Profiler** | yes | inside | Parses the `.gputrace` + bench output, runs the chip-aware synthesizer (`chip_metrics/m{N}.py`), emits a 2-3 paragraph diagnosis. |
-| **Optimizer** | yes | inside | Reads the diagnosis + the kernel's AttemptDB log + current `.metal` + MLX reference, writes the next `.metal` in-place to `metal/kernels/<set>/<kernel>/<chip>.metal`, runs an accuracy gate (`./bench` correctness ≥ 99%) — retries up to 4× on accuracy fail. |
-| **Verifier** | no | inside | Benches the promoted kernel (`--warmup 30 --iters 100`), compares mean vs `session.json`'s leaderboard best, logs ±Δ% to AttemptDB, reverts on regression. |
+* **Welder** - New-kernel mode only. Authors `mlx/kernels/<set>/<name>.py` + appends the registry entry + writes the first `.metal`. Two-stage accuracy gate (Metal vs MLX, MLX vs an external PyTorch reference). Invoked again after the perf loop to polish for PR.
+* **Profiler** - Parses the `.gputrace` + bench output, runs the chip-aware synthesizer (`chip_metrics/m{N}.py`), emits a 2-3 paragraph diagnosis.
+* **Optimizer** - Reads the diagnosis + the kernel's AttemptDB log + current `.metal` + MLX reference, writes the next `.metal` in-place to `metal/kernels/<set>/<kernel>/<chip>.metal`, runs an accuracy gate (`./bench` correctness ≥ 99%) — retries up to 4× on accuracy fail.
+* **Verifier** - Benches the promoted kernel (`--warmup 30 --iters 100`), compares mean vs `session.json`'s leaderboard best, logs ±Δ% to AttemptDB, reverts on regression.
 
 AttemptDB is one JSONL per `(kernel, chip)` at `.agent-steel/history/`. Every
 entry carries the `.metal` source snapshot + the chip-aware metrics dict from
