@@ -216,7 +216,7 @@ Auto-generated from `session.json` + disk layout by `scripts/render_link_md.py`.
 - [softmax_attention](https://github.com/Lazarus-931/MetalBench/blob/main/metal/kernels/standard/softmax_attention/default.metal)
 - [swiglu](https://github.com/Lazarus-931/MetalBench/blob/main/metal/kernels/standard/swiglu/default.metal)
 - [alexnet](https://github.com/Lazarus-931/MetalBench/blob/main/metal/kernels/full/alexnet/m2.metal)
-- [densenet](https://github.com/Lazarus-931/MetalBench/blob/main/metal/kernels/full/densenet/default.metal)
+- [densenet](https://github.com/Lazarus-931/MetalBench/blob/main/metal/kernels/full/densenet/m2.metal)
 - [llama_decoder_layer](https://github.com/Lazarus-931/MetalBench/blob/main/metal/kernels/full/llama_decoder_layer/m2.metal)
 - [resnet](https://github.com/Lazarus-931/MetalBench/blob/main/metal/kernels/full/resnet/m2.metal)
 - [transformer_block](https://github.com/Lazarus-931/MetalBench/blob/main/metal/kernels/full/transformer_block/m2.metal)

@@ -106,9 +106,9 @@ Auto-generated from `session.json` by `scripts/render_best_times.py`. Do not han
 | `softmax_attention` | standard | — | 0.033 (11.20×) | — | 12.002 (1.49×) | — |
 | `swiglu` | standard | — | 0.059 (34.37×) | — | 9.993 (1.70×) | — |
 | `alexnet` | full | — | 0.191 (1.57×) | — | 3.146 (7.63×) | — |
-| `densenet` | full | — | 0.104 (4.08×) | — | 0.034 (202.74×) | — |
+| `densenet` | full | — | 0.063 (4.90×) | — | 0.034 (202.74×) | — |
 | `llama_decoder_layer` | full | — | 0.379 (1.19×) | — | 3.284 (10.35×) | — |
-| `resnet` | full | — | 0.168 (1.62×) | — | 3.128 (7.67×) | — |
+| `resnet` | full | — | 0.161 (2.12×) | — | 3.128 (7.67×) | — |
 | `transformer_block` | full | — | 0.428 (0.98×) | — | 3.367 (8.89×) | — |
 
 _105 kernels total. Chips covered: M2 (105), M4 (105)._
