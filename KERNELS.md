@@ -129,3 +129,4 @@ variant per kernel per chip with direct repo URLs.
 | `llama_decoder_layer` | [metal](metal/kernels/full/llama_decoder_layer/) | [mlx](mlx/kernels/full/llama_decoder_layer.py) |
 | `transformer_block` | [metal](metal/kernels/full/transformer_block/) | [mlx](mlx/kernels/full/transformer_block.py) |
 | `densenet` | [metal](metal/kernels/full/densenet/) | [mlx](mlx/kernels/full/densenet.py) |
+| `mha_attention` | [metal](metal/kernels/full/mha_attention/) | [mlx](mlx/kernels/full/mha_attention.py) |
