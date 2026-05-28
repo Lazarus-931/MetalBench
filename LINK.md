@@ -1,6 +1,6 @@
 # LINK.md
 
-Per-chip kernel source links — 105 kernels × 5 chips.
+Per-chip kernel source links — 106 kernels × 5 chips.
 Chips without benchmark data show kernels as plain text (no link).
 
 Auto-generated from `session.json` + disk layout by `scripts/render_link_md.py`. Do not hand-edit.
@@ -110,6 +110,7 @@ Auto-generated from `session.json` + disk layout by `scripts/render_link_md.py`.
 - `alexnet`
 - `densenet`
 - `llama_decoder_layer`
+- `mha_attention`
 - `resnet`
 - `transformer_block`
 
@@ -218,6 +219,7 @@ Auto-generated from `session.json` + disk layout by `scripts/render_link_md.py`.
 - [alexnet](https://github.com/Lazarus-931/MetalBench/blob/main/metal/kernels/full/alexnet/m2.metal)
 - [densenet](https://github.com/Lazarus-931/MetalBench/blob/main/metal/kernels/full/densenet/m2.metal)
 - [llama_decoder_layer](https://github.com/Lazarus-931/MetalBench/blob/main/metal/kernels/full/llama_decoder_layer/m2.metal)
+- [mha_attention](https://github.com/Lazarus-931/MetalBench/blob/main/metal/kernels/full/mha_attention/m2.metal)
 - [resnet](https://github.com/Lazarus-931/MetalBench/blob/main/metal/kernels/full/resnet/m2.metal)
 - [transformer_block](https://github.com/Lazarus-931/MetalBench/blob/main/metal/kernels/full/transformer_block/m2.metal)
 
@@ -326,6 +328,7 @@ Auto-generated from `session.json` + disk layout by `scripts/render_link_md.py`.
 - `alexnet`
 - `densenet`
 - `llama_decoder_layer`
+- `mha_attention`
 - `resnet`
 - `transformer_block`
 
@@ -434,6 +437,7 @@ Auto-generated from `session.json` + disk layout by `scripts/render_link_md.py`.
 - [alexnet](https://github.com/Lazarus-931/MetalBench/blob/main/metal/kernels/full/alexnet/m4.metal)
 - [densenet](https://github.com/Lazarus-931/MetalBench/blob/main/metal/kernels/full/densenet/m4.metal)
 - [llama_decoder_layer](https://github.com/Lazarus-931/MetalBench/blob/main/metal/kernels/full/llama_decoder_layer/m4.metal)
+- [mha_attention](https://github.com/Lazarus-931/MetalBench/blob/main/metal/kernels/full/mha_attention/default.metal)
 - [resnet](https://github.com/Lazarus-931/MetalBench/blob/main/metal/kernels/full/resnet/m4.metal)
 - [transformer_block](https://github.com/Lazarus-931/MetalBench/blob/main/metal/kernels/full/transformer_block/m4.metal)
 
@@ -542,5 +546,6 @@ Auto-generated from `session.json` + disk layout by `scripts/render_link_md.py`.
 - `alexnet`
 - `densenet`
 - `llama_decoder_layer`
+- `mha_attention`
 - `resnet`
 - `transformer_block`

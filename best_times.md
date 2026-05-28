@@ -108,7 +108,8 @@ Auto-generated from `session.json` by `scripts/render_best_times.py`. Do not han
 | `alexnet` | full | — | 0.191 (1.57×) | — | 3.146 (7.63×) | — |
 | `densenet` | full | — | 0.063 (4.90×) | — | 0.034 (202.74×) | — |
 | `llama_decoder_layer` | full | — | 0.379 (1.19×) | — | 3.284 (10.35×) | — |
+| `mha_attention` | full | — | 0.132 (2.58×) | — | — | — |
 | `resnet` | full | — | 0.161 (2.12×) | — | 3.128 (7.67×) | — |
 | `transformer_block` | full | — | 0.428 (0.98×) | — | 3.367 (8.89×) | — |
 
-_105 kernels total. Chips covered: M2 (105), M4 (105)._
+_106 kernels total. Chips covered: M2 (106), M4 (105)._

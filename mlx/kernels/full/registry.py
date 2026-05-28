@@ -103,3 +103,28 @@ REGISTRY["llama_decoder_layer"] = dict(
     bytes=4 * (64*128*3 + 128*256 + 128*128 + 128*512 + 256*128),
 )
 
+
+REGISTRY["mha_attention"] = dict(
+    metal_function="mha_attention_f32",
+    threadgroup=(1024, 1, 1),
+    input_bindings=(0, 1, 2, 3, 4),
+    input_shapes=[
+        (32, 128),     # x
+        (128, 128),     # wq
+        (128, 128),     # wk
+        (128, 128),     # wv
+        (128, 128),     # wo
+    ],
+    output_shape=(32, 128),
+    rtol=1e-2, atol=1e-2,
+    grid=(1024, 1, 1),
+    scalars=[
+        dict(binding=6, dtype="u32", value=32),
+        dict(binding=7, dtype="u32", value=128),
+        dict(binding=8, dtype="u32", value=4),
+        dict(binding=9, dtype="u32", value=32),
+        dict(binding=10, dtype="f32", value=0.1767766953),
+    ],
+    flops=2 * (32 * 128 * 128 * 4 + 4 * 32 * 32 * 32 * 2 + 4 * 32 * 32 * 32 * 2 + 32 * 128 * 128 * 2),
+    bytes=4 * (32 * 128 + 4 * 128 * 128 + 32 * 128),
+)
