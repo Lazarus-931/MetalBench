@@ -20,12 +20,12 @@ Auto-generated from `session.json` by `scripts/render_best_times.py`. Do not han
 | `conv3d` | common | — | 15.365 (0.46×) | — | 118.961 (0.20×) | — |
 | `conv3d_div_pool_sum` | common | — | 46.736 (0.17×) | — | 189.517 (0.55×) | — |
 | `conv3d_multi_act_bias` | common | — | 1460.525 (0.01×) | — | 31.664 (16.93×) | — |
-| `conv3d_softmax_pool` | common | — | 6.658 (1.32×) | — | 21.227 (6.17×) | — |
+| `conv3d_softmax_pool` | common | — | 6.640 (1.30×) | — | 21.227 (6.17×) | — |
 | `conv_transpose2d` | common | — | 8.878 (0.16×) | — | 13.143 (0.61×) | — |
 | `conv_transpose2d_clamp_scale_div` | common | — | 160.275 (0.04×) | — | 11.533 (25.92×) | — |
 | `conv_transpose2d_sub_tanh` | common | — | 12.561 (0.64×) | — | 11.537 (9.01×) | — |
 | `conv_transpose3d_norm_pool_gelu` | common | — | 0.674 (0.87×) | — | 3.186 (4.08×) | — |
-| `cosine_similarity` | common | — | 0.108 (74.02×) | — | 8.038 (4.98×) | — |
+| `cosine_similarity` | common | — | 0.069 (11.29×) | — | 8.038 (4.98×) | — |
 | `cumprod` | common | — | 0.078 (5.16×) | — | 4.019 (1.99×) | — |
 | `cumsum` | common | — | 0.097 (3.07×) | — | 10.899 (0.73×) | — |
 | `cumsum_exclusive` | common | — | 0.059 (7.32×) | — | 11.014 (1.82×) | — |
@@ -40,7 +40,7 @@ Auto-generated from `session.json` by `scripts/render_best_times.py`. Do not han
 | `hardsigmoid` | common | — | 0.016 (487.51×) | — | 3.002 (5.00×) | — |
 | `hardswish` | common | — | 0.016 (485.73×) | — | 3.006 (2.31×) | — |
 | `hardtanh` | common | — | 0.011 (18.97×) | — | 3.004 (2.29×) | — |
-| `hinge_loss` | common | — | 0.043 (186.26×) | — | 0.023 (298.35×) | — |
+| `hinge_loss` | common | — | 0.018 (12.79×) | — | 0.023 (298.35×) | — |
 | `huber_loss` | common | — | 0.161 (49.72×) | — | 7.015 (13.69×) | — |
 | `kl_div_loss` | common | — | 0.156 (51.39×) | — | 7.042 (11.50×) | — |
 | `l1_norm` | common | — | 0.064 (6.81×) | — | 20.964 (1.14×) | — |
@@ -65,7 +65,7 @@ Auto-generated from `session.json` by `scripts/render_best_times.py`. Do not han
 | `prelu` | common | — | 0.013 (18.05×) | — | 3.005 (5.32×) | — |
 | `rect_mm` | common | — | 9.154 (0.87×) | — | 45.334 (0.53×) | — |
 | `relu` | common | — | 0.015 (551.53×) | — | 3.002 (2.67×) | — |
-| `rms_norm` | common | — | 0.101 (78.77×) | — | 3.038 (3.62×) | — |
+| `rms_norm` | common | — | 0.061 (4.84×) | — | 3.038 (3.62×) | — |
 | `rsqrt` | common | — | 0.017 (470.55×) | — | 3.010 (3.66×) | — |
 | `selu` | common | — | 0.016 (485.17×) | — | 3.003 (2.33×) | — |
 | `sigmoid` | common | — | 0.011 (21.11×) | — | 3.003 (2.32×) | — |
@@ -80,24 +80,24 @@ Auto-generated from `session.json` by `scripts/render_best_times.py`. Do not han
 | `triplet_margin_loss` | common | — | 0.144 (7.90×) | — | 32.011 (2.87×) | — |
 | `variance` | common | — | 0.038 (13.68×) | — | 20.963 (1.14×) | — |
 | `where` | common | — | 0.192 (2.21×) | — | 6.946 (3.45×) | — |
-| `add_norm` | standard | — | 0.140 (3.36×) | — | 12.016 (2.00×) | — |
-| `attention_scores` | standard | — | 0.022 (12.79×) | — | 6.996 (1.57×) | — |
+| `add_norm` | standard | — | 0.138 (3.37×) | — | 12.016 (2.00×) | — |
+| `attention_scores` | standard | — | 0.022 (9.58×) | — | 6.996 (1.57×) | — |
 | `bias_add` | standard | — | 0.055 (5.00×) | — | 6.949 (3.45×) | — |
-| `bias_gelu` | standard | — | 0.057 (8.09×) | — | 7.009 (5.85×) | — |
-| `cross_entropy_loss` | standard | — | 0.113 (4.72×) | — | 23.954 (2.00×) | — |
+| `bias_gelu` | standard | — | 0.051 (7.92×) | — | 7.009 (5.85×) | — |
+| `cross_entropy_loss` | standard | — | 0.090 (5.30×) | — | 23.954 (2.00×) | — |
 | `dropout` | standard | — | 0.142 (3.13×) | — | 7.016 (3.42×) | — |
 | `fused_add_rms_norm` | standard | — | 0.136 (3.28×) | — | 13.971 (2.07×) | — |
-| `fused_qkv_projection` | standard | — | 0.032 (6.34×) | — | 3.010 (2.65×) | — |
+| `fused_qkv_projection` | standard | — | 0.031 (7.44×) | — | 3.010 (2.65×) | — |
 | `gelu_linear` | standard | — | 1.148 (1.74×) | — | 18.029 (1.33×) | — |
-| `group_norm` | standard | — | 0.038 (13.40×) | — | 7.015 (6.56×) | — |
-| `instance_norm` | standard | — | 0.044 (9.29×) | — | 18.006 (2.61×) | — |
+| `group_norm` | standard | — | 0.023 (18.62×) | — | 7.015 (6.56×) | — |
+| `instance_norm` | standard | — | 0.040 (10.77×) | — | 18.006 (2.61×) | — |
 | `linear_bias` | standard | — | 0.032 (9.24×) | — | 3.016 (4.97×) | — |
 | `llama_attention` | standard | — | 0.163 (2.33×) | — | 3.110 (12.54×) | — |
-| `log_softmax` | standard | — | 0.087 (3.73×) | — | 31.016 (0.87×) | — |
-| `log_softmax_cross_entropy` | standard | — | 0.106 (6.80×) | — | 42.007 (0.98×) | — |
+| `log_softmax` | standard | — | 0.084 (3.81×) | — | 31.016 (0.87×) | — |
+| `log_softmax_cross_entropy` | standard | — | 0.094 (5.46×) | — | 42.007 (0.98×) | — |
 | `masked_softmax` | standard | — | 0.139 (3.21×) | — | 33.997 (0.85×) | — |
 | `matmul_gelu_softmax` | standard | — | 0.044 (7.17×) | — | 3.014 (4.67×) | — |
-| `nll_loss` | standard | — | 0.072 (5.50×) | — | 28.993 (0.83×) | — |
+| `nll_loss` | standard | — | 0.069 (6.03×) | — | 28.993 (0.83×) | — |
 | `residual_add` | standard | — | 0.140 (2.80×) | — | 6.998 (3.43×) | — |
 | `rms_norm_linear` | standard | — | 1.364 (1.13×) | — | 21.008 (1.90×) | — |
 | `rope_embedding` | standard | — | 0.005 (68.88×) | — | 2.997 (5.00×) | — |
@@ -106,10 +106,10 @@ Auto-generated from `session.json` by `scripts/render_best_times.py`. Do not han
 | `softmax_attention` | standard | — | 0.033 (11.20×) | — | 12.002 (1.49×) | — |
 | `swiglu` | standard | — | 0.052 (6.71×) | — | 9.993 (1.70×) | — |
 | `alexnet` | full | — | 0.191 (1.57×) | — | 3.146 (7.63×) | — |
-| `densenet` | full | — | 0.063 (4.90×) | — | 0.034 (202.74×) | — |
-| `llama_decoder_layer` | full | — | 0.379 (1.19×) | — | 3.284 (10.35×) | — |
+| `densenet` | full | — | 0.059 (4.63×) | — | 0.034 (202.74×) | — |
+| `llama_decoder_layer` | full | — | 0.324 (1.30×) | — | 3.284 (10.35×) | — |
 | `mha_attention` | full | — | 0.132 (2.58×) | — | — | — |
 | `resnet` | full | — | 0.161 (2.12×) | — | 3.128 (7.67×) | — |
-| `transformer_block` | full | — | 0.428 (0.98×) | — | 3.367 (8.89×) | — |
+| `transformer_block` | full | — | 0.421 (0.90×) | — | 3.367 (8.89×) | — |
 
 _106 kernels total. Chips covered: M2 (106), M4 (105)._
