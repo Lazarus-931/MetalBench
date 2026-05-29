@@ -412,3 +412,135 @@ REGISTRY["llama_attention"] = dict(
     bytes=4 * (64*128*2 + 128*256 + 128*128),
 )
 
+
+# ===== batch-added new kernels =====
+REGISTRY["silu_residual"] = dict(
+    metal_function="silu_residual_f32",
+    threadgroup=(256, 1, 1),
+    input_bindings=(0, 1),
+    input_shapes=[(4096,), (4096,)],
+    output_shape=(4096,),
+    rtol=1e-4, atol=1e-4,
+    grid=(4096, 1, 1),
+    scalars=[dict(binding=3, dtype="u32", value=4096)],
+    flops=4096 * 5,
+    bytes=4 * (4096 + 4096 + 4096),
+)
+
+REGISTRY["gelu_residual"] = dict(
+    metal_function="gelu_residual_f32",
+    threadgroup=(256, 1, 1),
+    input_bindings=(0, 1),
+    input_shapes=[(4096,), (4096,)],
+    output_shape=(4096,),
+    rtol=1e-4, atol=1e-4,
+    grid=(4096, 1, 1),
+    scalars=[dict(binding=3, dtype="u32", value=4096)],
+    flops=4096 * 5,
+    bytes=4 * (4096 + 4096 + 4096),
+)
+
+REGISTRY["add_silu"] = dict(
+    metal_function="add_silu_f32",
+    threadgroup=(256, 1, 1),
+    input_bindings=(0, 1),
+    input_shapes=[(4096,), (4096,)],
+    output_shape=(4096,),
+    rtol=1e-4, atol=1e-4,
+    grid=(4096, 1, 1),
+    scalars=[dict(binding=3, dtype="u32", value=4096)],
+    flops=4096 * 5,
+    bytes=4 * (4096 + 4096 + 4096),
+)
+
+REGISTRY["mul_silu"] = dict(
+    metal_function="mul_silu_f32",
+    threadgroup=(256, 1, 1),
+    input_bindings=(0, 1),
+    input_shapes=[(4096,), (4096,)],
+    output_shape=(4096,),
+    rtol=1e-4, atol=1e-4,
+    grid=(4096, 1, 1),
+    scalars=[dict(binding=3, dtype="u32", value=4096)],
+    flops=4096 * 5,
+    bytes=4 * (4096 + 4096 + 4096),
+)
+
+REGISTRY["add_gelu"] = dict(
+    metal_function="add_gelu_f32",
+    threadgroup=(256, 1, 1),
+    input_bindings=(0, 1),
+    input_shapes=[(4096,), (4096,)],
+    output_shape=(4096,),
+    rtol=1e-4, atol=1e-4,
+    grid=(4096, 1, 1),
+    scalars=[dict(binding=3, dtype="u32", value=4096)],
+    flops=4096 * 5,
+    bytes=4 * (4096 + 4096 + 4096),
+)
+
+REGISTRY["mul_gelu"] = dict(
+    metal_function="mul_gelu_f32",
+    threadgroup=(256, 1, 1),
+    input_bindings=(0, 1),
+    input_shapes=[(4096,), (4096,)],
+    output_shape=(4096,),
+    rtol=1e-4, atol=1e-4,
+    grid=(4096, 1, 1),
+    scalars=[dict(binding=3, dtype="u32", value=4096)],
+    flops=4096 * 5,
+    bytes=4 * (4096 + 4096 + 4096),
+)
+
+REGISTRY["add_relu"] = dict(
+    metal_function="add_relu_f32",
+    threadgroup=(256, 1, 1),
+    input_bindings=(0, 1),
+    input_shapes=[(4096,), (4096,)],
+    output_shape=(4096,),
+    rtol=1e-4, atol=1e-4,
+    grid=(4096, 1, 1),
+    scalars=[dict(binding=3, dtype="u32", value=4096)],
+    flops=4096 * 5,
+    bytes=4 * (4096 + 4096 + 4096),
+)
+
+REGISTRY["mul_relu"] = dict(
+    metal_function="mul_relu_f32",
+    threadgroup=(256, 1, 1),
+    input_bindings=(0, 1),
+    input_shapes=[(4096,), (4096,)],
+    output_shape=(4096,),
+    rtol=1e-4, atol=1e-4,
+    grid=(4096, 1, 1),
+    scalars=[dict(binding=3, dtype="u32", value=4096)],
+    flops=4096 * 5,
+    bytes=4 * (4096 + 4096 + 4096),
+)
+
+REGISTRY["add_swish"] = dict(
+    metal_function="add_swish_f32",
+    threadgroup=(256, 1, 1),
+    input_bindings=(0, 1),
+    input_shapes=[(4096,), (4096,)],
+    output_shape=(4096,),
+    rtol=1e-4, atol=1e-4,
+    grid=(4096, 1, 1),
+    scalars=[dict(binding=3, dtype="u32", value=4096)],
+    flops=4096 * 5,
+    bytes=4 * (4096 + 4096 + 4096),
+)
+
+REGISTRY["residual_tanh"] = dict(
+    metal_function="residual_tanh_f32",
+    threadgroup=(256, 1, 1),
+    input_bindings=(0, 1),
+    input_shapes=[(4096,), (4096,)],
+    output_shape=(4096,),
+    rtol=1e-4, atol=1e-4,
+    grid=(4096, 1, 1),
+    scalars=[dict(binding=3, dtype="u32", value=4096)],
+    flops=4096 * 5,
+    bytes=4 * (4096 + 4096 + 4096),
+)
+

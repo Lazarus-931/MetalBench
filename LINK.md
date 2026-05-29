@@ -1,6 +1,6 @@
 # LINK.md
 
-Per-chip kernel source links — 106 kernels × 5 chips.
+Per-chip kernel source links — 116 kernels × 5 chips.
 Chips without benchmark data show kernels as plain text (no link).
 
 Auto-generated from `session.json` + disk layout by `scripts/render_link_md.py`. Do not hand-edit.
@@ -82,7 +82,11 @@ Auto-generated from `session.json` + disk layout by `scripts/render_link_md.py`.
 - `triplet_margin_loss`
 - `variance`
 - `where`
+- `add_gelu`
 - `add_norm`
+- `add_relu`
+- `add_silu`
+- `add_swish`
 - `attention_scores`
 - `bias_add`
 - `bias_gelu`
@@ -91,6 +95,7 @@ Auto-generated from `session.json` + disk layout by `scripts/render_link_md.py`.
 - `fused_add_rms_norm`
 - `fused_qkv_projection`
 - `gelu_linear`
+- `gelu_residual`
 - `group_norm`
 - `instance_norm`
 - `linear_bias`
@@ -99,12 +104,17 @@ Auto-generated from `session.json` + disk layout by `scripts/render_link_md.py`.
 - `log_softmax_cross_entropy`
 - `masked_softmax`
 - `matmul_gelu_softmax`
+- `mul_gelu`
+- `mul_relu`
+- `mul_silu`
 - `nll_loss`
 - `residual_add`
+- `residual_tanh`
 - `rms_norm_linear`
 - `rope_embedding`
 - `scaled_dot_product`
 - `silu_linear`
+- `silu_residual`
 - `softmax_attention`
 - `swiglu`
 - `alexnet`
@@ -191,7 +201,11 @@ Auto-generated from `session.json` + disk layout by `scripts/render_link_md.py`.
 - [triplet_margin_loss](https://github.com/Lazarus-931/MetalBench/blob/main/metal/kernels/common/triplet_margin_loss/m2.metal)
 - [variance](https://github.com/Lazarus-931/MetalBench/blob/main/metal/kernels/common/variance.metal)
 - [where](https://github.com/Lazarus-931/MetalBench/blob/main/metal/kernels/common/where/m2.metal)
+- [add_gelu](https://github.com/Lazarus-931/MetalBench/blob/main/metal/kernels/standard/add_gelu.metal)
 - [add_norm](https://github.com/Lazarus-931/MetalBench/blob/main/metal/kernels/standard/add_norm/m2.metal)
+- [add_relu](https://github.com/Lazarus-931/MetalBench/blob/main/metal/kernels/standard/add_relu.metal)
+- [add_silu](https://github.com/Lazarus-931/MetalBench/blob/main/metal/kernels/standard/add_silu.metal)
+- [add_swish](https://github.com/Lazarus-931/MetalBench/blob/main/metal/kernels/standard/add_swish.metal)
 - [attention_scores](https://github.com/Lazarus-931/MetalBench/blob/main/metal/kernels/standard/attention_scores/m2.metal)
 - [bias_add](https://github.com/Lazarus-931/MetalBench/blob/main/metal/kernels/standard/bias_add.metal)
 - [bias_gelu](https://github.com/Lazarus-931/MetalBench/blob/main/metal/kernels/standard/bias_gelu/m2.metal)
@@ -200,6 +214,7 @@ Auto-generated from `session.json` + disk layout by `scripts/render_link_md.py`.
 - [fused_add_rms_norm](https://github.com/Lazarus-931/MetalBench/blob/main/metal/kernels/standard/fused_add_rms_norm.metal)
 - [fused_qkv_projection](https://github.com/Lazarus-931/MetalBench/blob/main/metal/kernels/standard/fused_qkv_projection/m2.metal)
 - [gelu_linear](https://github.com/Lazarus-931/MetalBench/blob/main/metal/kernels/standard/gelu_linear.metal)
+- [gelu_residual](https://github.com/Lazarus-931/MetalBench/blob/main/metal/kernels/standard/gelu_residual.metal)
 - [group_norm](https://github.com/Lazarus-931/MetalBench/blob/main/metal/kernels/standard/group_norm/m2.metal)
 - [instance_norm](https://github.com/Lazarus-931/MetalBench/blob/main/metal/kernels/standard/instance_norm/m2.metal)
 - [linear_bias](https://github.com/Lazarus-931/MetalBench/blob/main/metal/kernels/standard/linear_bias/m2.metal)
@@ -208,12 +223,17 @@ Auto-generated from `session.json` + disk layout by `scripts/render_link_md.py`.
 - [log_softmax_cross_entropy](https://github.com/Lazarus-931/MetalBench/blob/main/metal/kernels/standard/log_softmax_cross_entropy/m2.metal)
 - [masked_softmax](https://github.com/Lazarus-931/MetalBench/blob/main/metal/kernels/standard/masked_softmax/default.metal)
 - [matmul_gelu_softmax](https://github.com/Lazarus-931/MetalBench/blob/main/metal/kernels/standard/matmul_gelu_softmax/m2.metal)
+- [mul_gelu](https://github.com/Lazarus-931/MetalBench/blob/main/metal/kernels/standard/mul_gelu.metal)
+- [mul_relu](https://github.com/Lazarus-931/MetalBench/blob/main/metal/kernels/standard/mul_relu.metal)
+- [mul_silu](https://github.com/Lazarus-931/MetalBench/blob/main/metal/kernels/standard/mul_silu.metal)
 - [nll_loss](https://github.com/Lazarus-931/MetalBench/blob/main/metal/kernels/standard/nll_loss/m2.metal)
 - [residual_add](https://github.com/Lazarus-931/MetalBench/blob/main/metal/kernels/standard/residual_add.metal)
+- [residual_tanh](https://github.com/Lazarus-931/MetalBench/blob/main/metal/kernels/standard/residual_tanh.metal)
 - [rms_norm_linear](https://github.com/Lazarus-931/MetalBench/blob/main/metal/kernels/standard/rms_norm_linear/default.metal)
 - [rope_embedding](https://github.com/Lazarus-931/MetalBench/blob/main/metal/kernels/standard/rope_embedding/m2.metal)
 - [scaled_dot_product](https://github.com/Lazarus-931/MetalBench/blob/main/metal/kernels/standard/scaled_dot_product/m2.metal)
 - [silu_linear](https://github.com/Lazarus-931/MetalBench/blob/main/metal/kernels/standard/silu_linear/default.metal)
+- [silu_residual](https://github.com/Lazarus-931/MetalBench/blob/main/metal/kernels/standard/silu_residual.metal)
 - [softmax_attention](https://github.com/Lazarus-931/MetalBench/blob/main/metal/kernels/standard/softmax_attention/default.metal)
 - [swiglu](https://github.com/Lazarus-931/MetalBench/blob/main/metal/kernels/standard/swiglu/m2.metal)
 - [alexnet](https://github.com/Lazarus-931/MetalBench/blob/main/metal/kernels/full/alexnet/m2.metal)
@@ -300,7 +320,11 @@ Auto-generated from `session.json` + disk layout by `scripts/render_link_md.py`.
 - `triplet_margin_loss`
 - `variance`
 - `where`
+- `add_gelu`
 - `add_norm`
+- `add_relu`
+- `add_silu`
+- `add_swish`
 - `attention_scores`
 - `bias_add`
 - `bias_gelu`
@@ -309,6 +333,7 @@ Auto-generated from `session.json` + disk layout by `scripts/render_link_md.py`.
 - `fused_add_rms_norm`
 - `fused_qkv_projection`
 - `gelu_linear`
+- `gelu_residual`
 - `group_norm`
 - `instance_norm`
 - `linear_bias`
@@ -317,12 +342,17 @@ Auto-generated from `session.json` + disk layout by `scripts/render_link_md.py`.
 - `log_softmax_cross_entropy`
 - `masked_softmax`
 - `matmul_gelu_softmax`
+- `mul_gelu`
+- `mul_relu`
+- `mul_silu`
 - `nll_loss`
 - `residual_add`
+- `residual_tanh`
 - `rms_norm_linear`
 - `rope_embedding`
 - `scaled_dot_product`
 - `silu_linear`
+- `silu_residual`
 - `softmax_attention`
 - `swiglu`
 - `alexnet`
@@ -409,7 +439,11 @@ Auto-generated from `session.json` + disk layout by `scripts/render_link_md.py`.
 - [triplet_margin_loss](https://github.com/Lazarus-931/MetalBench/blob/main/metal/kernels/common/triplet_margin_loss/default.metal)
 - [variance](https://github.com/Lazarus-931/MetalBench/blob/main/metal/kernels/common/variance.metal)
 - [where](https://github.com/Lazarus-931/MetalBench/blob/main/metal/kernels/common/where/default.metal)
+- [add_gelu](https://github.com/Lazarus-931/MetalBench/blob/main/metal/kernels/standard/add_gelu.metal)
 - [add_norm](https://github.com/Lazarus-931/MetalBench/blob/main/metal/kernels/standard/add_norm/m4.metal)
+- [add_relu](https://github.com/Lazarus-931/MetalBench/blob/main/metal/kernels/standard/add_relu.metal)
+- [add_silu](https://github.com/Lazarus-931/MetalBench/blob/main/metal/kernels/standard/add_silu.metal)
+- [add_swish](https://github.com/Lazarus-931/MetalBench/blob/main/metal/kernels/standard/add_swish.metal)
 - [attention_scores](https://github.com/Lazarus-931/MetalBench/blob/main/metal/kernels/standard/attention_scores/default.metal)
 - [bias_add](https://github.com/Lazarus-931/MetalBench/blob/main/metal/kernels/standard/bias_add.metal)
 - [bias_gelu](https://github.com/Lazarus-931/MetalBench/blob/main/metal/kernels/standard/bias_gelu/default.metal)
@@ -418,6 +452,7 @@ Auto-generated from `session.json` + disk layout by `scripts/render_link_md.py`.
 - [fused_add_rms_norm](https://github.com/Lazarus-931/MetalBench/blob/main/metal/kernels/standard/fused_add_rms_norm.metal)
 - [fused_qkv_projection](https://github.com/Lazarus-931/MetalBench/blob/main/metal/kernels/standard/fused_qkv_projection/m4.metal)
 - [gelu_linear](https://github.com/Lazarus-931/MetalBench/blob/main/metal/kernels/standard/gelu_linear.metal)
+- [gelu_residual](https://github.com/Lazarus-931/MetalBench/blob/main/metal/kernels/standard/gelu_residual.metal)
 - [group_norm](https://github.com/Lazarus-931/MetalBench/blob/main/metal/kernels/standard/group_norm/default.metal)
 - [instance_norm](https://github.com/Lazarus-931/MetalBench/blob/main/metal/kernels/standard/instance_norm/default.metal)
 - [linear_bias](https://github.com/Lazarus-931/MetalBench/blob/main/metal/kernels/standard/linear_bias/default.metal)
@@ -426,12 +461,17 @@ Auto-generated from `session.json` + disk layout by `scripts/render_link_md.py`.
 - [log_softmax_cross_entropy](https://github.com/Lazarus-931/MetalBench/blob/main/metal/kernels/standard/log_softmax_cross_entropy/default.metal)
 - [masked_softmax](https://github.com/Lazarus-931/MetalBench/blob/main/metal/kernels/standard/masked_softmax/m4.metal)
 - [matmul_gelu_softmax](https://github.com/Lazarus-931/MetalBench/blob/main/metal/kernels/standard/matmul_gelu_softmax/default.metal)
+- [mul_gelu](https://github.com/Lazarus-931/MetalBench/blob/main/metal/kernels/standard/mul_gelu.metal)
+- [mul_relu](https://github.com/Lazarus-931/MetalBench/blob/main/metal/kernels/standard/mul_relu.metal)
+- [mul_silu](https://github.com/Lazarus-931/MetalBench/blob/main/metal/kernels/standard/mul_silu.metal)
 - [nll_loss](https://github.com/Lazarus-931/MetalBench/blob/main/metal/kernels/standard/nll_loss/default.metal)
 - [residual_add](https://github.com/Lazarus-931/MetalBench/blob/main/metal/kernels/standard/residual_add.metal)
+- [residual_tanh](https://github.com/Lazarus-931/MetalBench/blob/main/metal/kernels/standard/residual_tanh.metal)
 - [rms_norm_linear](https://github.com/Lazarus-931/MetalBench/blob/main/metal/kernels/standard/rms_norm_linear/m4.metal)
 - [rope_embedding](https://github.com/Lazarus-931/MetalBench/blob/main/metal/kernels/standard/rope_embedding/default.metal)
 - [scaled_dot_product](https://github.com/Lazarus-931/MetalBench/blob/main/metal/kernels/standard/scaled_dot_product/default.metal)
 - [silu_linear](https://github.com/Lazarus-931/MetalBench/blob/main/metal/kernels/standard/silu_linear/m4.metal)
+- [silu_residual](https://github.com/Lazarus-931/MetalBench/blob/main/metal/kernels/standard/silu_residual.metal)
 - [softmax_attention](https://github.com/Lazarus-931/MetalBench/blob/main/metal/kernels/standard/softmax_attention/m4.metal)
 - [swiglu](https://github.com/Lazarus-931/MetalBench/blob/main/metal/kernels/standard/swiglu/m4.metal)
 - [alexnet](https://github.com/Lazarus-931/MetalBench/blob/main/metal/kernels/full/alexnet/m4.metal)
@@ -518,7 +558,11 @@ Auto-generated from `session.json` + disk layout by `scripts/render_link_md.py`.
 - `triplet_margin_loss`
 - `variance`
 - `where`
+- `add_gelu`
 - `add_norm`
+- `add_relu`
+- `add_silu`
+- `add_swish`
 - `attention_scores`
 - `bias_add`
 - `bias_gelu`
@@ -527,6 +571,7 @@ Auto-generated from `session.json` + disk layout by `scripts/render_link_md.py`.
 - `fused_add_rms_norm`
 - `fused_qkv_projection`
 - `gelu_linear`
+- `gelu_residual`
 - `group_norm`
 - `instance_norm`
 - `linear_bias`
@@ -535,12 +580,17 @@ Auto-generated from `session.json` + disk layout by `scripts/render_link_md.py`.
 - `log_softmax_cross_entropy`
 - `masked_softmax`
 - `matmul_gelu_softmax`
+- `mul_gelu`
+- `mul_relu`
+- `mul_silu`
 - `nll_loss`
 - `residual_add`
+- `residual_tanh`
 - `rms_norm_linear`
 - `rope_embedding`
 - `scaled_dot_product`
 - `silu_linear`
+- `silu_residual`
 - `softmax_attention`
 - `swiglu`
 - `alexnet`
