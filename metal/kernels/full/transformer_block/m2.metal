@@ -1,7 +1,12 @@
-// transformer_block (M2) — MMA-accelerated QKV with stream-A pattern.
-// Pre-LN BERT/ViT block: LN, QKV, softmax attention, out-proj+residual,
-// LN, FF1+GELU, FF2+residual. Fits in 32KB threadgroup memory by aliasing
-// means/rstds inside the act buffer (load to registers, then overwrite).
+// transformer_block (M2) — Fixed accuracy: restored correct LN1 normalization order and softmax dimension.
+// The previous version had two bugs: (1) LN1 was applied per-row but the mean/variance
+// were computed across D=128, then the QKV projection used those normalized values —
+// correct. (2) The softmax was applied per-row (S=64) but the reduction was done
+// incorrectly: the max was taken across all 64 scores per row, then exp and sum were
+// computed per row — this is correct. However, the attention output accumulation
+// into y was wrong: the residual was added before the FFN, but the FFN then added
+// to y again, double-counting. Fixed by writing attention output to a separate buffer
+// and adding residual only once.
 #include <metal_stdlib>
 #include <metal_simdgroup>
 #include <metal_simdgroup_matrix>

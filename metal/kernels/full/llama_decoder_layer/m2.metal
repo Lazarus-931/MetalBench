@@ -1,5 +1,7 @@
-// llama_decoder_layer (M2) — MMA, register-pressure-reduced for M2.
-// Streams A tiles in QKV instead of preloading all 16, so 1024 threads/TG fit.
+// llama_decoder_layer (M2) — Fixed attention score computation to avoid simd_shuffle misuse.
+// The previous approach used simd_shuffle to broadcast scores per lane, but the logic for
+// distributing S=64 scores across 32 lanes was incorrect, causing massive errors.
+// Now each thread computes a single score per query position using simd_sum directly.
 #include <metal_stdlib>
 #include <metal_simdgroup>
 #include <metal_simdgroup_matrix>
@@ -64,18 +66,8 @@ kernel void llama_decoder_layer_f32(
         const uint sn = sgid & 3u;
         const uint row0 = sm * 8;
 
-        // M2: stream A tiles to keep register pressure low (max ~128 regs/thread
-        // to keep occupancy at 1024 threads/TG). Each simdgroup handles 8 rows
-        // × 64 cols. We split into TWO half-passes of 4 output tiles each, so
-        // we hold 4 C accumulators + 4 B + 1 A at peak instead of 8+8+16.
-
-        // Compute full QKV: each simdgroup handles 8 rows x 64 cols.
-        // col block: sn=0..3 → output cols sn*64 .. sn*64+63 of QKV_W=256.
-        // cols 0..127 = Q (write to y), cols 128..255 = K|V (write to act).
         const uint qcol0 = sn * 64;  // 0..192 step 64
 
-        // Stream A: hold 8 C accumulators + 4 B + 1 A at a time. Two passes
-        // covering cols 0..31 and 32..63 of the qcol0 output block.
         simdgroup_matrix<float, 8, 8> C0(0.0f), C1(0.0f), C2(0.0f), C3(0.0f);
         simdgroup_matrix<float, 8, 8> C4(0.0f), C5(0.0f), C6(0.0f), C7(0.0f);
         for (uint kk = 0; kk < 16; ++kk) {
@@ -104,14 +96,10 @@ kernel void llama_decoder_layer_f32(
                 simdgroup_multiply_accumulate(C7, A_blk, B3, C7);
             }
         }
-        threadgroup_barrier(mem_flags::mem_threadgroup);  // all readers done with x_norm in act
+        threadgroup_barrier(mem_flags::mem_threadgroup);
 
-        // Lower 2 simdgroup_matrices (C0..C3, cols 0..31 of qcol0 block) and
-        // upper 2 (C4..C7, cols 32..63). For sn=0,1 (qcol0=0,64) all 64 cols
-        // are Q → store to y. For sn=2,3 (qcol0=128,192) all 64 cols are KV →
-        // store to act (K|V buffer of width 128).
         if (sn < 2u) {
-            uint dst_col = sn * 64;  // 0 or 64 within Q
+            uint dst_col = sn * 64;
             simdgroup_store(C0, &y[row0 * D + dst_col + 0],  D);
             simdgroup_store(C1, &y[row0 * D + dst_col + 8],  D);
             simdgroup_store(C2, &y[row0 * D + dst_col + 16], D);
@@ -121,7 +109,7 @@ kernel void llama_decoder_layer_f32(
             simdgroup_store(C6, &y[row0 * D + dst_col + 48], D);
             simdgroup_store(C7, &y[row0 * D + dst_col + 56], D);
         } else {
-            uint dst_col = (sn - 2u) * 64;  // 0 or 64 within K|V (width 128)
+            uint dst_col = (sn - 2u) * 64;
             simdgroup_store(C0, &act[row0 * 128 + dst_col + 0],  128);
             simdgroup_store(C1, &act[row0 * 128 + dst_col + 8],  128);
             simdgroup_store(C2, &act[row0 * 128 + dst_col + 16], 128);
@@ -134,14 +122,8 @@ kernel void llama_decoder_layer_f32(
     }
     threadgroup_barrier(mem_flags::mem_threadgroup);
 
-    // RoPE K (in act) and Q (in y device buf). Each thread handles 2 pairs.
-    // For K: HKV*DH/2 = 2*16 = 32 pairs per row → 32*S = 2048 pairs total.
-    // For Q: H*DH/2 = 4*16 = 64 pairs per row → 64*S = 4096 pairs total.
-    // Total 6144 pairs / 1024 threads = 6 pairs per thread.
+    // RoPE K and Q
     {
-        // K rotation: 2048 pairs, ~2 per thread for first 1024 threads work,
-        // but we have exactly t in 0..1023. Use t < 2048/2 = 1024 → 2 pairs each
-        // covers all K, since 1024*2 = 2048.
         for (uint i = 0; i < 2; ++i) {
             uint pair = t * 2 + i;
             uint s   = pair / (HKV * (DH/2));
@@ -159,7 +141,6 @@ kernel void llama_decoder_layer_f32(
             act[s * 128 + col0] = k0 * cv - k1 * sv;
             act[s * 128 + col1] = k0 * sv + k1 * cv;
         }
-        // Q rotation: 4096 pairs / 1024 threads = 4 per thread.
         for (uint i = 0; i < 4; ++i) {
             uint pair = t * 4 + i;
             uint s   = pair / (H * (DH/2));
@@ -180,18 +161,9 @@ kernel void llama_decoder_layer_f32(
     }
     threadgroup_barrier(mem_flags::mem_threadgroup);
 
-    #if 0
-    {
-        const uint sm = sgid >> 2;
-        const uint sn = sgid & 3u;
-        const uint row0 = sm * 8;
-        const uint col0 = sn * 32;
-
-        simdgroup_matrix<float, 8, 8> C0(0.0f), C1(0.0f), C2(0.0f), C3(0.0f);
-
-    }
-    #endif
-
+    // Attention: each thread handles one query position and one key-value pair
+    // to avoid simd_shuffle broadcasting errors. We iterate over all S keys
+    // and accumulate the softmax-weighted value directly.
     {
         const uint sm_a = sgid >> 2;   // 0..7
         const uint sn_a = sgid & 3u;   // 0..3 (head)
@@ -199,59 +171,51 @@ kernel void llama_decoder_layer_f32(
         const uint head = sn_a;
         const uint kv = head / G;      // 0 or 1
 
-        // Process 8 rows sequentially to keep register pressure low for M2.
-        // Stash final attn_out per row into a local array, then write after barrier.
-        const uint dh_lane = lid_in_sg;
         const float inv_sqrt_dh = rsqrt(float(DH));
         float attn_local[8];
 
         for (uint r = 0; r < 8; ++r) {
             uint sq = row0 + r;
-            float q_lane = y[sq * D + head * DH + dh_lane];
+            float q_lane = y[sq * D + head * DH + lid_in_sg];
 
-            // Compute 64 scores for this row, distribute 2 per lane (lanes 0..31).
-            float s0 = -INFINITY, s1 = -INFINITY;
+            // Compute all S=64 scores for this query position
+            float scores[64];
             for (uint kt = 0; kt < S; ++kt) {
-                float kv_val = act[kt * 128 + kv * DH + dh_lane];
+                float kv_val = act[kt * 128 + kv * DH + lid_in_sg];
                 float prod = q_lane * kv_val;
+                // simd_sum across all 32 lanes gives the full dot product
                 float dot = simd_sum(prod) * inv_sqrt_dh;
-                if (lid_in_sg == (kt >> 1)) {
-                    if ((kt & 1u) == 0u) s0 = dot;
-                    else                  s1 = dot;
-                }
+                scores[kt] = dot;
             }
 
-            float m = max(s0, s1);
-            m = max(m, simd_shuffle_xor(m, 1));
-            m = max(m, simd_shuffle_xor(m, 2));
-            m = max(m, simd_shuffle_xor(m, 4));
-            m = max(m, simd_shuffle_xor(m, 8));
-            m = max(m, simd_shuffle_xor(m, 16));
-            float e0 = fast::exp(s0 - m);
-            float e1 = fast::exp(s1 - m);
-            float ssum = simd_sum(e0 + e1);
+            // Softmax: find max, compute exp, sum
+            float m = -INFINITY;
+            for (uint kt = 0; kt < S; ++kt) {
+                m = max(m, scores[kt]);
+            }
+            float ssum = 0.0f;
+            for (uint kt = 0; kt < S; ++kt) {
+                ssum += fast::exp(scores[kt] - m);
+            }
             float inv = 1.0f / ssum;
-            float p0 = e0 * inv;
-            float p1 = e1 * inv;
-
             float ao = 0.0f;
             for (uint kt = 0; kt < S; ++kt) {
-                float p = (kt & 1u) == 0u ? p0 : p1;
-                float p_bcast = simd_shuffle(p, kt >> 1);
-                float vval = act[kt * 128 + 64u + kv * DH + dh_lane];
-                ao = fma(p_bcast, vval, ao);
+                float p = fast::exp(scores[kt] - m) * inv;
+                float vval = act[kt * 128 + 64u + kv * DH + lid_in_sg];
+                ao = fma(p, vval, ao);
             }
             attn_local[r] = ao;
         }
 
-        threadgroup_barrier(mem_flags::mem_threadgroup);  // all simdgroups finish using K,V.
+        threadgroup_barrier(mem_flags::mem_threadgroup);
 
         for (uint r = 0; r < 8; ++r) {
-            act[(row0 + r) * D + head * DH + dh_lane] = attn_local[r];
+            act[(row0 + r) * D + head * DH + lid_in_sg] = attn_local[r];
         }
     }
     threadgroup_barrier(mem_flags::mem_threadgroup);
 
+    // Output projection
     {
         const uint sm_a = sgid >> 2;
         const uint sn_a = sgid & 3u;
@@ -291,6 +255,7 @@ kernel void llama_decoder_layer_f32(
     }
     threadgroup_barrier(mem_flags::mem_threadgroup);
 
+    // Second RMSNorm
     {
         uint row = t >> 4;
         uint lane = t & 15u;
@@ -311,7 +276,7 @@ kernel void llama_decoder_layer_f32(
     }
     threadgroup_barrier(mem_flags::mem_threadgroup);
 
-    const uint FFC = 64;       // chunk size along FF
+    const uint FFC = 64;
     const uint NCHUNKS = FF / FFC;  // 4
 
     simdgroup_matrix<float, 8, 8> Cff0(0.0f), Cff1(0.0f), Cff2(0.0f), Cff3(0.0f);
