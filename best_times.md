@@ -19,11 +19,11 @@ Auto-generated from `session.json` by `scripts/render_best_times.py`. Do not han
 | `conv2d_relu_bias` | common | — | 518.741 (0.02×) | — | 11.406 (7.45×) | — |
 | `conv3d` | common | — | 15.365 (0.46×) | — | 118.961 (0.20×) | — |
 | `conv3d_div_pool_sum` | common | — | 46.736 (0.17×) | — | 189.517 (0.55×) | — |
-| `conv3d_multi_act_bias` | common | — | 1460.525 (0.01×) | — | 31.664 (16.93×) | — |
+| `conv3d_multi_act_bias` | common | — | 19.095 (0.63×) | — | 31.664 (16.93×) | — |
 | `conv3d_softmax_pool` | common | — | 6.640 (1.30×) | — | 21.227 (6.17×) | — |
 | `conv_transpose2d` | common | — | 8.878 (0.16×) | — | 13.143 (0.61×) | — |
 | `conv_transpose2d_clamp_scale_div` | common | — | 160.275 (0.04×) | — | 11.533 (25.92×) | — |
-| `conv_transpose2d_sub_tanh` | common | — | 12.561 (0.64×) | — | 11.537 (9.01×) | — |
+| `conv_transpose2d_sub_tanh` | common | — | 9.610 (0.23×) | — | 11.537 (9.01×) | — |
 | `conv_transpose3d_norm_pool_gelu` | common | — | 0.674 (0.87×) | — | 3.186 (4.08×) | — |
 | `cosine_similarity` | common | — | 0.069 (11.29×) | — | 8.038 (4.98×) | — |
 | `cumprod` | common | — | 0.078 (5.16×) | — | 4.019 (1.99×) | — |
@@ -45,7 +45,7 @@ Auto-generated from `session.json` by `scripts/render_best_times.py`. Do not han
 | `kl_div_loss` | common | — | 0.156 (51.39×) | — | 7.042 (11.50×) | — |
 | `l1_norm` | common | — | 0.064 (6.81×) | — | 20.964 (1.14×) | — |
 | `l2_norm` | common | — | 0.063 (6.37×) | — | 20.005 (1.20×) | — |
-| `layer_norm` | common | — | 0.100 (9.94×) | — | 6.977 (1.57×) | — |
+| `layer_norm` | common | — | 0.059 (5.27×) | — | 6.977 (1.57×) | — |
 | `leaky_relu` | common | — | 0.016 (502.02×) | — | 3.004 (5.94×) | — |
 | `log` | common | — | 0.010 (21.45×) | — | 3.009 (4.99×) | — |
 | `logsigmoid` | common | — | 0.018 (453.82×) | — | 3.007 (3.33×) | — |
@@ -57,29 +57,29 @@ Auto-generated from `session.json` by `scripts/render_best_times.py`. Do not han
 | `matrix_scale` | common | — | 0.083 (96.22×) | — | 3.048 (5.25×) | — |
 | `matvec` | common | — | 0.059 (4.11×) | — | 10.005 (0.50×) | — |
 | `max_pool1d` | common | — | 0.012 (47.30×) | — | 3.999 (5.99×) | — |
-| `max_pool2d` | common | — | 0.129 (3.64×) | — | 6.995 (1.14×) | — |
-| `max_pool3d` | common | — | 0.223 (4.17×) | — | 7.022 (1.14×) | — |
-| `mish` | common | — | 0.016 (495.15×) | — | 3.009 (6.67×) | — |
+| `max_pool2d` | common | — | 0.103 (4.01×) | — | 6.995 (1.14×) | — |
+| `max_pool3d` | common | — | 0.220 (5.00×) | — | 7.022 (1.14×) | — |
+| `mish` | common | — | 0.011 (28.82×) | — | 3.009 (6.67×) | — |
 | `mse_loss` | common | — | 0.234 (2.87×) | — | 3.176 (17.63×) | — |
 | `outer_product` | common | — | 0.055 (5.66×) | — | 7.013 (1.14×) | — |
 | `prelu` | common | — | 0.013 (18.05×) | — | 3.005 (5.32×) | — |
-| `rect_mm` | common | — | 9.154 (0.87×) | — | 45.334 (0.53×) | — |
+| `rect_mm` | common | — | 8.309 (0.94×) | — | 45.334 (0.53×) | — |
 | `relu` | common | — | 0.015 (551.53×) | — | 3.002 (2.67×) | — |
-| `rms_norm` | common | — | 0.061 (4.84×) | — | 3.038 (3.62×) | — |
-| `rsqrt` | common | — | 0.017 (470.55×) | — | 3.010 (3.66×) | — |
-| `selu` | common | — | 0.016 (485.17×) | — | 3.003 (2.33×) | — |
+| `rms_norm` | common | — | 0.055 (5.24×) | — | 3.038 (3.62×) | — |
+| `rsqrt` | common | — | 0.011 (20.77×) | — | 3.010 (3.66×) | — |
+| `selu` | common | — | 0.011 (20.97×) | — | 3.003 (2.33×) | — |
 | `sigmoid` | common | — | 0.011 (21.11×) | — | 3.003 (2.32×) | — |
 | `softmax` | common | — | 0.071 (4.11×) | — | 29.968 (0.53×) | — |
 | `softplus` | common | — | 0.011 (26.28×) | — | 3.003 (4.00×) | — |
-| `softsign` | common | — | 0.017 (475.95×) | — | 3.002 (5.00×) | — |
+| `softsign` | common | — | 0.011 (19.26×) | — | 3.002 (5.00×) | — |
 | `sqr_mm` | common | — | 1.129 (1.42×) | — | 21.026 (0.38×) | — |
-| `swish` | common | — | 0.018 (441.36×) | — | 3.003 (2.00×) | — |
+| `swish` | common | — | 0.011 (21.67×) | — | 3.003 (2.00×) | — |
 | `tanh` | common | — | 0.017 (448.92×) | — | 3.010 (2.66×) | — |
 | `top_k` | common | — | 0.116 (8.47×) | — | 12.015 (3.99×) | — |
-| `transpose_2d` | common | — | 0.201 (0.09×) | — | 17.043 (0.00×) | — |
-| `triplet_margin_loss` | common | — | 0.144 (7.90×) | — | 32.011 (2.87×) | — |
+| `transpose_2d` | common | — | 0.177 (0.10×) | — | 17.043 (0.00×) | — |
+| `triplet_margin_loss` | common | — | 0.134 (7.94×) | — | 32.011 (2.87×) | — |
 | `variance` | common | — | 0.038 (13.68×) | — | 20.963 (1.14×) | — |
-| `where` | common | — | 0.192 (2.21×) | — | 6.946 (3.45×) | — |
+| `where` | common | — | 0.186 (2.46×) | — | 6.946 (3.45×) | — |
 | `add_norm` | standard | — | 0.138 (3.37×) | — | 12.016 (2.00×) | — |
 | `attention_scores` | standard | — | 0.022 (9.58×) | — | 6.996 (1.57×) | — |
 | `bias_add` | standard | — | 0.055 (5.00×) | — | 6.949 (3.45×) | — |
@@ -91,7 +91,7 @@ Auto-generated from `session.json` by `scripts/render_best_times.py`. Do not han
 | `gelu_linear` | standard | — | 1.148 (1.74×) | — | 18.029 (1.33×) | — |
 | `group_norm` | standard | — | 0.023 (18.62×) | — | 7.015 (6.56×) | — |
 | `instance_norm` | standard | — | 0.040 (10.77×) | — | 18.006 (2.61×) | — |
-| `linear_bias` | standard | — | 0.032 (9.24×) | — | 3.016 (4.97×) | — |
+| `linear_bias` | standard | — | 0.031 (7.89×) | — | 3.016 (4.97×) | — |
 | `llama_attention` | standard | — | 0.163 (2.33×) | — | 3.110 (12.54×) | — |
 | `log_softmax` | standard | — | 0.084 (3.81×) | — | 31.016 (0.87×) | — |
 | `log_softmax_cross_entropy` | standard | — | 0.094 (5.46×) | — | 42.007 (0.98×) | — |
@@ -108,7 +108,7 @@ Auto-generated from `session.json` by `scripts/render_best_times.py`. Do not han
 | `alexnet` | full | — | 0.191 (1.57×) | — | 3.146 (7.63×) | — |
 | `densenet` | full | — | 0.059 (4.63×) | — | 0.034 (202.74×) | — |
 | `llama_decoder_layer` | full | — | 0.324 (1.30×) | — | 3.284 (10.35×) | — |
-| `mha_attention` | full | — | 0.132 (2.58×) | — | — | — |
+| `mha_attention` | full | — | 0.127 (1.96×) | — | — | — |
 | `resnet` | full | — | 0.161 (2.12×) | — | 3.128 (7.67×) | — |
 | `transformer_block` | full | — | 0.421 (0.90×) | — | 3.367 (8.89×) | — |
 
