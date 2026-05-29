@@ -24,8 +24,16 @@ kernel void group_norm_f32(
     device const float* base_in  = X + (n * C + g * CG) * H * W;
     device       float* base_out = Y + (n * C + g * CG) * H * W;
 
+    // First pass: compute sum and sumsq using float4 vectorized loads
     float sum = 0.0f, sumsq = 0.0f;
-    for (uint i = tid; i < block; i += TG) {
+    const uint block4 = block / 4;
+    for (uint i = tid; i < block4; i += TG) {
+        float4 v = *((device const float4*)&base_in[i * 4]);
+        sum   += v.x + v.y + v.z + v.w;
+        sumsq += v.x * v.x + v.y * v.y + v.z * v.z + v.w * v.w;
+    }
+    // Handle remaining elements (0-3)
+    for (uint i = block4 * 4 + tid; i < block; i += TG) {
         float v = base_in[i];
         sum   += v;
         sumsq += v * v;
@@ -51,6 +59,16 @@ kernel void group_norm_f32(
     float mean = tg_s[0] / float(block);
     float var  = max(tg_q[0] / float(block) - mean * mean, 0.0f);
     float inv  = rsqrt(var + eps);
-    for (uint i = tid; i < block; i += TG)
+    // Second pass: normalize using float4 vectorized stores
+    for (uint i = tid; i < block4; i += TG) {
+        float4 v = *((device const float4*)&base_in[i * 4]);
+        float4 out;
+        out.x = (v.x - mean) * inv;
+        out.y = (v.y - mean) * inv;
+        out.z = (v.z - mean) * inv;
+        out.w = (v.w - mean) * inv;
+        *((device float4*)&base_out[i * 4]) = out;
+    }
+    for (uint i = block4 * 4 + tid; i < block; i += TG)
         base_out[i] = (base_in[i] - mean) * inv;
 }
