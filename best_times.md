@@ -80,7 +80,11 @@ Auto-generated from `session.json` by `scripts/render_best_times.py`. Do not han
 | `triplet_margin_loss` | common | — | 0.144 (7.90×) | — | 32.011 (2.87×) | — |
 | `variance` | common | — | 0.038 (13.68×) | — | 20.963 (1.14×) | — |
 | `where` | common | — | 0.192 (2.21×) | — | 6.946 (3.45×) | — |
+| `add_gelu` | standard | — | 0.007 (34.15×) | — | — | — |
 | `add_norm` | standard | — | 0.140 (3.36×) | — | 12.016 (2.00×) | — |
+| `add_relu` | standard | — | 0.006 (25.16×) | — | — | — |
+| `add_silu` | standard | — | 0.006 (25.91×) | — | — | — |
+| `add_swish` | standard | — | 0.006 (25.98×) | — | — | — |
 | `attention_scores` | standard | — | 0.022 (12.79×) | — | 6.996 (1.57×) | — |
 | `bias_add` | standard | — | 0.055 (5.00×) | — | 6.949 (3.45×) | — |
 | `bias_gelu` | standard | — | 0.057 (8.09×) | — | 7.009 (5.85×) | — |
@@ -89,6 +93,7 @@ Auto-generated from `session.json` by `scripts/render_best_times.py`. Do not han
 | `fused_add_rms_norm` | standard | — | 0.136 (3.28×) | — | 13.971 (2.07×) | — |
 | `fused_qkv_projection` | standard | — | 0.032 (6.34×) | — | 3.010 (2.65×) | — |
 | `gelu_linear` | standard | — | 1.148 (1.74×) | — | 18.029 (1.33×) | — |
+| `gelu_residual` | standard | — | 0.007 (34.90×) | — | — | — |
 | `group_norm` | standard | — | 0.038 (13.40×) | — | 7.015 (6.56×) | — |
 | `instance_norm` | standard | — | 0.044 (9.29×) | — | 18.006 (2.61×) | — |
 | `linear_bias` | standard | — | 0.032 (9.24×) | — | 3.016 (4.97×) | — |
@@ -97,12 +102,17 @@ Auto-generated from `session.json` by `scripts/render_best_times.py`. Do not han
 | `log_softmax_cross_entropy` | standard | — | 0.106 (6.80×) | — | 42.007 (0.98×) | — |
 | `masked_softmax` | standard | — | 0.139 (3.21×) | — | 33.997 (0.85×) | — |
 | `matmul_gelu_softmax` | standard | — | 0.044 (7.17×) | — | 3.014 (4.67×) | — |
+| `mul_gelu` | standard | — | 0.006 (32.16×) | — | — | — |
+| `mul_relu` | standard | — | 0.006 (26.25×) | — | — | — |
+| `mul_silu` | standard | — | 0.006 (29.34×) | — | — | — |
 | `nll_loss` | standard | — | 0.072 (5.50×) | — | 28.993 (0.83×) | — |
 | `residual_add` | standard | — | 0.140 (2.80×) | — | 6.998 (3.43×) | — |
+| `residual_tanh` | standard | — | 0.006 (27.45×) | — | — | — |
 | `rms_norm_linear` | standard | — | 1.364 (1.13×) | — | 21.008 (1.90×) | — |
 | `rope_embedding` | standard | — | 0.005 (68.88×) | — | 2.997 (5.00×) | — |
 | `scaled_dot_product` | standard | — | 0.153 (1.93×) | — | 0.060 (116.55×) | — |
 | `silu_linear` | standard | — | 1.156 (6.92×) | — | 20.066 (1.20×) | — |
+| `silu_residual` | standard | — | 0.007 (30.95×) | — | — | — |
 | `softmax_attention` | standard | — | 0.033 (11.20×) | — | 12.002 (1.49×) | — |
 | `swiglu` | standard | — | 0.052 (6.71×) | — | 9.993 (1.70×) | — |
 | `alexnet` | full | — | 0.191 (1.57×) | — | 3.146 (7.63×) | — |
@@ -112,4 +122,4 @@ Auto-generated from `session.json` by `scripts/render_best_times.py`. Do not han
 | `resnet` | full | — | 0.161 (2.12×) | — | 3.128 (7.67×) | — |
 | `transformer_block` | full | — | 0.428 (0.98×) | — | 3.367 (8.89×) | — |
 
-_106 kernels total. Chips covered: M2 (106), M4 (105)._
+_116 kernels total. Chips covered: M2 (116), M4 (105)._

@@ -119,6 +119,16 @@ variant per kernel per chip with direct repo URLs.
 | `log_softmax_cross_entropy` | [metal](metal/kernels/standard/log_softmax_cross_entropy.metal) | [mlx](mlx/kernels/standard/log_softmax_cross_entropy.py) |
 | `llama_attention` | [metal](metal/kernels/standard/llama_attention.metal) | [mlx](mlx/kernels/standard/llama_attention.py) |
 | `matmul_gelu_softmax` | [metal](metal/kernels/standard/matmul_gelu_softmax.metal) | [mlx](mlx/kernels/standard/matmul_gelu_softmax.py) |
+| `silu_residual` | [metal](metal/kernels/standard/silu_residual.metal) | [mlx](mlx/kernels/standard/silu_residual.py) |
+| `gelu_residual` | [metal](metal/kernels/standard/gelu_residual.metal) | [mlx](mlx/kernels/standard/gelu_residual.py) |
+| `add_silu` | [metal](metal/kernels/standard/add_silu.metal) | [mlx](mlx/kernels/standard/add_silu.py) |
+| `mul_silu` | [metal](metal/kernels/standard/mul_silu.metal) | [mlx](mlx/kernels/standard/mul_silu.py) |
+| `add_gelu` | [metal](metal/kernels/standard/add_gelu.metal) | [mlx](mlx/kernels/standard/add_gelu.py) |
+| `mul_gelu` | [metal](metal/kernels/standard/mul_gelu.metal) | [mlx](mlx/kernels/standard/mul_gelu.py) |
+| `add_relu` | [metal](metal/kernels/standard/add_relu.metal) | [mlx](mlx/kernels/standard/add_relu.py) |
+| `mul_relu` | [metal](metal/kernels/standard/mul_relu.metal) | [mlx](mlx/kernels/standard/mul_relu.py) |
+| `add_swish` | [metal](metal/kernels/standard/add_swish.metal) | [mlx](mlx/kernels/standard/add_swish.py) |
+| `residual_tanh` | [metal](metal/kernels/standard/residual_tanh.metal) | [mlx](mlx/kernels/standard/residual_tanh.py) |
 
 ## Full Set (5)
 

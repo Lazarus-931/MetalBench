@@ -1,0 +1,67 @@
+{
+  "task": "silu_residual",
+  "chip": {
+    "type": "m2",
+    "name": "Apple M2",
+    "bucket": "apple-m2",
+    "cpu_cores": 8,
+    "gpu_cores": 8,
+    "ram_bytes": 8589934592
+  },
+  "metal_device": "Apple M2",
+  "tg_static_mem_bytes": 0,
+  "pso_max_threads_per_tg": 1024,
+  "correct": true,
+  "metrics": {
+    "speedup": 34.303882401875036,
+    "gflops": 3.130541118923876,
+    "gbps": 7.513298685417303,
+    "arith_intensity": 0.4166666666666667,
+    "stability": 0.9261041902604756
+  },
+  "speedup": 34.303882401875036,
+  "kernel_timing": {
+    "chip": {
+      "type": "m2",
+      "name": "Apple M2",
+      "bucket": "apple-m2",
+      "cpu_cores": 8,
+      "gpu_cores": 8,
+      "ram_bytes": 8589934592
+    },
+    "metal_device": "Apple M2",
+    "tg_static_mem_bytes": 0,
+    "pso_max_threads_per_tg": 1024,
+    "min_ms": 0.006417,
+    "median_ms": 0.006542,
+    "mean_ms": 0.007064,
+    "iters": 200,
+    "available_counter_sets": [
+      "timestamp"
+    ],
+    "profiling": {
+      "counters_available": false
+    }
+  },
+  "reference_timing": {
+    "min_ms": 0.18791700131259859,
+    "median_ms": 0.2244159986730665,
+    "mean_ms": 0.22091160972195212,
+    "iters": 200,
+    "peak_memory_bytes": 98320
+  },
+  "outputs": [
+    {
+      "ok": true,
+      "max_err": 4.76837158203125e-07
+    }
+  ],
+  "available_counter_sets": [
+    "timestamp"
+  ],
+  "profiling": {
+    "counters_available": false
+  },
+  "target": "speed",
+  "score": 34.303882401875036
+}
