@@ -55,8 +55,8 @@ Auto-generated from `session.json` by `scripts/render_best_times.py`. Do not han
 | `matmul_sub_mul_relu` | common | — | 0.075 (106.32×) | — | 0.000 (inf×) | — |
 | `matrix_add` | common | — | 0.147 (2.50×) | — | 5.134 (4.67×) | — |
 | `matrix_scale` | common | — | 0.083 (96.22×) | — | 3.048 (5.25×) | — |
-| `matvec` | common | — | 0.049 (6.50×) | — | 10.005 (0.50×) | — |
-| `max_pool1d` | common | — | 0.012 (57.33×) | — | 3.999 (5.99×) | — |
+| `matvec` | common | — | 0.059 (4.11×) | — | 10.005 (0.50×) | — |
+| `max_pool1d` | common | — | 0.012 (47.30×) | — | 3.999 (5.99×) | — |
 | `max_pool2d` | common | — | 0.129 (3.64×) | — | 6.995 (1.14×) | — |
 | `max_pool3d` | common | — | 0.223 (4.17×) | — | 7.022 (1.14×) | — |
 | `mish` | common | — | 0.016 (495.15×) | — | 3.009 (6.67×) | — |
@@ -70,12 +70,12 @@ Auto-generated from `session.json` by `scripts/render_best_times.py`. Do not han
 | `selu` | common | — | 0.016 (485.17×) | — | 3.003 (2.33×) | — |
 | `sigmoid` | common | — | 0.011 (21.11×) | — | 3.003 (2.32×) | — |
 | `softmax` | common | — | 0.071 (4.11×) | — | 29.968 (0.53×) | — |
-| `softplus` | common | — | 0.015 (19.70×) | — | 3.003 (4.00×) | — |
+| `softplus` | common | — | 0.011 (26.28×) | — | 3.003 (4.00×) | — |
 | `softsign` | common | — | 0.017 (475.95×) | — | 3.002 (5.00×) | — |
 | `sqr_mm` | common | — | 1.129 (1.42×) | — | 21.026 (0.38×) | — |
-| `swish` | common | — | 0.015 (19.54×) | — | 3.003 (2.00×) | — |
-| `tanh` | common | — | 0.015 (19.21×) | — | 3.010 (2.66×) | — |
-| `top_k` | common | — | 0.108 (8.89×) | — | 12.015 (3.99×) | — |
+| `swish` | common | — | 0.018 (441.36×) | — | 3.003 (2.00×) | — |
+| `tanh` | common | — | 0.017 (448.92×) | — | 3.010 (2.66×) | — |
+| `top_k` | common | — | 0.116 (8.47×) | — | 12.015 (3.99×) | — |
 | `transpose_2d` | common | — | 0.201 (0.09×) | — | 17.043 (0.00×) | — |
 | `triplet_margin_loss` | common | — | 0.144 (7.90×) | — | 32.011 (2.87×) | — |
 | `variance` | common | — | 0.038 (13.68×) | — | 20.963 (1.14×) | — |
