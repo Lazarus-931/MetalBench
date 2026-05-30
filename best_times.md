@@ -7,7 +7,7 @@ Auto-generated from `session.json` by `scripts/render_best_times.py`. Do not han
 |---|---|---|---|---|---|---|
 | `abs` | common | — | 0.018 (454.63×) | — | 0.018 (380.45×) | — |
 | `argmax` | common | — | 0.072 (5.10×) | — | 4.025 (1.99×) | — |
-| `avg_pool1d` | common | — | 0.013 (46.84×) | — | 2.999 (2.33×) | — |
+| `avg_pool1d` | common | — | 0.010 (61.35×) | — | 2.999 (2.33×) | — |
 | `avg_pool2d` | common | — | 0.124 (4.02×) | — | 4.007 (2.00×) | — |
 | `avg_pool3d` | common | — | 0.223 (5.26×) | — | 7.007 (1.14×) | — |
 | `batch_mm` | common | — | 2.693 (0.91×) | — | 128.046 (0.08×) | — |
@@ -29,7 +29,7 @@ Auto-generated from `session.json` by `scripts/render_best_times.py`. Do not han
 | `cumprod` | common | — | 0.078 (5.16×) | — | 4.019 (1.99×) | — |
 | `cumsum` | common | — | 0.097 (3.07×) | — | 10.899 (0.73×) | — |
 | `cumsum_exclusive` | common | — | 0.059 (7.32×) | — | 11.014 (1.82×) | — |
-| `cumsum_reverse` | common | — | 0.102 (3.91×) | — | 8.021 (1.99×) | — |
+| `cumsum_reverse` | common | — | 0.054 (6.90×) | — | 8.021 (1.99×) | — |
 | `depthwise_conv2d` | common | — | 0.317 (18.30×) | — | 4.046 (177.20×) | — |
 | `dot_product` | common | — | 0.007 (45.83×) | — | 2.997 (2.33×) | — |
 | `elu` | common | — | 0.016 (486.43×) | — | 3.007 (1.99×) | — |
@@ -45,12 +45,12 @@ Auto-generated from `session.json` by `scripts/render_best_times.py`. Do not han
 | `kl_div_loss` | common | — | 0.156 (51.39×) | — | 7.042 (11.50×) | — |
 | `l1_norm` | common | — | 0.064 (6.81×) | — | 20.964 (1.14×) | — |
 | `l2_norm` | common | — | 0.063 (6.37×) | — | 20.005 (1.20×) | — |
-| `layer_norm` | common | — | 0.059 (5.27×) | — | 6.977 (1.57×) | — |
+| `layer_norm` | common | — | 0.051 (5.92×) | — | 6.977 (1.57×) | — |
 | `leaky_relu` | common | — | 0.016 (502.02×) | — | 3.004 (5.94×) | — |
 | `log` | common | — | 0.010 (21.45×) | — | 3.009 (4.99×) | — |
 | `logsigmoid` | common | — | 0.018 (453.82×) | — | 3.007 (3.33×) | — |
 | `logsumexp` | common | — | 0.071 (112.65×) | — | 32.003 (0.44×) | — |
-| `manhattan_similarity` | common | — | 0.074 (6.52×) | — | 29.958 (1.07×) | — |
+| `manhattan_similarity` | common | — | 0.067 (6.91×) | — | 29.958 (1.07×) | — |
 | `masked_cumsum` | common | — | 0.142 (3.30×) | — | 25.012 (1.28×) | — |
 | `matmul_sub_mul_relu` | common | — | 0.075 (106.32×) | — | 0.000 (inf×) | — |
 | `matrix_add` | common | — | 0.147 (2.50×) | — | 5.134 (4.67×) | — |
@@ -100,7 +100,7 @@ Auto-generated from `session.json` by `scripts/render_best_times.py`. Do not han
 | `llama_attention` | standard | — | 0.163 (2.33×) | — | 3.110 (12.54×) | — |
 | `log_softmax` | standard | — | 0.084 (3.81×) | — | 31.016 (0.87×) | — |
 | `log_softmax_cross_entropy` | standard | — | 0.094 (5.46×) | — | 42.007 (0.98×) | — |
-| `masked_softmax` | standard | — | 0.139 (3.21×) | — | 33.997 (0.85×) | — |
+| `masked_softmax` | standard | — | 0.134 (3.36×) | — | 33.997 (0.85×) | — |
 | `matmul_gelu_softmax` | standard | — | 0.044 (7.17×) | — | 3.014 (4.67×) | — |
 | `mul_gelu` | standard | — | 0.006 (32.16×) | — | — | — |
 | `mul_relu` | standard | — | 0.006 (26.25×) | — | — | — |
@@ -116,7 +116,7 @@ Auto-generated from `session.json` by `scripts/render_best_times.py`. Do not han
 | `softmax_attention` | standard | — | 0.033 (11.20×) | — | 12.002 (1.49×) | — |
 | `swiglu` | standard | — | 0.052 (6.71×) | — | 9.993 (1.70×) | — |
 | `alexnet` | full | — | 0.191 (1.57×) | — | 3.146 (7.63×) | — |
-| `densenet` | full | — | 0.059 (4.63×) | — | 0.034 (202.74×) | — |
+| `densenet` | full | — | 0.057 (5.13×) | — | 0.034 (202.74×) | — |
 | `llama_decoder_layer` | full | — | 0.324 (1.30×) | — | 3.284 (10.35×) | — |
 | `mha_attention` | full | — | 0.127 (1.96×) | — | — | — |
 | `resnet` | full | — | 0.161 (2.12×) | — | 3.128 (7.67×) | — |
