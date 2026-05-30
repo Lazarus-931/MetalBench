@@ -28,9 +28,13 @@ kernel void densenet_f32(
 
     threadgroup float tg_h0[HW * C0];
     threadgroup float tg_c1[HW * C1];
+    threadgroup float tg_Wd1[12u*3u*3u*12u];
     threadgroup float gap[Cfinal];
 
     if (tid < Cfinal) gap[tid] = 0.0f;
+    for (uint i = tid; i < 12u*3u*3u*12u; i += 256u) {
+        tg_Wd1[i] = W_d1[i];
+    }
     threadgroup_barrier(mem_flags::mem_threadgroup);
 
     // Phase A: stem conv (3 -> 12) + ReLU — simple per-channel mapping.
@@ -82,7 +86,7 @@ kernel void densenet_f32(
                     float acc = 0.0f;
                     #pragma clang loop unroll(full)
                     for (uint ci = 0; ci < C0; ++ci) {
-                        acc += a[ci] * W_d1[wb + ci];
+                        acc += a[ci] * tg_Wd1[wb + ci];
                     }
                     s[c] += acc;
                 }

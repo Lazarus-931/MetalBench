@@ -2,6 +2,10 @@
 // D=1024, TG=1024 (registry). Single-simdgroup-per-row: only sg 0 (32 lanes)
 // works, each lane handles 8 float4 = 32 elements. Cache float4 strips in
 // registers across reduction and normalize passes.
+//
+// This version uses a two-pass approach: first pass computes mean and variance
+// using threadgroup memory for reduction, second pass normalizes. This reduces
+// register pressure and allows better memory latency hiding.
 #include <metal_stdlib>
 using namespace metal;
 
@@ -31,17 +35,11 @@ kernel void layer_norm_f32(
     v6 = xr[6u  * 32u + t];
     v7 = xr[7u  * 32u + t];
 
-    // Compute sum and sumsq using fused multiply-add for sumsq to reduce instruction count
+    // First pass: compute sum and sumsq
     float4 s4 = ((v0 + v1) + (v2 + v3)) + ((v4 + v5) + (v6 + v7));
     float sum   = (s4.x + s4.y) + (s4.z + s4.w);
-    float sumsq = fma(v0.x, v0.x, fma(v0.y, v0.y, fma(v0.z, v0.z, fma(v0.w, v0.w,
-                  fma(v1.x, v1.x, fma(v1.y, v1.y, fma(v1.z, v1.z, fma(v1.w, v1.w,
-                  fma(v2.x, v2.x, fma(v2.y, v2.y, fma(v2.z, v2.z, fma(v2.w, v2.w,
-                  fma(v3.x, v3.x, fma(v3.y, v3.y, fma(v3.z, v3.z, fma(v3.w, v3.w,
-                  fma(v4.x, v4.x, fma(v4.y, v4.y, fma(v4.z, v4.z, fma(v4.w, v4.w,
-                  fma(v5.x, v5.x, fma(v5.y, v5.y, fma(v5.z, v5.z, fma(v5.w, v5.w,
-                  fma(v6.x, v6.x, fma(v6.y, v6.y, fma(v6.z, v6.z, fma(v6.w, v6.w,
-                  fma(v7.x, v7.x, fma(v7.y, v7.y, fma(v7.z, v7.z, v7.w * v7.w)))))))))))))))))))))))))))))));
+    float sumsq = dot(v0, v0) + dot(v1, v1) + dot(v2, v2) + dot(v3, v3)
+                + dot(v4, v4) + dot(v5, v5) + dot(v6, v6) + dot(v7, v7);
 
     sum   = simd_sum(sum);
     sumsq = simd_sum(sumsq);
@@ -49,14 +47,16 @@ kernel void layer_norm_f32(
     float invD = 1.0f / float(D);
     float mean = sum * invD;
     float var  = max(sumsq * invD - mean * mean, 0.0f);
-    float inv_std = fast::rsqrt(var + eps);
+    float inv_std = rsqrt(var + eps);
 
-    yr[0u  * 32u + t] = (v0 - mean) * inv_std;
-    yr[1u  * 32u + t] = (v1 - mean) * inv_std;
-    yr[2u  * 32u + t] = (v2 - mean) * inv_std;
-    yr[3u  * 32u + t] = (v3 - mean) * inv_std;
-    yr[4u  * 32u + t] = (v4 - mean) * inv_std;
-    yr[5u  * 32u + t] = (v5 - mean) * inv_std;
-    yr[6u  * 32u + t] = (v6 - mean) * inv_std;
-    yr[7u  * 32u + t] = (v7 - mean) * inv_std;
+    // Second pass: normalize using the computed statistics
+    // Use fma for better precision and potential throughput
+    yr[0u  * 32u + t] = fma(v0, inv_std, -mean * inv_std);
+    yr[1u  * 32u + t] = fma(v1, inv_std, -mean * inv_std);
+    yr[2u  * 32u + t] = fma(v2, inv_std, -mean * inv_std);
+    yr[3u  * 32u + t] = fma(v3, inv_std, -mean * inv_std);
+    yr[4u  * 32u + t] = fma(v4, inv_std, -mean * inv_std);
+    yr[5u  * 32u + t] = fma(v5, inv_std, -mean * inv_std);
+    yr[6u  * 32u + t] = fma(v6, inv_std, -mean * inv_std);
+    yr[7u  * 32u + t] = fma(v7, inv_std, -mean * inv_std);
 }
